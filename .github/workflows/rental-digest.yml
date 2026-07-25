@@ -3,7 +3,6 @@ name: 桃園租屋快報
 on:
   workflow_dispatch:
   schedule:
-    # 台灣時間每天08:17、20:17；避開整點可降低排程延遲機率
     - cron: "17 8,20 * * *"
       timezone: "Asia/Taipei"
 
