@@ -24,7 +24,7 @@ jobs:
 
     steps:
       - name: 下載儲存庫
-         uses: actions/checkout@v6
+        uses: actions/checkout@v6
 
       - name: 設定Python
         uses: actions/setup-python@v6
