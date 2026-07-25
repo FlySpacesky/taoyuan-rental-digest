@@ -1,0 +1,17 @@
+[
+  {
+    "url": "https://www.facebook.com/groups/GROUP_ID/posts/POST_ID/",
+    "title": "屋主自租｜桃園四房住宅",
+    "district": "桃園區",
+    "address": "桃園區○○路",
+    "house_type": "整層住家",
+    "building_type": "電梯大樓",
+    "floor": "8F／15F",
+    "layout": "4房2廳2衛",
+    "equipment": "冰箱、洗衣機、冷氣、熱水器、廚房",
+    "rent": "32000",
+    "min_lease": "一年",
+    "image": "https://可公開存取的原始照片網址",
+    "summary": "屋主自租，仲介勿擾，社宅勿擾。"
+  }
+]
