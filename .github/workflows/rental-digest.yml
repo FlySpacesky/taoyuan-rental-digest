@@ -2,6 +2,12 @@ name: 桃園租屋快報
 
 on:
   workflow_dispatch:
+    inputs:
+      reset_history:
+        description: "測試時清除48小時去重紀錄，重新顯示目前全部物件"
+        required: false
+        default: false
+        type: boolean
   schedule:
     - cron: "17 8,20 * * *"
       timezone: "Asia/Taipei"
@@ -18,6 +24,7 @@ concurrency:
 jobs:
   build-deploy-broadcast:
     runs-on: ubuntu-latest
+
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -26,19 +33,38 @@ jobs:
       - name: 下載儲存庫
         uses: actions/checkout@v6
 
-      - name: 設定Python
+      - name: 設定 Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
 
-      - name: 安裝套件
+      - name: 安裝 Python 套件
         run: python -m pip install -r requirements.txt
 
+      - name: 安裝 Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: 測試時重設48小時去重紀錄
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.reset_history }}
+        run: |
+          mkdir -p docs/rental-data
+          printf '{"sent":[],"prices":{}}\n' > docs/rental-data/history.json
+
       - name: 抓取、驗證、去重並產生網頁
+        env:
+          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
         run: python scripts/generate_rental_digest.py
 
-      - name: 保存48小時去重與租金快照
+      - name: 顯示來源診斷摘要
+        run: |
+          python - <<'PY'
+          import json
+          data = json.load(open("docs/rental-data/latest.json", encoding="utf-8"))
+          print(json.dumps(data["stats"], ensure_ascii=False, indent=2))
+          PY
+
+      - name: 保存網頁、去重紀錄與租金快照
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -46,21 +72,23 @@ jobs:
           if ! git diff --cached --quiet; then
             git commit -m "rental: refresh validated listings"
             git push
+          else
+            echo "本次沒有需要提交的更新"
           fi
 
-      - name: 設定GitHub Pages
+      - name: 設定 GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: 上傳Pages網站
-        uses: actions/upload-pages-artifact@v3
+      - name: 上傳 Pages 網站
+        uses: actions/upload-pages-artifact@v4
         with:
           path: docs
 
-      - name: 部署GitHub Pages
+      - name: 部署 GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
 
-      - name: 發送LINE
+      - name: 發送 LINE
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           SITE_URL: ${{ steps.deployment.outputs.page_url }}
