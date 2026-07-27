@@ -30,21 +30,23 @@ def main() -> int:
 
     items = payload.get("items", [])
     stats = payload.get("stats", {})
-    if not items:
-        print("本次沒有新物件，略過LINE廣播。")
-        return 0
 
     counts: dict[str, int] = {}
     for item in items:
         key = f"{item.get('source', '其他')}／{item.get('category', '一般')}"
         counts[key] = counts.get(key, 0) + 1
-    summary = "\n".join(f"• {name}：{count}筆" for name, count in sorted(counts.items()))
+
+    summary = (
+        "\n".join(f"• {name}：{count}筆" for name, count in sorted(counts.items()))
+        if counts
+        else "• 本次沒有新的符合物件"
+    )
     text = (
         "🏠 桃園四房以上租屋快報\n\n"
         f"本次新增：{len(items)}筆\n"
         f"48小時重複排除：{stats.get('duplicates', 0)}筆\n\n"
         f"{summary}\n\n"
-        f"查看完整照片與物件直達連結：\n{SITE_URL}"
+        f"查看最新快報、照片與物件直達連結：\n{SITE_URL}"
     )
     body = {"messages": [{"type": "text", "text": text[:5000]}]}
     headers = {

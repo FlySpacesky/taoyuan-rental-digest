@@ -5,14 +5,13 @@
 來源：
 - 591：桃園區、中壢區、平鎮區、八德區，整層住家、4房以上
 - Facebook：安全 JSON 匯入（Meta 已移除可讀取社團新貼文的 Groups API）
-- Threads：Meta 官方 Threads keyword_search API
 - 樂屋網：中壢區、桃園區、平鎮區，4房及5房以上
 
 主要修正：
 1. 591 在 requests 無法取得結果時，使用 Playwright Chromium 渲染列表。
 2. 591 與樂屋網每筆都重新開啟單筆頁，失效物件不發布。
 3. 樂屋網不再把押金誤判為原租金；只接受明確原價標示或歷史快照。
-4. 標題下方提供 591／FB／Threads／樂屋網來源按鈕。
+4. 標題下方提供 591／FB／樂屋網來源按鈕。
 5. 每個來源輸出候選、驗證、發布與錯誤診斷。
 6. 48 小時來源內與跨來源去重。
 """
@@ -22,7 +21,6 @@ from __future__ import annotations
 import hashlib
 import html
 import json
-import os
 import re
 import sys
 import time
@@ -82,22 +80,6 @@ FB_GROUPS = [
     "https://www.facebook.com/groups/768849317151214",
 ]
 
-THREADS_HOME = "https://www.threads.com/?hl=zh-tw"
-THREADS_QUERIES = [
-    "桃園 4房 出租",
-    "中壢 4房 出租",
-    "平鎮 4房 出租",
-    "八德 4房 出租",
-    "桃園 5房 出租",
-    "中壢 5房 出租",
-    "平鎮 5房 出租",
-    "八德 5房 出租",
-    "桃園 屋主自租",
-    "中壢 屋主自租",
-    "平鎮 屋主自租",
-    "八德 屋主自租",
-]
-
 INVALID_MARKERS = (
     "很抱歉，您查詢的物件不存在，可能已關閉或者被刪除",
     "您查詢的物件不存在",
@@ -120,6 +102,7 @@ BLOCK_MARKERS = (
 )
 
 EXCLUDE_MARKERS = (
+    "社會住宅廠商",
     "代租代管",
     "包租代管",
     "租管通",
@@ -412,6 +395,139 @@ def extract_591_ids(raw: str) -> list[str]:
     return unique[:120]
 
 
+_591_LIST_CACHE: dict[str, Listing] = {}
+
+
+def _591_image_from_node(node: Any) -> str:
+    if not hasattr(node, "select"):
+        return ""
+    for img in node.select("img"):
+        for key in ("src", "data-src", "data-original", "data-lazy-src"):
+            value = str(img.get(key, "") or "").strip()
+            if value.startswith("//"):
+                value = "https:" + value
+            if value.startswith("http") and "591.com.tw" in value and "logo" not in value.lower():
+                return value
+        srcset = str(img.get("srcset", "") or "").strip()
+        if srcset:
+            value = srcset.split(",")[0].strip().split(" ")[0]
+            if value.startswith("//"):
+                value = "https:" + value
+            if value.startswith("http") and "591.com.tw" in value:
+                return value
+    return ""
+
+
+def parse_591_list_cards(raw: str) -> dict[str, Listing]:
+    """從 591 可正常讀取的列表頁建立快照；詳情頁被 403 擋下時用它做可靠備援。"""
+    soup = BeautifulSoup(raw, "html.parser")
+    result: dict[str, Listing] = {}
+
+    for anchor in soup.select("a[href]"):
+        href = urllib.parse.urljoin("https://rent.591.com.tw", anchor.get("href", ""))
+        match = re.search(r"rent\.591\.com\.tw/(?:home/house/detail/)?(\d{7,9})(?:$|[/?#])", href)
+        if not match:
+            continue
+        item_id = match.group(1)
+
+        card = None
+        node = anchor
+        for _ in range(9):
+            node = getattr(node, "parent", None)
+            if node is None:
+                break
+            text = clean(node.get_text(" ", strip=True), 14000) if hasattr(node, "get_text") else ""
+            if (
+                district_from_text(text)
+                and has_four_rooms(text)
+                and re.search(r"[\d,]{4,}\s*元\s*/\s*月", text)
+            ):
+                card = node
+                break
+        if card is None:
+            continue
+
+        text = clean(card.get_text(" ", strip=True), 14000)
+        if excluded(text) or not has_four_rooms(text):
+            continue
+
+        district = district_from_text(text)
+        if district not in ALLOWED_DISTRICTS:
+            continue
+
+        rent_match = re.search(r"([\d,]{4,})\s*元\s*/\s*月", text)
+        if not rent_match:
+            continue
+        rent = money(rent_match.group(1))
+
+        layout_match = re.search(r"(\d+\s*房(?:\s*\d+\s*廳)?(?:\s*\d+\s*衛)?)", text)
+        size_match = re.search(r"(\d+(?:\.\d+)?\s*坪)", text)
+        floor_match = re.search(r"((?:B?\d+(?:~|～|-)\d+F|整棟|\d+F)\s*/\s*\d+F)", text, re.I)
+        building_match = re.search(r"(電梯大樓|電梯華廈|華廈|公寓|透天厝|別墅|樓中樓)", text)
+        address_match = re.search(
+            r"((?:桃園區|中壢區|平鎮區|八德區)\s*[-－]\s*[^距]{1,65})",
+            text,
+        )
+        publisher_match = re.search(r"((?:屋主|仲介|代理人)\s*[^\d\s]{1,24})", text)
+        updated_match = re.search(r"((?:\d+分鐘|\d+小時|\d+天)(?:內|前)?更新)", text)
+        views_match = re.search(r"(昨日\d+人瀏覽|\d+人瀏覽)", text)
+
+        title = clean(anchor.get_text(" ", strip=True), 180)
+        image = _591_image_from_node(card)
+        if (not title or title in {"優選好屋", "精選"}) and hasattr(card, "select_one"):
+            img = card.select_one("img[alt]")
+            if img:
+                title = clean(img.get("alt", ""), 180)
+        if not title:
+            # 退回卡片前段文字，但不把整張卡片當標題。
+            title = clean(text.split("整層住家", 1)[0], 180)
+
+        equipment = [
+            name
+            for name in (
+                "冰箱", "洗衣機", "電視", "冷氣", "熱水器", "床", "衣櫃",
+                "第四台", "網路", "天然瓦斯", "沙發", "桌椅", "陽台", "電梯", "車位",
+            )
+            if name in text
+        ]
+
+        item = Listing(
+            source="591",
+            source_id=item_id,
+            url=f"https://rent.591.com.tw/{item_id}",
+            title=title,
+            district=district,
+            address=clean(address_match.group(1), 100) if address_match else district,
+            house_type="整層住家",
+            building_type=building_match.group(1) if building_match else "",
+            floor=floor_match.group(1).replace(" ", "") if floor_match else "",
+            layout=re.sub(r"\s+", "", layout_match.group(1)) if layout_match else "",
+            size=re.sub(r"\s+", "", size_match.group(1)) if size_match else "",
+            equipment="、".join(equipment),
+            rent=rent,
+            updated=updated_match.group(1) if updated_match else "",
+            views=views_match.group(1) if views_match else "",
+            publisher=publisher_match.group(1) if publisher_match else "",
+            image=image,
+            summary=text,
+            raw_text=text,
+            validated_at=NOW.isoformat(),
+        )
+        if not item.title or not item.image:
+            continue
+        if any(marker in text for marker in PRIORITY_MARKERS) or item.publisher.startswith("屋主"):
+            item.category_hint = "owner"
+        if "降價" in text:
+            item.category_hint = "discount"
+        item.fingerprint = fingerprint(item)
+
+        existing = result.get(item_id)
+        if existing is None or len(item.summary) > len(existing.summary):
+            result[item_id] = item
+
+    return result
+
+
 def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
     links: list[str] = []
     seen: set[str] = set()
@@ -431,11 +547,20 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
 
             _, raw = fetch_html(url, browser_fallback=True)
             ids = extract_591_ids(raw)
+            cards = parse_591_list_cards(raw)
 
             # requests 拿到空殼 HTML 時，強制以 Chromium 再抓一次。
-            if not ids:
+            if not ids or not cards:
                 rendered = browser.html(url)
-                ids = extract_591_ids(rendered)
+                if rendered:
+                    ids = extract_591_ids(rendered) or ids
+                    rendered_cards = parse_591_list_cards(rendered)
+                    cards.update(rendered_cards)
+
+            for item_id, item in cards.items():
+                existing = _591_LIST_CACHE.get(item_id)
+                if existing is None or len(item.summary) > len(existing.summary):
+                    _591_LIST_CACHE[item_id] = item
 
             new_ids = [item_id for item_id in ids if item_id not in seen]
             print(f"[591] {district} page={page_no} ids={len(ids)} new={len(new_ids)}")
@@ -463,18 +588,26 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
 
 
 def parse_591_detail(url: str) -> Listing | None:
+    item_id_match = re.search(r"(\d{7,9})", urllib.parse.urlparse(url).path)
+    item_id = item_id_match.group(1) if item_id_match else hashlib.md5(url.encode()).hexdigest()[:16]
+    cached = _591_LIST_CACHE.get(item_id)
+
     response, raw = fetch_html(url, browser_fallback=True)
+    if response is not None and response.status_code in {404, 410}:
+        return None
     if is_dead_page(response, raw, "591.com.tw"):
         return None
+
+    # 591 詳情頁目前會對雲端自動化環境回 403；物件若剛出現在有效列表頁，
+    # 使用列表快照作為 live validation 備援，避免 310 筆候選全部被誤判為失效。
+    if (response is not None and response.status_code in {401, 403, 429}) or looks_blocked(raw):
+        return cached
 
     soup = BeautifulSoup(raw, "html.parser")
     text = clean(soup.get_text(" "), 220000)
 
     if not has_four_rooms(text) or excluded(text):
         return None
-
-    item_id_match = re.search(r"(\d{7,9})", urllib.parse.urlparse(url).path)
-    item_id = item_id_match.group(1) if item_id_match else hashlib.md5(url.encode()).hexdigest()[:16]
 
     title = meta(soup, "og:title", "twitter:title")
     image = meta(soup, "og:image", "twitter:image")
@@ -529,7 +662,7 @@ def parse_591_detail(url: str) -> Listing | None:
     )
 
     if not item.title or not item.rent or not item.image or not allowed_district(item):
-        return None
+        return cached
 
     if any(marker in text for marker in PRIORITY_MARKERS) or item.publisher.startswith("屋主"):
         item.category_hint = "owner"
@@ -803,149 +936,6 @@ def load_facebook_import(source_stats: dict[str, Any]) -> list[Listing]:
 
 
 # ---------------------------------------------------------------------------
-# Threads 官方 API
-# ---------------------------------------------------------------------------
-
-def extract_threads_image(row: dict[str, Any]) -> str:
-    for key in ("media_url", "thumbnail_url"):
-        value = str(row.get(key, "") or "").strip()
-        if value:
-            return value
-
-    children = row.get("children")
-    if isinstance(children, dict):
-        for child in children.get("data", []) or []:
-            if isinstance(child, dict):
-                value = str(child.get("media_url") or child.get("thumbnail_url") or "").strip()
-                if value:
-                    return value
-    return ""
-
-
-def parse_threads_post(row: dict[str, Any]) -> Listing | None:
-    text = clean(row.get("text", ""), 10000)
-    if not has_four_rooms(text) or excluded(text):
-        return None
-
-    district = district_from_text(text)
-    if district not in ALLOWED_DISTRICTS:
-        return None
-
-    image = extract_threads_image(row)
-    url = str(row.get("permalink", "") or "").strip()
-    rent_match = re.search(
-        r"(?:租金|月租|NT\$|NTD|\$)\s*[:：]?\s*([\d,]{4,})|([\d,]{4,})\s*元\s*/?\s*月",
-        text,
-        re.I,
-    )
-    rent = money(next((v for v in rent_match.groups() if v), "")) if rent_match else 0
-
-    layout_match = re.search(r"(\d+房\d*廳?\d*衛?)", text)
-    floor_match = re.search(r"((?:B?\d+(?:~|～|-)\d+F|整棟|\d+F)\s*/\s*\d+F)", text, re.I)
-    type_match = re.search(r"(電梯大樓|電梯華廈|華廈|公寓|透天厝|別墅|樓中樓)", text)
-    address_match = re.search(
-        r"(?:地址|地點)\s*[:：]?\s*((?:桃園區|中壢區|平鎮區|八德區)[^\n，。]{1,80})",
-        text,
-    )
-    lease_match = re.search(r"(?:最短租期|租期)\s*[:：]?\s*([^\n，。]{1,20})", text)
-
-    equipment = [
-        name
-        for name in (
-            "冰箱", "洗衣機", "電視", "冷氣", "熱水器", "床", "衣櫃",
-            "網路", "天然瓦斯", "沙發", "桌椅", "陽台", "電梯", "車位",
-        )
-        if name in text
-    ]
-
-    if not image or not url or not rent:
-        return None
-
-    first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
-    title = clean(first_line or f"Threads租屋貼文｜{row.get('username', '')}", 180)
-
-    item = Listing(
-        source="Threads",
-        source_id=str(row.get("id") or hashlib.md5(url.encode()).hexdigest()[:18]),
-        url=url,
-        title=title,
-        district=district,
-        address=clean(address_match.group(1), 100) if address_match else "",
-        house_type="整層住家",
-        building_type=type_match.group(1) if type_match else "",
-        floor=floor_match.group(1).replace(" ", "") if floor_match else "",
-        layout=layout_match.group(1) if layout_match else "",
-        equipment="、".join(equipment),
-        rent=rent,
-        min_lease=lease_match.group(1) if lease_match else "",
-        updated=clean(row.get("timestamp", ""), 40),
-        publisher=clean(row.get("username", ""), 50),
-        image=image,
-        summary=text,
-        category_hint="priority" if any(marker in text for marker in PRIORITY_MARKERS) else "general",
-        raw_text=text,
-        validated_at=NOW.isoformat(),
-    )
-    item.fingerprint = fingerprint(item)
-    return item
-
-
-def crawl_threads(source_stats: dict[str, Any]) -> list[Listing]:
-    token = os.getenv("THREADS_ACCESS_TOKEN", "").strip()
-    if not token:
-        source_stats["errors"].append(
-            "尚未設定 GitHub Secret：THREADS_ACCESS_TOKEN，因此Threads官方關鍵字搜尋未執行。"
-        )
-        return []
-
-    fields = (
-        "id,media_product_type,media_type,media_url,permalink,username,text,"
-        "timestamp,shortcode,thumbnail_url,children"
-    )
-    rows: dict[str, dict[str, Any]] = {}
-    since = (NOW - timedelta(days=7)).strftime("%Y-%m-%d")
-
-    for query in THREADS_QUERIES:
-        params = {
-            "q": query,
-            "search_type": "RECENT",
-            "search_mode": "KEYWORD",
-            "fields": fields,
-            "limit": 50,
-            "since": since,
-            "access_token": token,
-        }
-        try:
-            response = session.get("https://graph.threads.net/keyword_search", params=params, timeout=35)
-            payload = response.json()
-        except (requests.RequestException, ValueError) as exc:
-            source_stats["errors"].append(f"Threads查詢失敗：{query}：{exc}")
-            continue
-
-        if response.status_code >= 400 or "error" in payload:
-            error = payload.get("error", {})
-            source_stats["errors"].append(
-                f"Threads查詢失敗：{query}：{error.get('message', response.status_code)}"
-            )
-            continue
-
-        for row in payload.get("data", []) or []:
-            if isinstance(row, dict) and row.get("id"):
-                rows[str(row["id"])] = row
-
-    source_stats["candidate_links"] = len(rows)
-
-    result: list[Listing] = []
-    for row in rows.values():
-        item = parse_threads_post(row)
-        if item:
-            result.append(item)
-
-    source_stats["validated"] = len(result)
-    return result
-
-
-# ---------------------------------------------------------------------------
 # 分類、去重與版面
 # ---------------------------------------------------------------------------
 
@@ -967,11 +957,11 @@ def apply_categories(items: list[Listing], state: dict[str, Any]) -> list[Listin
     for item in items:
         previous = int(prices.get(f"{item.source}:{item.source_id}", 0) or 0)
 
-        if item.source in {"FB", "Threads"}:
+        if item.source == "FB":
             item.category = "priority" if item.category_hint == "priority" else "general"
         elif item.category_hint == "owner":
             item.category = "owner"
-        elif item.old_rent > item.rent or (previous and item.rent < previous):
+        elif item.category_hint == "discount" or item.old_rent > item.rent or (previous and item.rent < previous):
             item.category = "discount"
             if not item.old_rent:
                 item.old_rent = previous
@@ -1031,7 +1021,7 @@ def esc(value: Any) -> str:
 
 
 def source_label(source: str) -> str:
-    return {"591": "591", "FB": "FB社團", "Threads": "Threads", "樂屋網": "樂屋網"}.get(source, source)
+    return {"591": "591", "FB": "FB社團", "樂屋網": "樂屋網"}.get(source, source)
 
 
 def category_label(item: Listing) -> str:
@@ -1045,8 +1035,6 @@ def category_label(item: Listing) -> str:
         ("樂屋網", "general"): "出租",
         ("FB", "priority"): "優先置頂",
         ("FB", "general"): "其他符合物件",
-        ("Threads", "priority"): "優先置頂",
-        ("Threads", "general"): "其他符合物件",
     }
     return labels.get((item.source, item.category), item.category)
 
@@ -1066,7 +1054,7 @@ def render_card(item: Listing) -> str:
         ("格局", item.layout),
         ("提供設備", item.equipment),
     ]
-    if item.source in {"591", "FB", "Threads"}:
+    if item.source in {"591", "FB"}:
         details.append(("最短租期", item.min_lease))
 
     detail_html = "".join(
@@ -1136,7 +1124,7 @@ def render_html(items: list[Listing], stats: dict[str, Any]) -> str:
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>桃園四房以上租屋快報</title>
 <style>
-:root{{--orange:#f46b18;--bg:#f3f4f6;--line:#e1e4e8;--muted:#68717d;--fb:#1877f2;--threads:#111;--raku:#d65431}}
+:root{{--orange:#f46b18;--bg:#f3f4f6;--line:#e1e4e8;--muted:#68717d;--fb:#1877f2;--raku:#d65431}}
 *{{box-sizing:border-box}}html{{scroll-behavior:smooth}}
 body{{margin:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;color:#202124}}
 a{{color:inherit}}.wrap{{width:min(1220px,calc(100% - 28px));margin:auto}}
@@ -1145,7 +1133,7 @@ h1{{font-size:clamp(32px,5vw,50px);margin:0 0 10px}}
 .subtitle{{font-size:18px;line-height:1.65;color:#4e5660;margin:0}}
 .source-nav{{display:flex;gap:9px;flex-wrap:wrap;margin-top:18px}}
 .source-nav a{{text-decoration:none;background:#fff;padding:11px 18px;border-radius:9px;font-weight:900;box-shadow:0 2px 9px #0001}}
-.source-nav a:nth-child(2){{color:var(--fb)}}.source-nav a:nth-child(3){{background:var(--threads);color:#fff}}.source-nav a:nth-child(4){{color:var(--raku)}}
+.source-nav a:nth-child(2){{color:var(--fb)}}.source-nav a:nth-child(3){{color:var(--raku)}}
 .statusbar{{background:#23272d;color:#fff;padding:12px 0;font-size:14px}}
 main{{padding:22px 0 48px}}.notice{{background:#fff;border-left:5px solid var(--orange);padding:15px 18px;border-radius:10px;line-height:1.7}}
 .source-block{{margin-top:22px;scroll-margin-top:18px}}
@@ -1176,11 +1164,10 @@ main{{padding:22px 0 48px}}.notice{{background:#fff;border-left:5px solid var(--
 <header>
   <div class="wrap">
     <h1>桃園四房以上租屋快報</h1>
-    <p class="subtitle">四個來源分區顯示；每筆物件均包含照片與來源直達連結，並排除近48小時重複物件。</p>
+    <p class="subtitle">三個來源分區顯示；每筆物件均包含照片與來源直達連結，並排除近48小時重複物件。</p>
     <nav class="source-nav">
       <a href="#source-591">591</a>
       <a href="#source-fb">FB社團</a>
-      <a href="#source-threads">Threads</a>
       <a href="#source-rakuya">樂屋網</a>
     </nav>
   </div>
@@ -1193,7 +1180,7 @@ main{{padding:22px 0 48px}}.notice{{background:#fff;border-left:5px solid var(--
 </div></div>
 
 <main class="wrap">
-<div class="notice">每個來源都會顯示本次候選與驗證結果。來源被網站阻擋、Token未設定或匯入檔不存在時，會直接顯示原因，不會再以空白區塊掩蓋問題。</div>
+<div class="notice">每個來源都會顯示本次候選與驗證結果。來源被網站阻擋或匯入檔不存在時，會直接顯示原因，不會再以空白區塊掩蓋問題。</div>
 
 <div id="source-591" class="source-block">
   <div class="source-heading"><h2>591</h2><a href="https://rent.591.com.tw/list?kind=1&layout=4&region=6" target="_blank">開啟591搜尋 ↗</a></div>
@@ -1210,13 +1197,6 @@ main{{padding:22px 0 48px}}.notice{{background:#fff;border-left:5px solid var(--
   <div class="social-links">{fb_buttons}</div>
   {render_subsection(items, "FB", "priority", "屋主自租／仲介勿擾／社宅勿擾")}
   {render_subsection(items, "FB", "general", "其他符合條件FB物件")}
-</div>
-
-<div id="source-threads" class="source-block">
-  <div class="source-heading"><h2>Threads</h2><a href="{THREADS_HOME}" target="_blank">開啟Threads ↗</a></div>
-  {render_status(stats, "Threads")}
-  {render_subsection(items, "Threads", "priority", "屋主自租／仲介勿擾／社宅勿擾")}
-  {render_subsection(items, "Threads", "general", "其他符合條件Threads物件")}
 </div>
 
 <div id="source-rakuya" class="source-block">
@@ -1242,7 +1222,6 @@ def main() -> int:
         "sources": {
             "591": empty_source_stats(),
             "FB": empty_source_stats(),
-            "Threads": empty_source_stats(),
             "樂屋網": empty_source_stats(),
         }
     }
@@ -1279,8 +1258,6 @@ def main() -> int:
         # Facebook
         candidates.extend(load_facebook_import(stats["sources"]["FB"]))
 
-        # Threads
-        candidates.extend(crawl_threads(stats["sources"]["Threads"]))
 
     finally:
         browser.close()
