@@ -1,6 +1,14 @@
 name: 桃園租屋快報
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/**"
+      - "requirements.txt"
+      - "data/**"
+      - ".github/workflows/rental-digest.yml"
   workflow_dispatch:
     inputs:
       reset_history:
@@ -45,6 +53,9 @@ jobs:
       - name: 安裝 Chromium
         run: python -m playwright install --with-deps chromium
 
+      - name: 檢查 Python 語法
+        run: python -m py_compile scripts/generate_rental_digest.py scripts/send_line.py
+
       - name: 測試時重設48小時去重紀錄
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.reset_history }}
         run: |
@@ -52,8 +63,6 @@ jobs:
           printf '{"sent":[],"prices":{}}\n' > docs/rental-data/history.json
 
       - name: 抓取、驗證、去重並產生網頁
-        env:
-          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
         run: python scripts/generate_rental_digest.py
 
       - name: 顯示來源診斷摘要
@@ -89,6 +98,7 @@ jobs:
         uses: actions/deploy-pages@v4
 
       - name: 發送 LINE
+        if: ${{ github.event_name != 'push' }}
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           SITE_URL: ${{ steps.deployment.outputs.page_url }}
