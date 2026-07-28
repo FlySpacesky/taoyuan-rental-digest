@@ -2,14 +2,17 @@
 
 這是一個與 `tech-newsletter` 完全分離的獨立專案。
 
-- 來源：591、樂屋網、人工安全匯入的 Facebook 貼文
+- 來源：591、樂屋網、透過檔案或 GitHub Actions secret 安全匯入的真實 Facebook 貼文
 - 地區：桃園區、中壢區、平鎮區、八德區
 - 格局：4房以上
 - 驗證：樂屋網逐筆檢查單筆頁；591 若詳情頁阻擋自動化存取，改以當次有效列表頁快照驗證，並保留物件永久直達連結；404／410 或明確失效物件不發布
-- 去重：48小時內來源編號與跨來源房源指紋去重；真正降價可再次顯示
+- 去重：同一輪跨來源相同房源只顯示一次；近48小時紀錄僅供診斷，不隱藏仍有效物件
 - 排程：台灣時間每天08:17、20:17
 - 網站：GitHub Pages
 - 通知：LINE Messaging API；排程每次都發送最新快報連結，即使本次沒有新物件也會發送
 - Threads：不納入本快報，也不需要設定 Threads Access Token
+- Facebook：不登入、不使用帳密／Cookie／Session；資料來源為
+  `data/facebook_posts.json`、`FACEBOOK_POSTS_JSON`，或
+  `FACEBOOK_POSTS_JSON_URL` HTTPS feed Actions secret
 
 完整建立步驟請看 `SETUP_GUIDE_zh-TW.md`。

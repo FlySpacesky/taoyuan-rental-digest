@@ -175,9 +175,11 @@ schedule:
 
 不要把Facebook帳號、密碼、Cookie或Session貼到GitHub。
 
-目前安全模式使用：
+目前安全模式可使用以下任一來源：
 
-`data/facebook_posts.json`
+- `data/facebook_posts.json`
+- Repository Actions secret：`FACEBOOK_POSTS_JSON`
+- Repository Actions secret：`FACEBOOK_POSTS_JSON_URL`（可匿名讀取的HTTPS JSON feed）
 
 格式參考：
 
@@ -185,14 +187,17 @@ schedule:
 
 建立方式：
 
-1. 複製範例檔並改名為 `facebook_posts.json`。
-2. 在自己的瀏覽器登入Facebook。
-3. 找到符合條件貼文。
-4. 複製永久貼文網址與公開照片網址。
-5. 填入JSON。
-6. Commit到新儲存庫。
+1. 從你有權使用的外部資料來源取得真實貼文資料；本程式不登入或匿名繞過Facebook存取限制。
+2. 依範例填入永久貼文網址、公開照片網址與房源欄位。
+3. 可將JSON存為 `data/facebook_posts.json`；若不希望資料檔進入版本控制，
+   則把完整JSON陣列設為Repository Actions secret `FACEBOOK_POSTS_JSON`。
+4. 若資料由其他合法系統持續整理，可把HTTPS JSON feed網址設為
+   `FACEBOOK_POSTS_JSON_URL`，workflow每次執行時會重新讀取，不必反覆commit資料檔。
+5. 手動執行workflow並在來源診斷確認 `candidate_links`、`validated` 與拒絕原因。
 
-程式會排除代租代管、包租代管、租管通、租賃服務業及代理人，並只保留4房以上且包含屋主自租、仲介勿擾或社宅勿擾的資料。
+程式只接受設定清單內社團的單篇貼文網址，並驗證4房以上、指定地區、租金與公開圖片；
+同時排除代租代管、包租代管、租管通、租賃服務業及代理人。未提供上述任一真實資料來源時，
+FB統計會維持0並顯示可操作的錯誤訊息，不會製造替代房源。
 
 ## 11. 常見錯誤
 
