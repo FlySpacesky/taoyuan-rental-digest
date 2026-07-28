@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """
-桃園四房以上租屋快報 v2
+桃園四房以上租屋快報
 
 來源：
 - 591：桃園區、中壢區、平鎮區、八德區，整層住家、4房以上
-- Facebook：安全 JSON 匯入（Meta 已移除可讀取社團新貼文的 Groups API）
+- Facebook：安全 JSON 匯入
 - 樂屋網：中壢區、桃園區、平鎮區，4房及5房以上
 
-主要修正：
-1. 591 在 requests 無法取得結果時，使用 Playwright Chromium 渲染列表。
-2. 591 與樂屋網每筆都重新開啟單筆頁，失效物件不發布。
-3. 樂屋網不再把押金誤判為原租金；只接受明確原價標示或歷史快照。
-4. 標題下方提供 591／FB／樂屋網來源按鈕。
-5. 每個來源輸出候選、驗證、發布與錯誤診斷。
-6. 48 小時來源內與跨來源去重。
+本版重點：
+1. 完全不含 Threads。
+2. 591 詳情頁優先使用 Playwright Chromium；若 requests 曾回 403，但 Chromium
+   已取得有效 HTML，不再被舊的 403 狀態誤判。
+3. 591 只有在 Chromium / requests 都拿不到有效頁面時，才退回當次列表頁快照。
+4. 591 列表圖片不再限制必須是 591.com.tw 網域，允許 CDN 圖片。
+5. 404 / 410 / 已刪除 / 已關閉 / 已成交物件仍排除。
+6. 樂屋網原租金只接受明確舊價標示或歷史快照，避免把押金誤判為原租金。
+7. 48 小時來源內與跨來源去重；真正降價物件可重新顯示。
+8. 頁首「桃園四房以上租屋快報＋591／FB社團／樂屋網」捲動時固定在頂端。
 """
 
 from __future__ import annotations
@@ -37,6 +40,7 @@ try:
     from playwright.sync_api import sync_playwright
 except ImportError:  # pragma: no cover
     sync_playwright = None
+
 
 TZ = timezone(timedelta(hours=8))
 NOW = datetime.now(TZ)
@@ -171,7 +175,7 @@ class Listing:
 
 
 class BrowserFetcher:
-    """單一 Chromium session，供 591 SSR/反機器人頁面備援。"""
+    """單一 Chromium session，供 591 SSR / 反機器人頁面備援。"""
 
     def __init__(self) -> None:
         self._pw = None
@@ -272,17 +276,38 @@ def looks_blocked(raw: str) -> bool:
     return len(raw or "") < 800 or any(marker in lowered for marker in BLOCK_MARKERS)
 
 
-def fetch_html(url: str, *, browser_fallback: bool = False, browser_first: bool = False) -> tuple[requests.Response | None, str]:
+def fetch_html(
+    url: str,
+    *,
+    browser_fallback: bool = False,
+    browser_first: bool = False,
+) -> tuple[requests.Response | None, str]:
+    """取得 HTML。
+
+    關鍵修正：只要 Chromium 已拿到有效 HTML，就回傳 ``(None, rendered)``，
+    不再把 requests 先前的 401 / 403 / 429 狀態帶到後續驗證。
+    """
+
     if browser_first:
         rendered = browser.html(url)
         if rendered and not looks_blocked(rendered):
             return None, rendered
 
     response, raw = get_requests(url)
-    if browser_fallback and (response is None or looks_blocked(raw)):
+
+    should_use_browser = browser_fallback and (
+        response is None
+        or response.status_code in {401, 403, 429}
+        or looks_blocked(raw)
+    )
+
+    if should_use_browser:
         rendered = browser.html(url)
         if rendered:
+            if not looks_blocked(rendered):
+                return None, rendered
             raw = rendered
+
     return response, raw
 
 
@@ -323,6 +348,35 @@ def iter_json_ld(soup: BeautifulSoup) -> Iterable[dict[str, Any]]:
                 stack.extend(value)
 
 
+def json_ld_title_image(soup: BeautifulSoup) -> tuple[str, str]:
+    title = ""
+    image = ""
+    for value in iter_json_ld(soup):
+        if not title:
+            title = clean(value.get("name") or value.get("headline") or "", 180)
+        if not image:
+            raw_image = value.get("image")
+            if isinstance(raw_image, list) and raw_image:
+                image = str(raw_image[0])
+            elif isinstance(raw_image, dict):
+                image = str(raw_image.get("url") or "")
+            elif raw_image:
+                image = str(raw_image)
+        if title and image:
+            break
+    return title, image
+
+
+def json_ld_offer_price(soup: BeautifulSoup) -> int:
+    for value in iter_json_ld(soup):
+        offers = value.get("offers")
+        if isinstance(offers, dict):
+            price = money(str(offers.get("price", "")))
+            if 3000 <= price <= 1_000_000:
+                return price
+    return 0
+
+
 def normalize_item_url(url: str) -> str:
     parsed = urllib.parse.urlparse(url)
     return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
@@ -357,6 +411,7 @@ def fingerprint(item: Listing) -> str:
 # 591
 # ---------------------------------------------------------------------------
 
+
 def extract_591_ids(raw: str) -> list[str]:
     soup = BeautifulSoup(raw, "html.parser")
     ids: list[str] = []
@@ -385,7 +440,6 @@ def extract_591_ids(raw: str) -> list[str]:
     for pattern in patterns:
         ids.extend(re.findall(pattern, raw))
 
-    # 保持順序並避免一次頁面塞入大量非物件 ID。
     unique: list[str] = []
     seen: set[str] = set()
     for item_id in ids:
@@ -399,55 +453,65 @@ _591_LIST_CACHE: dict[str, Listing] = {}
 
 
 def _591_image_from_node(node: Any) -> str:
+    """從列表卡片找圖片；允許 591 CDN / 第三方 CDN，不再限制網域。"""
     if not hasattr(node, "select"):
         return ""
+
+    bad_words = ("logo", "icon", "avatar", "loading", "placeholder", "sprite")
+
     for img in node.select("img"):
         for key in ("src", "data-src", "data-original", "data-lazy-src"):
             value = str(img.get(key, "") or "").strip()
             if value.startswith("//"):
                 value = "https:" + value
-            if value.startswith("http") and "591.com.tw" in value and "logo" not in value.lower():
+            if value.startswith("http") and not any(word in value.lower() for word in bad_words):
                 return value
+
         srcset = str(img.get("srcset", "") or "").strip()
         if srcset:
             value = srcset.split(",")[0].strip().split(" ")[0]
             if value.startswith("//"):
                 value = "https:" + value
-            if value.startswith("http") and "591.com.tw" in value:
+            if value.startswith("http") and not any(word in value.lower() for word in bad_words):
                 return value
+
     return ""
 
 
 def parse_591_list_cards(raw: str) -> dict[str, Listing]:
-    """從 591 可正常讀取的列表頁建立快照；詳情頁被 403 擋下時用它做可靠備援。"""
+    """從 591 列表頁建立當次快照，詳情頁仍被擋時作最後備援。"""
     soup = BeautifulSoup(raw, "html.parser")
     result: dict[str, Listing] = {}
 
     for anchor in soup.select("a[href]"):
         href = urllib.parse.urljoin("https://rent.591.com.tw", anchor.get("href", ""))
-        match = re.search(r"rent\.591\.com\.tw/(?:home/house/detail/)?(\d{7,9})(?:$|[/?#])", href)
+        match = re.search(
+            r"rent\.591\.com\.tw/(?:home/house/detail/)?(\d{7,9})(?:$|[/?#])",
+            href,
+        )
         if not match:
             continue
         item_id = match.group(1)
 
         card = None
         node = anchor
-        for _ in range(9):
+        for _ in range(10):
             node = getattr(node, "parent", None)
             if node is None:
                 break
-            text = clean(node.get_text(" ", strip=True), 14000) if hasattr(node, "get_text") else ""
-            if (
-                district_from_text(text)
-                and has_four_rooms(text)
-                and re.search(r"[\d,]{4,}\s*元\s*/\s*月", text)
-            ):
+            text = clean(node.get_text(" ", strip=True), 16000) if hasattr(node, "get_text") else ""
+            has_rent = bool(
+                re.search(r"[\d,]{4,}\s*元\s*/?\s*月", text)
+                or re.search(r"(?:租金|月租)\s*[:：]?\s*[\d,]{4,}\s*元", text)
+            )
+            if district_from_text(text) and has_four_rooms(text) and has_rent:
                 card = node
                 break
+
         if card is None:
             continue
 
-        text = clean(card.get_text(" ", strip=True), 14000)
+        text = clean(card.get_text(" ", strip=True), 16000)
         if excluded(text) or not has_four_rooms(text):
             continue
 
@@ -455,7 +519,10 @@ def parse_591_list_cards(raw: str) -> dict[str, Listing]:
         if district not in ALLOWED_DISTRICTS:
             continue
 
-        rent_match = re.search(r"([\d,]{4,})\s*元\s*/\s*月", text)
+        rent_match = (
+            re.search(r"([\d,]{4,})\s*元\s*/?\s*月", text)
+            or re.search(r"(?:租金|月租)\s*[:：]?\s*([\d,]{4,})\s*元", text)
+        )
         if not rent_match:
             continue
         rent = money(rent_match.group(1))
@@ -465,7 +532,7 @@ def parse_591_list_cards(raw: str) -> dict[str, Listing]:
         floor_match = re.search(r"((?:B?\d+(?:~|～|-)\d+F|整棟|\d+F)\s*/\s*\d+F)", text, re.I)
         building_match = re.search(r"(電梯大樓|電梯華廈|華廈|公寓|透天厝|別墅|樓中樓)", text)
         address_match = re.search(
-            r"((?:桃園區|中壢區|平鎮區|八德區)\s*[-－]\s*[^距]{1,65})",
+            r"((?:桃園區|中壢區|平鎮區|八德區)\s*[-－]?\s*[^距]{1,65})",
             text,
         )
         publisher_match = re.search(r"((?:屋主|仲介|代理人)\s*[^\d\s]{1,24})", text)
@@ -479,7 +546,6 @@ def parse_591_list_cards(raw: str) -> dict[str, Listing]:
             if img:
                 title = clean(img.get("alt", ""), 180)
         if not title:
-            # 退回卡片前段文字，但不把整張卡片當標題。
             title = clean(text.split("整層住家", 1)[0], 180)
 
         equipment = [
@@ -513,8 +579,11 @@ def parse_591_list_cards(raw: str) -> dict[str, Listing]:
             raw_text=text,
             validated_at=NOW.isoformat(),
         )
-        if not item.title or not item.image:
+
+        # Cache 可以先保留沒有圖片的資料；真正發布時仍要求有圖片。
+        if not item.title or not item.rent:
             continue
+
         if any(marker in text for marker in PRIORITY_MARKERS) or item.publisher.startswith("屋主"):
             item.category_hint = "owner"
         if "降價" in text:
@@ -537,7 +606,7 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
         for page_no in range(1, 101):
             query = {
                 "kind": 1,
-                "layout": 4,  # 591 網頁定義為「4房以上」
+                "layout": 4,
                 "region": 6,
                 "section": section,
                 "page": page_no,
@@ -549,13 +618,11 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
             ids = extract_591_ids(raw)
             cards = parse_591_list_cards(raw)
 
-            # requests 拿到空殼 HTML 時，強制以 Chromium 再抓一次。
             if not ids or not cards:
                 rendered = browser.html(url)
                 if rendered:
                     ids = extract_591_ids(rendered) or ids
-                    rendered_cards = parse_591_list_cards(rendered)
-                    cards.update(rendered_cards)
+                    cards.update(parse_591_list_cards(rendered))
 
             for item_id, item in cards.items():
                 existing = _591_LIST_CACHE.get(item_id)
@@ -563,7 +630,10 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                     _591_LIST_CACHE[item_id] = item
 
             new_ids = [item_id for item_id in ids if item_id not in seen]
-            print(f"[591] {district} page={page_no} ids={len(ids)} new={len(new_ids)}")
+            print(
+                f"[591] {district} page={page_no} ids={len(ids)} "
+                f"cards={len(cards)} cache={len(_591_LIST_CACHE)} new={len(new_ids)}"
+            )
 
             if not new_ids:
                 empty_pages += 1
@@ -582,9 +652,30 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
     if not links:
         source_stats["errors"].append(
             "591列表頁未取得物件編號；可能是GitHub Runner被591阻擋。"
-            "可在Actions記錄確認Chromium是否成功安裝。"
+            "請查看Actions記錄確認Chromium是否成功安裝與啟動。"
+        )
+    elif not _591_LIST_CACHE:
+        source_stats["errors"].append(
+            "591已取得候選物件編號，但列表快照為0筆；將以Chromium詳情頁驗證為主。"
         )
     return links
+
+
+def _591_detail_rent(soup: BeautifulSoup, text: str) -> int:
+    price = json_ld_offer_price(soup)
+    if price:
+        return price
+
+    for pattern in (
+        r"(?:租金|月租)\s*[:：]?\s*([\d,]{4,})\s*元",
+        r"([\d,]{4,})\s*元\s*/\s*月",
+    ):
+        match = re.search(pattern, text)
+        if match:
+            parsed = money(match.group(1))
+            if 3000 <= parsed <= 1_000_000:
+                return parsed
+    return 0
 
 
 def parse_591_detail(url: str) -> Listing | None:
@@ -592,16 +683,20 @@ def parse_591_detail(url: str) -> Listing | None:
     item_id = item_id_match.group(1) if item_id_match else hashlib.md5(url.encode()).hexdigest()[:16]
     cached = _591_LIST_CACHE.get(item_id)
 
-    response, raw = fetch_html(url, browser_fallback=True)
+    # 關鍵修正：591 詳情頁直接 Chromium 優先。
+    response, raw = fetch_html(url, browser_first=True, browser_fallback=True)
+
     if response is not None and response.status_code in {404, 410}:
         return None
-    if is_dead_page(response, raw, "591.com.tw"):
+
+    # 只有真正仍被擋住時，才退回列表快照。
+    if looks_blocked(raw):
+        if cached and cached.title and cached.rent and cached.image and allowed_district(cached):
+            return cached
         return None
 
-    # 591 詳情頁目前會對雲端自動化環境回 403；物件若剛出現在有效列表頁，
-    # 使用列表快照作為 live validation 備援，避免 310 筆候選全部被誤判為失效。
-    if (response is not None and response.status_code in {401, 403, 429}) or looks_blocked(raw):
-        return cached
+    if is_dead_page(response, raw, "591.com.tw"):
+        return None
 
     soup = BeautifulSoup(raw, "html.parser")
     text = clean(soup.get_text(" "), 220000)
@@ -609,17 +704,17 @@ def parse_591_detail(url: str) -> Listing | None:
     if not has_four_rooms(text) or excluded(text):
         return None
 
-    title = meta(soup, "og:title", "twitter:title")
-    image = meta(soup, "og:image", "twitter:image")
+    json_title, json_image = json_ld_title_image(soup)
+    title = meta(soup, "og:title", "twitter:title") or json_title
+    image = meta(soup, "og:image", "twitter:image") or json_image
     description = meta(soup, "og:description", "description")
 
-    layout_match = re.search(r"(\d+房\d*廳?\d*衛?)", text)
-    size_match = re.search(r"(\d+(?:\.\d+)?坪)", text)
+    layout_match = re.search(r"(\d+\s*房\s*\d*\s*廳?\s*\d*\s*衛?)", text)
+    size_match = re.search(r"(\d+(?:\.\d+)?\s*坪)", text)
     floor_match = re.search(r"((?:B?\d+(?:~|～|-)\d+F|整棟|\d+F)\s*/\s*\d+F)", text, re.I)
     building_match = re.search(r"(電梯大樓|電梯華廈|華廈|公寓|透天厝|別墅|樓中樓)", text)
-    rent_match = re.search(r"([\d,]+)\s*元\s*/\s*月", text)
     address_match = re.search(
-        r"地址\s*[:：]?\s*((?:桃園區|中壢區|平鎮區|八德區)[^。|]{1,80})",
+        r"(?:地址\s*[:：]?\s*)?(桃園市?\s*)?((?:桃園區|中壢區|平鎮區|八德區)[^。|]{1,80})",
         text,
     )
     publisher_match = re.search(r"((?:屋主|仲介)[:：]?\s*[^0-9|]{1,35})", text)
@@ -631,8 +726,7 @@ def parse_591_detail(url: str) -> Listing | None:
         name
         for name in (
             "冰箱", "洗衣機", "電視", "冷氣", "熱水器", "床", "衣櫃",
-            "第四台", "網路", "天然瓦斯", "沙發", "桌椅", "陽台",
-            "電梯", "車位",
+            "第四台", "網路", "天然瓦斯", "沙發", "桌椅", "陽台", "電梯", "車位",
         )
         if name in text
     ]
@@ -643,14 +737,14 @@ def parse_591_detail(url: str) -> Listing | None:
         url=f"https://rent.591.com.tw/{item_id}",
         title=clean(title, 180),
         district=district_from_text(text),
-        address=clean(address_match.group(1), 100) if address_match else "",
+        address=clean(address_match.group(2), 100) if address_match else "",
         house_type="整層住家",
         building_type=building_match.group(1) if building_match else "",
         floor=floor_match.group(1).replace(" ", "") if floor_match else "",
-        layout=layout_match.group(1) if layout_match else "",
-        size=size_match.group(1) if size_match else "",
+        layout=re.sub(r"\s+", "", layout_match.group(1)) if layout_match else "",
+        size=re.sub(r"\s+", "", size_match.group(1)) if size_match else "",
         equipment="、".join(equipment),
-        rent=money(rent_match.group(1)) if rent_match else 0,
+        rent=_591_detail_rent(soup, text),
         min_lease=lease_match.group(1) if lease_match else "",
         updated=updated_match.group(1) if updated_match else "",
         views=views_match.group(1) if views_match else "",
@@ -661,11 +755,25 @@ def parse_591_detail(url: str) -> Listing | None:
         validated_at=NOW.isoformat(),
     )
 
+    # 詳情頁欄位不足時，可用當次列表快照補值，但不能覆蓋詳情頁已取得的值。
+    if cached:
+        for attr in (
+            "title", "district", "address", "building_type", "floor", "layout",
+            "size", "equipment", "min_lease", "updated", "views", "publisher",
+            "image", "summary",
+        ):
+            if not getattr(item, attr):
+                setattr(item, attr, getattr(cached, attr))
+        if not item.rent:
+            item.rent = cached.rent
+
     if not item.title or not item.rent or not item.image or not allowed_district(item):
-        return cached
+        return None
 
     if any(marker in text for marker in PRIORITY_MARKERS) or item.publisher.startswith("屋主"):
         item.category_hint = "owner"
+    elif cached and cached.category_hint:
+        item.category_hint = cached.category_hint
 
     item.fingerprint = fingerprint(item)
     return item
@@ -674,6 +782,7 @@ def parse_591_detail(url: str) -> Listing | None:
 # ---------------------------------------------------------------------------
 # 樂屋網
 # ---------------------------------------------------------------------------
+
 
 def rakuya_result_urls(params: dict[str, str]) -> Iterable[str]:
     for page_no in range(1, 101):
@@ -733,18 +842,8 @@ def crawl_rakuya_links(source_stats: dict[str, Any]) -> dict[str, set[str]]:
     return categories
 
 
-def json_ld_offer_price(soup: BeautifulSoup) -> int:
-    for value in iter_json_ld(soup):
-        offers = value.get("offers")
-        if isinstance(offers, dict):
-            price = money(str(offers.get("price", "")))
-            if 3000 <= price <= 1_000_000:
-                return price
-    return 0
-
-
 def explicit_old_price(soup: BeautifulSoup, text: str, current_rent: int) -> int:
-    """只接受明確原價，不再把押金或保證金當成原租金。"""
+    """只接受明確原價，不把押金或保證金當成原租金。"""
     matches: list[int] = []
 
     for pattern in (
@@ -790,7 +889,6 @@ def parse_rakuya_detail(url: str, hints: set[str]) -> Listing | None:
 
     current_rent = json_ld_offer_price(soup)
     if not current_rent:
-        # 排除電話、押金等大額數字後，詳情頁最後一個月租通常是目前租金。
         monthly = [money(v) for v in re.findall(r"([\d,]+)\s*元(?:\s*/\s*月)?", text)]
         monthly = [v for v in monthly if 3000 <= v <= 1_000_000]
         current_rent = monthly[-1] if monthly else 0
@@ -863,6 +961,7 @@ def parse_rakuya_detail(url: str, hints: set[str]) -> Listing | None:
 # ---------------------------------------------------------------------------
 # Facebook 安全匯入
 # ---------------------------------------------------------------------------
+
 
 def parse_social_row(row: dict[str, Any], source: str) -> Listing | None:
     text = clean(" ".join(str(row.get(k, "")) for k in row), 8000)
@@ -938,6 +1037,7 @@ def load_facebook_import(source_stats: dict[str, Any]) -> list[Listing]:
 # ---------------------------------------------------------------------------
 # 分類、去重與版面
 # ---------------------------------------------------------------------------
+
 
 def load_state() -> dict[str, Any]:
     try:
@@ -1085,11 +1185,32 @@ def render_card(item: Listing) -> str:
     """
 
 
-def render_subsection(items: list[Listing], source: str, category: str, title: str) -> str:
+def empty_message(stats: dict[str, Any], source: str) -> str:
+    row = stats["sources"][source]
+    candidate = int(row.get("candidate_links", 0) or 0)
+    validated = int(row.get("validated", 0) or 0)
+
+    if candidate > 0 and validated == 0:
+        return (
+            f"本次有取得 {source_label(source)} 候選物件，但沒有物件通過來源驗證。"
+            "請查看上方「本次紀錄」與來源訊息。"
+        )
+    if validated > 0:
+        return "本區目前沒有新的物件；可能屬於其他分類，或已於近48小時顯示過。"
+    return "本次沒有取得符合條件的候選物件。"
+
+
+def render_subsection(
+    items: list[Listing],
+    stats: dict[str, Any],
+    source: str,
+    category: str,
+    title: str,
+) -> str:
     values = [item for item in items if item.source == source and item.category == category]
     cards = "".join(render_card(item) for item in values)
     if not cards:
-        cards = '<div class="empty">本次沒有通過驗證且未在近48小時顯示過的物件。</div>'
+        cards = f'<div class="empty">{esc(empty_message(stats, source))}</div>'
     return (
         f'<section class="subsection"><header><h2>{esc(title)}</h2><b>{len(values)} 筆</b></header>'
         f'<div class="cards">{cards}</div></section>'
@@ -1099,7 +1220,7 @@ def render_subsection(items: list[Listing], source: str, category: str, title: s
 def render_status(stats: dict[str, Any], source: str) -> str:
     row = stats["sources"][source]
     errors = row.get("errors", [])
-    error_html = "".join(f"<li>{esc(error)}</li>" for error in errors[:5])
+    error_html = "".join(f"<li>{esc(error)}</li>" for error in errors[:8])
     return f"""
     <div class="source-status">
       <b>本次紀錄</b>
@@ -1125,39 +1246,75 @@ def render_html(items: list[Listing], stats: dict[str, Any]) -> str:
 <title>桃園四房以上租屋快報</title>
 <style>
 :root{{--orange:#f46b18;--bg:#f3f4f6;--line:#e1e4e8;--muted:#68717d;--fb:#1877f2;--raku:#d65431}}
-*{{box-sizing:border-box}}html{{scroll-behavior:smooth}}
+*{{box-sizing:border-box}}
+html{{scroll-behavior:smooth}}
 body{{margin:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;color:#202124}}
-a{{color:inherit}}.wrap{{width:min(1220px,calc(100% - 28px));margin:auto}}
-body>header{{background:linear-gradient(135deg,#fff,#fff4e7);border-bottom:4px solid var(--orange);padding:30px 0 25px}}
-h1{{font-size:clamp(32px,5vw,50px);margin:0 0 10px}}
-.subtitle{{font-size:18px;line-height:1.65;color:#4e5660;margin:0}}
-.source-nav{{display:flex;gap:9px;flex-wrap:wrap;margin-top:18px}}
-.source-nav a{{text-decoration:none;background:#fff;padding:11px 18px;border-radius:9px;font-weight:900;box-shadow:0 2px 9px #0001}}
-.source-nav a:nth-child(2){{color:var(--fb)}}.source-nav a:nth-child(3){{color:var(--raku)}}
+a{{color:inherit}}
+.wrap{{width:min(1220px,calc(100% - 28px));margin:auto}}
+body>header{{
+  position:sticky;
+  top:0;
+  z-index:1000;
+  background:linear-gradient(135deg,rgba(255,255,255,.98),rgba(255,244,231,.98));
+  border-bottom:4px solid var(--orange);
+  padding:14px 0 12px;
+  box-shadow:0 5px 20px rgba(0,0,0,.13);
+  backdrop-filter:blur(10px);
+}}
+h1{{font-size:clamp(25px,4vw,36px);margin:0 0 6px}}
+.subtitle{{font-size:15px;line-height:1.45;color:#4e5660;margin:0}}
+.source-nav{{display:flex;gap:9px;flex-wrap:wrap;margin-top:9px}}
+.source-nav a{{text-decoration:none;background:#fff;padding:10px 18px;border-radius:9px;font-weight:900;box-shadow:0 2px 9px #0001}}
+.source-nav a:nth-child(2){{color:var(--fb)}}
+.source-nav a:nth-child(3){{color:var(--raku)}}
 .statusbar{{background:#23272d;color:#fff;padding:12px 0;font-size:14px}}
-main{{padding:22px 0 48px}}.notice{{background:#fff;border-left:5px solid var(--orange);padding:15px 18px;border-radius:10px;line-height:1.7}}
-.source-block{{margin-top:22px;scroll-margin-top:18px}}
+main{{padding:22px 0 48px}}
+.notice{{background:#fff;border-left:5px solid var(--orange);padding:15px 18px;border-radius:10px;line-height:1.7}}
+.source-block{{margin-top:22px;scroll-margin-top:175px}}
 .source-heading{{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-bottom:10px}}
-.source-heading h2{{font-size:31px;margin:0}}.source-heading a{{font-size:14px;color:#555}}
+.source-heading h2{{font-size:31px;margin:0}}
+.source-heading a{{font-size:14px;color:#555}}
 .source-status{{display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap;background:#fff;padding:12px 14px;border:1px solid var(--line);border-radius:10px}}
-.source-status span{{color:#555}}.source-status details{{width:100%;color:#8a3f00}}.source-status ul{{margin:8px 0 0;padding-left:20px}}
+.source-status span{{color:#555}}
+.source-status details{{width:100%;color:#8a3f00}}
+.source-status ul{{margin:8px 0 0;padding-left:20px}}
 .subsection{{margin-top:14px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px}}
-.subsection>header{{display:flex;justify-content:space-between;align-items:end;gap:12px}}.subsection h2{{margin:0;font-size:25px}}
+.subsection>header{{display:flex;justify-content:space-between;align-items:end;gap:12px}}
+.subsection h2{{margin:0;font-size:25px}}
 .cards{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px;margin-top:14px}}
 .card{{border:1px solid var(--line);border-radius:11px;overflow:hidden;background:#fff}}
 .photo{{height:275px;display:block;position:relative;background:#596273}}
 .photo img{{width:100%;height:100%;object-fit:cover}}
 .photo>span{{position:absolute;left:12px;top:12px;background:#000b;color:#fff;padding:7px 9px;border-radius:6px;font-weight:800}}
 .photo-fallback{{display:none;position:absolute;inset:0;align-items:center;justify-content:center;text-align:center;color:#fff;font-weight:900;background:#4b5563}}
-.body{{padding:16px}}small{{color:var(--orange);font-weight:900}}h3{{font-size:21px;line-height:1.4;margin:7px 0}}h3 a{{text-decoration:none}}
-.summary{{font-weight:800}}.details{{display:grid;gap:7px;border-top:1px solid #eee;padding-top:11px}}
-.details div{{display:grid;grid-template-columns:100px 1fr;gap:8px;font-size:14px;line-height:1.5}}.details span{{color:var(--muted)}}
-.old{{margin-top:10px;color:#8a9098}}.rent{{font-size:28px;color:#d95700;font-weight:950;margin-top:8px}}.activity{{color:var(--muted);font-size:14px}}
+.body{{padding:16px}}
+small{{color:var(--orange);font-weight:900}}
+h3{{font-size:21px;line-height:1.4;margin:7px 0}}
+h3 a{{text-decoration:none}}
+.summary{{font-weight:800}}
+.details{{display:grid;gap:7px;border-top:1px solid #eee;padding-top:11px}}
+.details div{{display:grid;grid-template-columns:100px 1fr;gap:8px;font-size:14px;line-height:1.5}}
+.details span{{color:var(--muted)}}
+.old{{margin-top:10px;color:#8a9098}}
+.rent{{font-size:28px;color:#d95700;font-weight:950;margin-top:8px}}
+.activity{{color:var(--muted);font-size:14px}}
 .button{{display:block;text-align:center;margin-top:12px;padding:11px;background:var(--orange);color:#fff;text-decoration:none;border-radius:7px;font-weight:900}}
 .empty{{border:1px dashed #bbb;border-radius:8px;padding:25px;text-align:center;color:var(--muted);grid-column:1/-1}}
-.social-links{{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}}.social-links a{{background:var(--fb);color:#fff;text-decoration:none;padding:8px 10px;border-radius:6px;font-weight:800}}
+.social-links{{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}}
+.social-links a{{background:var(--fb);color:#fff;text-decoration:none;padding:8px 10px;border-radius:6px;font-weight:800}}
 .social-note{{background:#fff8e9;border:1px solid #ffd7a6;padding:13px;border-radius:9px;margin-top:12px;line-height:1.7}}
-@media(max-width:850px){{.cards{{grid-template-columns:1fr}}}}@media(max-width:560px){{.photo{{height:230px}}.source-nav a{{flex:1;text-align:center}}}}
+@media(max-width:850px){{
+  .cards{{grid-template-columns:1fr}}
+}}
+@media(max-width:560px){{
+  body>header{{padding:10px 0 9px}}
+  h1{{font-size:25px}}
+  .subtitle{{font-size:13px;line-height:1.4}}
+  .source-nav{{gap:6px;margin-top:8px}}
+  .source-nav a{{flex:1;text-align:center;padding:9px 6px}}
+  .photo{{height:230px}}
+  .source-block{{scroll-margin-top:190px}}
+}}
 </style>
 </head>
 <body>
@@ -1174,38 +1331,38 @@ main{{padding:22px 0 48px}}.notice{{background:#fff;border-left:5px solid var(--
 </header>
 
 <div class="statusbar"><div class="wrap">
-產生時間：{NOW.strftime("%Y/%m/%d %H:%M")}｜候選 {stats['candidates']} 筆｜
+產生時間：{NOW.strftime('%Y/%m/%d %H:%M')}｜候選 {stats['candidates']} 筆｜
 驗證通過 {stats['validated']} 筆｜近48小時重複排除 {stats['duplicates']} 筆｜
 本次顯示 {len(items)} 筆
 </div></div>
 
 <main class="wrap">
-<div class="notice">每個來源都會顯示本次候選與驗證結果。來源被網站阻擋或匯入檔不存在時，會直接顯示原因，不會再以空白區塊掩蓋問題。</div>
+<div class="notice">每個來源都會顯示本次候選與驗證結果。來源被網站阻擋或匯入檔不存在時，會直接顯示原因；空白分類也會區分「驗證失敗」與「近48小時已顯示」。</div>
 
 <div id="source-591" class="source-block">
   <div class="source-heading"><h2>591</h2><a href="https://rent.591.com.tw/list?kind=1&layout=4&region=6" target="_blank">開啟591搜尋 ↗</a></div>
-  {render_status(stats, "591")}
-  {render_subsection(items, "591", "owner", "屋主直租")}
-  {render_subsection(items, "591", "discount", "降價物件")}
-  {render_subsection(items, "591", "general", "全部符合條件物件")}
+  {render_status(stats, '591')}
+  {render_subsection(items, stats, '591', 'owner', '屋主直租')}
+  {render_subsection(items, stats, '591', 'discount', '降價物件')}
+  {render_subsection(items, stats, '591', 'general', '全部符合條件物件')}
 </div>
 
 <div id="source-fb" class="source-block">
   <div class="source-heading"><h2>FB社團</h2><a href="https://www.facebook.com/groups/feed/" target="_blank">開啟Facebook社團 ↗</a></div>
-  {render_status(stats, "FB")}
-  <div class="social-note">Meta已移除可供第三方讀取Facebook社團新貼文的Groups API，因此不能只輸入社團網址就由GitHub Actions自動取得所有新貼文。請使用安全JSON匯入；不需要提供Facebook帳號、密碼或Cookie。</div>
+  {render_status(stats, 'FB')}
+  <div class="social-note">Facebook社團採安全JSON匯入，不需要提供Facebook帳號、密碼或Cookie。</div>
   <div class="social-links">{fb_buttons}</div>
-  {render_subsection(items, "FB", "priority", "屋主自租／仲介勿擾／社宅勿擾")}
-  {render_subsection(items, "FB", "general", "其他符合條件FB物件")}
+  {render_subsection(items, stats, 'FB', 'priority', '屋主自租／仲介勿擾／社宅勿擾')}
+  {render_subsection(items, stats, 'FB', 'general', '其他符合條件FB物件')}
 </div>
 
 <div id="source-rakuya" class="source-block">
   <div class="source-heading"><h2>樂屋網</h2><a href="https://rent.rakuya.com.tw/" target="_blank">開啟樂屋網 ↗</a></div>
-  {render_status(stats, "樂屋網")}
-  {render_subsection(items, "樂屋網", "general", "出租")}
-  {render_subsection(items, "樂屋網", "owner", "屋主")}
-  {render_subsection(items, "樂屋網", "friendly", "友善房源")}
-  {render_subsection(items, "樂屋網", "discount", "最新降價")}
+  {render_status(stats, '樂屋網')}
+  {render_subsection(items, stats, '樂屋網', 'general', '出租')}
+  {render_subsection(items, stats, '樂屋網', 'owner', '屋主')}
+  {render_subsection(items, stats, '樂屋網', 'friendly', '友善房源')}
+  {render_subsection(items, stats, '樂屋網', 'discount', '最新降價')}
 </div>
 </main>
 </body>
@@ -1228,7 +1385,6 @@ def main() -> int:
     candidates: list[Listing] = []
 
     try:
-        # 591
         links_591 = crawl_591_links(stats["sources"]["591"])
         valid_591 = 0
         for index, url in enumerate(links_591, 1):
@@ -1238,8 +1394,12 @@ def main() -> int:
                 candidates.append(item)
                 valid_591 += 1
         stats["sources"]["591"]["validated"] = valid_591
+        if links_591 and valid_591 == 0:
+            stats["sources"]["591"]["errors"].append(
+                "591有取得候選物件，但0筆通過驗證。請在Actions搜尋「[591]」與「[591 detail]」；"
+                "本版已改為Chromium詳情頁優先，若仍為0通常代表GitHub Runner仍被591阻擋或頁面結構再次變更。"
+            )
 
-        # 樂屋網
         rakuya_map = crawl_rakuya_links(stats["sources"]["樂屋網"])
         hints_by_url: dict[str, set[str]] = {}
         for hint, links in rakuya_map.items():
@@ -1255,14 +1415,11 @@ def main() -> int:
                 valid_rakuya += 1
         stats["sources"]["樂屋網"]["validated"] = valid_rakuya
 
-        # Facebook
         candidates.extend(load_facebook_import(stats["sources"]["FB"]))
-
 
     finally:
         browser.close()
 
-    # 同來源物件編號去重
     unique: dict[str, Listing] = {}
     for item in candidates:
         unique[f"{item.source}:{item.source_id}"] = item
