@@ -9,10 +9,9 @@
 
 本版重點：
 1. 完全不含 Threads。
-2. 591 詳情頁優先使用 Playwright Chromium；若 requests 曾回 403，但 Chromium
-   已取得有效 HTML，不再被舊的 403 狀態誤判。
-3. 591 只有在 Chromium / requests 都拿不到有效頁面時，才退回當次列表頁快照。
-4. 591 列表圖片不再限制必須是 591.com.tw 網域，允許 CDN 圖片。
+2. 591 公開列表頁被 GitHub Runner 擋成 403 時，改讀網站前端使用的官方 BFF。
+3. 591 屋主只接受 role_name / 詳情聯絡人角色明確以「屋主」開頭的物件。
+4. 591 降價優先使用 BFF 官方 diff_price，詳情頁阻擋時使用同輪嚴格列表快照。
 5. 404 / 410 / 已刪除 / 已關閉 / 已成交物件仍排除。
 6. 樂屋網原租金只接受明確舊價標示或歷史快照，避免把押金誤判為原租金。
 7. 48 小時來源內與跨來源去重；真正降價物件可重新顯示。
@@ -54,6 +53,7 @@ OUTPUT_HTML = DOCS / "index.html"
 FB_IMPORT = ROOT / "data" / "facebook_posts.json"
 FB_IMPORT_ENV = "FACEBOOK_POSTS_JSON"
 FB_IMPORT_URL_ENV = "FACEBOOK_POSTS_JSON_URL"
+_591_BFF_LIST_URL = "https://bff-house.591.com.tw/v3/web/rent/list"
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -558,6 +558,7 @@ def extract_591_ids(raw: str) -> list[str]:
 
 
 _591_LIST_CACHE: dict[str, Listing] = {}
+_591_BFF_CACHE_IDS: set[str] = set()
 _591_REJECTS: dict[str, int] = {}
 
 
@@ -726,6 +727,163 @@ def parse_591_list_cards(raw: str) -> dict[str, Listing]:
     return result
 
 
+def parse_591_bff_cards(payload: Any) -> dict[str, Listing]:
+    """將 591 官網清單頁使用的 BFF JSON 轉成已驗證的列表快照。"""
+    if not isinstance(payload, dict):
+        return {}
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return {}
+    raw_items = data.get("items")
+    if not isinstance(raw_items, list):
+        return {}
+
+    result: dict[str, Listing] = {}
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            continue
+
+        item_id = str(raw_item.get("id", ""))
+        if not re.fullmatch(r"\d{7,9}", item_id):
+            continue
+
+        title = clean(raw_item.get("title", ""), 180)
+        house_type = clean(
+            raw_item.get("kind_name") or raw_item.get("ding_kind_name") or "",
+            80,
+        )
+        layout = clean(raw_item.get("layoutStr", ""), 80)
+        address = clean(raw_item.get("address", ""), 120)
+        publisher = clean(raw_item.get("role_name", ""), 120)
+        tags_value = raw_item.get("tags")
+        tags = (
+            [clean(value, 80) for value in tags_value if clean(value, 80)]
+            if isinstance(tags_value, list)
+            else []
+        )
+        text = clean(
+            " ".join(
+                [
+                    title,
+                    house_type,
+                    layout,
+                    address,
+                    publisher,
+                    clean(raw_item.get("community_name", ""), 120),
+                    *tags,
+                ]
+            ),
+            16000,
+        )
+
+        if (
+            house_type != "整層住家"
+            or not _591_has_four_room_layout(layout)
+            or excluded(text)
+            or _591_is_proxy(publisher)
+        ):
+            continue
+
+        district = district_from_text(address)
+        rent = money(str(raw_item.get("price", "")))
+        image = clean(raw_item.get("cover", ""), 1000)
+        photos = raw_item.get("photoList")
+        if not image and isinstance(photos, list) and photos:
+            image = clean(photos[0], 1000)
+        if not title or not rent or not image or district not in ALLOWED_DISTRICTS:
+            continue
+
+        diff_price = money(str(raw_item.get("diff_price", "")))
+        old_rent = rent + diff_price if diff_price > 0 else 0
+        browse_count = money(str(raw_item.get("browse_count", "")))
+        item = Listing(
+            source="591",
+            source_id=item_id,
+            url=f"https://rent.591.com.tw/{item_id}",
+            title=title,
+            district=district,
+            address=address,
+            house_type=house_type,
+            floor=clean(raw_item.get("floor_name", ""), 80),
+            layout=layout,
+            size=clean(raw_item.get("area_name", ""), 80),
+            rent=rent,
+            old_rent=old_rent,
+            updated=clean(raw_item.get("refresh_time", ""), 80),
+            views=f"{browse_count}人瀏覽" if browse_count else "",
+            publisher=publisher,
+            image=image,
+            summary=text,
+            raw_text=text,
+            validated_at=NOW.isoformat(),
+        )
+        if _591_is_owner(publisher):
+            item.category_hint = "owner"
+        elif old_rent > rent:
+            item.category_hint = "discount"
+        item.fingerprint = fingerprint(item)
+        result[item_id] = item
+
+    return result
+
+
+def fetch_591_bff_cards(
+    query: dict[str, Any],
+) -> tuple[int | None, int, dict[str, Listing]]:
+    """讀取 591 官網自己的清單 BFF；分頁使用 firstRow=0,30,60...。"""
+    page_no = max(1, int(query.get("page", 1)))
+    first_row = (page_no - 1) * 30
+    params: dict[str, str] = {
+        "kind": str(query.get("kind", 1)),
+        "multiRoom": str(query.get("layout", 4)),
+        "regionid": str(query.get("region", 6)),
+        "sectionid": str(query.get("section", "")),
+        "firstRow": str(first_row),
+        "order": "posttime",
+        "orderType": "desc",
+    }
+    if query.get("shType"):
+        params["shType"] = str(query["shType"])
+
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Origin": "https://rent.591.com.tw",
+        "Referer": "https://rent.591.com.tw/",
+        "device": "pc",
+    }
+    for attempt in range(3):
+        try:
+            response = session.get(
+                _591_BFF_LIST_URL,
+                params=params,
+                headers=headers,
+                timeout=30,
+            )
+            if response.status_code in {429, 500, 502, 503, 504}:
+                raise requests.RequestException(
+                    f"temporary status {response.status_code}"
+                )
+            if response.status_code != 200:
+                return response.status_code, first_row, {}
+            payload = response.json()
+            if (
+                not isinstance(payload, dict)
+                or not isinstance(payload.get("data"), dict)
+                or not isinstance(payload["data"].get("items"), list)
+            ):
+                raise ValueError("unexpected 591 BFF response")
+            return response.status_code, first_row, parse_591_bff_cards(payload)
+        except (requests.RequestException, ValueError) as exc:
+            if attempt + 1 >= 3:
+                print(
+                    f"[WARN] 591 BFF failed: firstRow={first_row}: {exc}",
+                    file=sys.stderr,
+                )
+                return None, first_row, {}
+            time.sleep(1.4 * (2**attempt))
+    return None, first_row, {}
+
+
 def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
     links: list[str] = []
     seen: set[str] = set()
@@ -757,8 +915,20 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                 response, raw = fetch_html(url)
                 ids = extract_591_ids(raw)
                 cards = parse_591_list_cards(raw)
+                bff_status: int | None = None
+                first_row = (page_no - 1) * 30
 
-                if not ids or not cards:
+                # GitHub Runner 常被 rent.591.com.tw 的頁面層擋成 403。此時改讀
+                # 591 清單頁前端本身使用的官方 BFF；BFF 回傳明確刊登者角色與
+                # 官方降價差額，可避免以標題猜屋主或猜測降價。
+                if not cards:
+                    bff_status, first_row, bff_cards = fetch_591_bff_cards(query)
+                    if bff_cards:
+                        cards = bff_cards
+                        ids = list(cards)
+                        _591_BFF_CACHE_IDS.update(cards)
+
+                if (not ids or not cards) and bff_status != 200:
                     rendered = browser.html(url)
                     if rendered:
                         rendered_cards = parse_591_list_cards(rendered)
@@ -778,7 +948,8 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                 status = response.status_code if response is not None else "browser"
                 print(
                     f"[591] mode={mode} {district} page={page_no} "
-                    f"status={status} ids={len(ids)} cards={len(cards)} "
+                    f"status={status} bff={bff_status} firstRow={first_row} "
+                    f"ids={len(ids)} cards={len(cards)} "
                     f"cache={len(_591_LIST_CACHE)} new={len(new_ids)}"
                 )
 
@@ -840,13 +1011,50 @@ def _591_detail_image(soup: BeautifulSoup) -> str:
     return _591_image_from_node(soup)
 
 
+def _591_validated_cache(cached: Listing | None) -> Listing | None:
+    """驗證同一輪官方列表快照；只在詳情端被擋時使用。"""
+    if not cached:
+        reject_591("blocked_no_cache")
+        return None
+    if excluded(cached.raw_text):
+        reject_591("hard_excluded")
+        return None
+    if _591_is_proxy(cached.publisher):
+        reject_591("proxy_or_excluded")
+        return None
+    if cached.house_type != "整層住家":
+        reject_591("not_whole_home")
+        return None
+    if not _591_has_four_room_layout(cached.layout):
+        reject_591("not_4_rooms")
+        return None
+    if not cached.title or not cached.rent or not cached.image or not allowed_district(cached):
+        reject_591("missing_required_fields")
+        return None
+    return cached
+
+
 def parse_591_detail(url: str) -> Listing | None:
     item_id_match = re.search(r"(\d{7,9})", urllib.parse.urlparse(url).path)
     item_id = item_id_match.group(1) if item_id_match else hashlib.md5(url.encode()).hexdigest()[:16]
     cached = _591_LIST_CACHE.get(item_id)
 
-    # 詳情頁先讀 SSR；只有 HTTP 被擋或內容不足時才啟動 Chromium。
-    response, raw = fetch_html(url, browser_fallback=True)
+    # BFF 已提供當輪官方清單快照時，先用 requests 嘗試詳情頁；若 Runner
+    # 直接被 403，立即使用經嚴格驗證的快照，避免每筆再啟動無效 Chromium。
+    if cached and item_id in _591_BFF_CACHE_IDS:
+        response, raw = get_requests(url)
+        if response is not None and response.status_code in {404, 410}:
+            reject_591("dead_404_410")
+            return None
+        if (
+            response is None
+            or response.status_code in {401, 403, 429}
+            or looks_blocked(raw)
+        ):
+            return _591_validated_cache(cached)
+    else:
+        # 非 BFF 列表來源仍保留 Chromium 備援。
+        response, raw = fetch_html(url, browser_fallback=True)
 
     if response is not None and response.status_code in {404, 410}:
         reject_591("dead_404_410")
@@ -854,22 +1062,7 @@ def parse_591_detail(url: str) -> Listing | None:
 
     if looks_blocked(raw):
         # 被擋時使用同一輪列表快照；但仍需符合必要欄位與排除條件。
-        if not cached:
-            reject_591("blocked_no_cache")
-            return None
-        if excluded(cached.raw_text):
-            reject_591("hard_excluded")
-            return None
-        if _591_is_proxy(cached.publisher):
-            reject_591("proxy_or_excluded")
-            return None
-        if not _591_has_four_room_layout(cached.layout):
-            reject_591("not_4_rooms")
-            return None
-        if not cached.title or not cached.rent or not cached.image or not allowed_district(cached):
-            reject_591("missing_required_fields")
-            return None
-        return cached
+        return _591_validated_cache(cached)
 
     if is_dead_page(response, raw, "591.com.tw"):
         reject_591("dead_marker")

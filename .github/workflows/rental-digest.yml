@@ -56,6 +56,9 @@ jobs:
       - name: 檢查 Python 語法
         run: python -m py_compile scripts/generate_rental_digest.py scripts/send_line.py
 
+      - name: 執行資料分類測試
+        run: python -m unittest discover -s tests -v
+
       - name: 測試時重設48小時去重紀錄
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.reset_history }}
         run: |

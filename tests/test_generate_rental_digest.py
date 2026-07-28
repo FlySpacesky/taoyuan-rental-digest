@@ -82,6 +82,7 @@ def detail_html(*, layout: str, publisher: str, badge: str = "") -> str:
 class Extract591Tests(unittest.TestCase):
     def setUp(self) -> None:
         DIGEST._591_LIST_CACHE.clear()
+        DIGEST._591_BFF_CACHE_IDS.clear()
         DIGEST._591_REJECTS.clear()
 
     def test_extracts_only_rental_card_ids(self) -> None:
@@ -124,6 +125,7 @@ class Extract591Tests(unittest.TestCase):
         stats = DIGEST.empty_source_stats()
         with (
             patch.object(DIGEST, "fetch_html", side_effect=fake_fetch),
+            patch.object(DIGEST, "fetch_591_bff_cards", return_value=(None, 0, {})),
             patch.object(DIGEST.browser, "html", return_value=""),
             patch.object(DIGEST.time, "sleep", return_value=None),
         ):
@@ -139,10 +141,86 @@ class Extract591Tests(unittest.TestCase):
         self.assertTrue(any("page=2" in url for url in requested))
         self.assertFalse(any("firstRow=" in url for url in requested))
 
+    def test_bff_cards_use_explicit_role_and_official_discount(self) -> None:
+        payload = {
+            "status": 1,
+            "data": {
+                "items": [
+                    {
+                        "id": 21700001,
+                        "kind_name": "整層住家",
+                        "title": "屋主自租字樣但實際為仲介",
+                        "price": "28,000",
+                        "diff_price": 2_000,
+                        "floor_name": "6F/12F",
+                        "area_name": "35坪",
+                        "layoutStr": "4房2廳",
+                        "address": "桃園區-中正路",
+                        "role_name": "仲介王先生",
+                        "refresh_time": "1小時內更新",
+                        "browse_count": 12,
+                        "cover": "https://img1.591.com.tw/house/example.jpg",
+                        "tags": ["屋主直租"],
+                    },
+                    {
+                        "id": 21700002,
+                        "kind_name": "整層住家",
+                        "title": "四房整層住家",
+                        "price": "32,000",
+                        "diff_price": 0,
+                        "floor_name": "整棟/3F",
+                        "area_name": "45坪",
+                        "layoutStr": "4房2廳",
+                        "address": "中壢區-中央路",
+                        "role_name": "屋主林先生",
+                        "refresh_time": "2小時內更新",
+                        "browse_count": 8,
+                        "cover": "https://img1.591.com.tw/house/owner.jpg",
+                        "tags": [],
+                    },
+                ]
+            },
+        }
+
+        cards = DIGEST.parse_591_bff_cards(payload)
+
+        broker = cards["21700001"]
+        self.assertEqual(broker.publisher, "仲介王先生")
+        self.assertEqual(broker.category_hint, "discount")
+        self.assertEqual(broker.old_rent, 30_000)
+        self.assertNotEqual(broker.category_hint, "owner")
+        owner = cards["21700002"]
+        self.assertEqual(owner.category_hint, "owner")
+        self.assertEqual(owner.url, "https://rent.591.com.tw/21700002")
+
+    def test_bff_request_maps_page_to_first_row(self) -> None:
+        response = SimpleNamespace(
+            status_code=200,
+            json=lambda: {"status": 1, "data": {"items": []}},
+        )
+        with patch.object(DIGEST.session, "get", return_value=response) as get:
+            status, first_row, cards = DIGEST.fetch_591_bff_cards(
+                {
+                    "kind": 1,
+                    "layout": 4,
+                    "region": 6,
+                    "section": "73",
+                    "shType": "host",
+                    "page": 3,
+                }
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(first_row, 60)
+        self.assertEqual(cards, {})
+        self.assertEqual(get.call_args.kwargs["params"]["firstRow"], "60")
+        self.assertEqual(get.call_args.kwargs["params"]["shType"], "host")
+
 
 class Detail591Tests(unittest.TestCase):
     def setUp(self) -> None:
         DIGEST._591_LIST_CACHE.clear()
+        DIGEST._591_BFF_CACHE_IDS.clear()
         DIGEST._591_REJECTS.clear()
 
     def test_detail_broker_overrides_owner_words_elsewhere(self) -> None:
@@ -180,6 +258,45 @@ class Detail591Tests(unittest.TestCase):
 
         self.assertIsNone(item)
         self.assertEqual(DIGEST._591_REJECTS.get("not_4_rooms"), 1)
+
+    def test_bff_cache_skips_browser_when_detail_is_forbidden(self) -> None:
+        cached = DIGEST.parse_591_bff_cards(
+            {
+                "status": 1,
+                "data": {
+                    "items": [
+                        {
+                            "id": 21700001,
+                            "kind_name": "整層住家",
+                            "title": "桃園區四房整層住家",
+                            "price": "32,000",
+                            "diff_price": 0,
+                            "floor_name": "6F/12F",
+                            "area_name": "35坪",
+                            "layoutStr": "4房2廳",
+                            "address": "桃園區-中正路",
+                            "role_name": "仲介王先生",
+                            "refresh_time": "1小時內更新",
+                            "browse_count": 12,
+                            "cover": "https://img1.591.com.tw/house/example.jpg",
+                            "tags": [],
+                        }
+                    ]
+                },
+            }
+        )["21700001"]
+        DIGEST._591_LIST_CACHE["21700001"] = cached
+        DIGEST._591_BFF_CACHE_IDS.add("21700001")
+        forbidden = SimpleNamespace(status_code=403)
+
+        with (
+            patch.object(DIGEST, "get_requests", return_value=(forbidden, "denied")),
+            patch.object(DIGEST, "fetch_html") as fetch,
+        ):
+            item = DIGEST.parse_591_detail("https://rent.591.com.tw/21700001")
+
+        self.assertIs(item, cached)
+        fetch.assert_not_called()
 
 
 class RakuyaFallbackTests(unittest.TestCase):
