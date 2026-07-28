@@ -9,7 +9,7 @@
 
 本版重點：
 1. 完全不含 Threads。
-2. 591 公開列表頁被 GitHub Runner 擋成 403 時，改讀網站前端使用的官方 BFF。
+2. 591 列表優先讀網站前端使用的官方 BFF；失效時才退回 SSR HTML / Chromium。
 3. 591 屋主只接受 role_name / 詳情聯絡人角色明確以「屋主」開頭的物件。
 4. 591 降價優先使用 BFF 官方 diff_price，詳情頁阻擋時使用同輪嚴格列表快照。
 5. 404 / 410 / 已刪除 / 已關閉 / 已成交物件仍排除。
@@ -636,7 +636,12 @@ def parse_591_list_cards(raw: str) -> dict[str, Listing]:
             continue
 
         price_node = card.select_one(".item-info-price")
-        rent = money(price_node.get_text(" ", strip=True) if price_node else "")
+        price_text = price_node.get_text(" ", strip=True) if price_node else ""
+        main_price_match = re.search(
+            r"([\d,]{4,})\s*元\s*/\s*月",
+            price_text,
+        )
+        rent = money(main_price_match.group(1)) if main_price_match else 0
         if not rent:
             rent_match = (
                 re.search(r"([\d,]{4,})\s*元\s*/?\s*月", text)
@@ -652,7 +657,10 @@ def parse_591_list_cards(raw: str) -> dict[str, Listing]:
         floor_match = re.search(r"((?:B?\d+(?:~|～|-)\d+F|整棟|\d+F)\s*/\s*\d+F)", text, re.I)
         building_match = re.search(r"(電梯大樓|電梯華廈|華廈|公寓|透天厝|別墅|樓中樓)", text)
         address_match = re.search(
-            r"((?:桃園區|中壢區|平鎮區|八德區)\s*[-－]?\s*[^距]{1,65})",
+            r"((?:桃園區|中壢區|平鎮區|八德區)\s*[-－]?\s*.*?)"
+            r"(?=\s+(?:屋主|仲介|代理人)|"
+            r"\s+(?:\d+分鐘|\d+小時|\d+天)(?:內|前)?更新|"
+            r"\s+昨日\d+人瀏覽|\s+[\d,]{4,}\s*元\s*/\s*月|$)",
             text,
         )
         publisher = _591_publisher_from_node(card)
@@ -910,23 +918,22 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                 }
                 url = "https://rent.591.com.tw/list?" + urllib.parse.urlencode(query)
 
-                # requests 能讀到有效 SSR HTML 時不啟動 Chromium；只有列表內容
-                # 不足或被擋時，才做一次明確的瀏覽器備援。
-                response, raw = fetch_html(url)
-                ids = extract_591_ids(raw)
-                cards = parse_591_list_cards(raw)
-                bff_status: int | None = None
-                first_row = (page_no - 1) * 30
-
-                # GitHub Runner 常被 rent.591.com.tw 的頁面層擋成 403。此時改讀
-                # 591 清單頁前端本身使用的官方 BFF；BFF 回傳明確刊登者角色與
-                # 官方降價差額，可避免以標題猜屋主或猜測降價。
-                if not cards:
-                    bff_status, first_row, bff_cards = fetch_591_bff_cards(query)
-                    if bff_cards:
-                        cards = bff_cards
-                        ids = list(cards)
-                        _591_BFF_CACHE_IDS.update(cards)
+                # 優先讀 591 清單頁前端本身使用的官方 BFF。它提供明確角色、
+                # 主租金與官方降價差額，避免 HTML 額外費用覆蓋主租金。
+                bff_status, first_row, bff_cards = fetch_591_bff_cards(query)
+                response: requests.Response | None = None
+                raw = ""
+                ids: list[str] = []
+                cards: dict[str, Listing] = {}
+                if bff_cards:
+                    cards = bff_cards
+                    ids = list(cards)
+                    _591_BFF_CACHE_IDS.update(cards)
+                elif bff_status != 200:
+                    # BFF 被擋或暫時失效時，才讀 SSR HTML。
+                    response, raw = fetch_html(url)
+                    ids = extract_591_ids(raw)
+                    cards = parse_591_list_cards(raw)
 
                 if (not ids or not cards) and bff_status != 200:
                     rendered = browser.html(url)
@@ -1153,8 +1160,12 @@ def parse_591_detail(url: str) -> Listing | None:
         ):
             if not getattr(item, attr):
                 setattr(item, attr, getattr(cached, attr))
-        if not item.rent:
+        # 列表的主租金欄位比詳情頁自由文字可靠；詳情可能同時含管理費、
+        # 車位費或其他額外費用，不能讓那些小額數字覆蓋主租金。
+        if cached.rent:
             item.rent = cached.rent
+        if cached.old_rent > cached.rent:
+            item.old_rent = cached.old_rent
 
     if _591_is_proxy(item.publisher):
         reject_591("proxy_or_excluded")

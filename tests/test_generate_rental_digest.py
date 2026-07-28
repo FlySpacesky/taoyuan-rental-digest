@@ -26,6 +26,7 @@ def list_card(
     layout: str = "4房2廳2衛",
     publisher: str = "屋主: 林先生",
     title: str = "桃園區四房整層住家",
+    price_text: str = "32,000 元/月",
 ) -> str:
     return f"""
     <div class="item" data-id="{item_id}">
@@ -44,7 +45,7 @@ def list_card(
       <div class="role-name">
         <span>{publisher}</span><span>1小時內更新</span>
       </div>
-      <div class="item-info-price">32,000 元/月</div>
+      <div class="item-info-price">{price_text}</div>
     </div>
     """
 
@@ -108,6 +109,14 @@ class Extract591Tests(unittest.TestCase):
     def test_explicit_owner_role_is_owner(self) -> None:
         item = DIGEST.parse_591_list_cards(list_card())["21700001"]
         self.assertEqual(item.category_hint, "owner")
+
+    def test_main_rent_is_not_replaced_by_extra_fee(self) -> None:
+        item = DIGEST.parse_591_list_cards(
+            list_card(price_text="58,000 元/月 (額外費用 8,400元/月)")
+        )["21700001"]
+
+        self.assertEqual(item.rent, 58_000)
+        self.assertEqual(item.address, "桃園區 - 中正路 電梯大樓")
 
     def test_crawler_uses_owner_filter_and_canonical_detail_url(self) -> None:
         requested: list[str] = []
@@ -216,6 +225,54 @@ class Extract591Tests(unittest.TestCase):
         self.assertEqual(get.call_args.kwargs["params"]["firstRow"], "60")
         self.assertEqual(get.call_args.kwargs["params"]["shType"], "host")
 
+    def test_crawler_prefers_bff_over_html(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        bff_item = DIGEST.parse_591_bff_cards(
+            {
+                "status": 1,
+                "data": {
+                    "items": [
+                        {
+                            "id": 21700001,
+                            "kind_name": "整層住家",
+                            "title": "桃園區四房整層住家",
+                            "price": "32,000",
+                            "diff_price": 0,
+                            "floor_name": "6F/12F",
+                            "area_name": "35坪",
+                            "layoutStr": "4房2廳",
+                            "address": "桃園區-中正路",
+                            "role_name": "屋主林先生",
+                            "refresh_time": "1小時內更新",
+                            "browse_count": 12,
+                            "cover": "https://img1.591.com.tw/house/example.jpg",
+                            "tags": [],
+                        }
+                    ]
+                },
+            }
+        )
+        calls = 0
+
+        def fake_bff(
+            _: dict[str, object],
+        ) -> tuple[int, int, dict[str, DIGEST.Listing]]:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return 200, 0, bff_item
+            return 200, 30, {}
+
+        with (
+            patch.object(DIGEST, "fetch_591_bff_cards", side_effect=fake_bff),
+            patch.object(DIGEST, "fetch_html") as fetch,
+            patch.object(DIGEST.time, "sleep", return_value=None),
+        ):
+            links = DIGEST.crawl_591_links(stats)
+
+        self.assertEqual(links, ["https://rent.591.com.tw/21700001"])
+        fetch.assert_not_called()
+
 
 class Detail591Tests(unittest.TestCase):
     def setUp(self) -> None:
@@ -250,6 +307,23 @@ class Detail591Tests(unittest.TestCase):
         self.assertIsNotNone(item)
         assert item is not None
         self.assertEqual(item.category_hint, "owner")
+
+    def test_detail_cannot_override_cached_main_rent(self) -> None:
+        cached = DIGEST.parse_591_list_cards(
+            list_card(price_text="58,000 元/月 (額外費用 8,400元/月)")
+        )["21700001"]
+        DIGEST._591_LIST_CACHE["21700001"] = cached
+        raw = detail_html(
+            layout="4房2廳2衛",
+            publisher="仲介: 王先生",
+        ).replace('"price":"32000"', '"price":"8400"')
+
+        with patch.object(DIGEST, "fetch_html", return_value=(None, raw)):
+            item = DIGEST.parse_591_detail("https://rent.591.com.tw/21700001")
+
+        self.assertIsNotNone(item)
+        assert item is not None
+        self.assertEqual(item.rent, 58_000)
 
     def test_recommended_four_room_does_not_rescue_three_room_detail(self) -> None:
         raw = detail_html(layout="3房2廳2衛", publisher="仲介: 王先生")
