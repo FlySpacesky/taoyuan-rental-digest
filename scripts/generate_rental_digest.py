@@ -112,7 +112,13 @@ EXCLUDE_MARKERS = (
     "租管通",
     "租賃住宅服務業",
     "租賃服務業",
-    "代理人",
+)
+
+# 「代理人」不能當成整頁關鍵字直接排除，因為 591 的介面/說明本身可能出現這個字。
+# 改成只判斷「刊登身分真的為代理人」的語境。
+PROXY_ROLE_PATTERNS = (
+    r"(?:刊登者|刊登身分|刊登身份|出租人|聯絡人|身分|身份)\s*[:：]?\s*代理人",
+    r"代理人\s*[:：]\s*[^\s|，。]{1,24}",
 )
 
 FRIENDLY_MARKERS = (
@@ -396,7 +402,22 @@ def allowed_district(item: Listing) -> bool:
 
 
 def excluded(text: str) -> bool:
+    """硬性排除字詞；不包含泛用的「代理人」三個字。"""
     return any(marker in (text or "") for marker in EXCLUDE_MARKERS)
+
+
+def proxy_listing(text: str = "", publisher: str = "") -> bool:
+    """只有明確顯示刊登角色為代理人時才排除。
+
+    不能單純用 ``"代理人" in text``，因為 591 網站導覽/說明文字可能包含
+    「房東/代理人」等泛用字樣，會把正常屋主物件全部誤殺。
+    """
+    publisher_text = clean(publisher, 120)
+    if publisher_text.startswith("代理人"):
+        return True
+
+    compact = clean(text, 24000)
+    return any(re.search(pattern, compact) for pattern in PROXY_ROLE_PATTERNS)
 
 
 def fingerprint(item: Listing) -> str:
@@ -419,7 +440,7 @@ def extract_591_ids(raw: str) -> list[str]:
     for anchor in soup.select("a[href]"):
         href = urllib.parse.urljoin("https://rent.591.com.tw", anchor.get("href", ""))
         for pattern in (
-            r"rent\.591\.com\.tw/(?:home/house/detail/)?(\d{7,9})(?:$|[/?#])",
+            r"rent\.591\.com\.tw/(?:(?:home/house/detail|home)/)?(\d{7,9})(?:$|[/?#])",
             r"rent-detail-(\d{7,9})",
         ):
             match = re.search(pattern, href)
@@ -433,7 +454,7 @@ def extract_591_ids(raw: str) -> list[str]:
                 ids.append(value)
 
     patterns = (
-        r'https?:\\?/\\?/rent\.591\.com\.tw\\?/(?:home/house/detail/)?(\d{7,9})',
+        r'https?:\\?/\\?/rent\.591\.com\.tw\\?/(?:(?:home/house/detail|home)/)?(\d{7,9})',
         r'["\'](?:post_id|houseid|house_id|houseId)["\']\s*[:=]\s*["\']?(\d{7,9})',
         r'/(?:home/house/detail/)?(\d{7,9})(?:["\'?/#])',
     )
@@ -450,6 +471,11 @@ def extract_591_ids(raw: str) -> list[str]:
 
 
 _591_LIST_CACHE: dict[str, Listing] = {}
+_591_REJECTS: dict[str, int] = {}
+
+
+def reject_591(reason: str) -> None:
+    _591_REJECTS[reason] = _591_REJECTS.get(reason, 0) + 1
 
 
 def _591_image_from_node(node: Any) -> str:
@@ -486,7 +512,7 @@ def parse_591_list_cards(raw: str) -> dict[str, Listing]:
     for anchor in soup.select("a[href]"):
         href = urllib.parse.urljoin("https://rent.591.com.tw", anchor.get("href", ""))
         match = re.search(
-            r"rent\.591\.com\.tw/(?:home/house/detail/)?(\d{7,9})(?:$|[/?#])",
+            r"rent\.591\.com\.tw/(?:(?:home/house/detail|home)/)?(\d{7,9})(?:$|[/?#])",
             href,
         )
         if not match:
@@ -560,7 +586,7 @@ def parse_591_list_cards(raw: str) -> dict[str, Listing]:
         item = Listing(
             source="591",
             source_id=item_id,
-            url=f"https://rent.591.com.tw/{item_id}",
+            url=f"https://rent.591.com.tw/home/{item_id}",
             title=title,
             district=district,
             address=clean(address_match.group(1), 100) if address_match else district,
@@ -579,6 +605,10 @@ def parse_591_list_cards(raw: str) -> dict[str, Listing]:
             raw_text=text,
             validated_at=NOW.isoformat(),
         )
+
+        # 只有明確刊登角色為「代理人」才排除；不要因頁面一般說明文字誤殺。
+        if proxy_listing(text, item.publisher):
+            continue
 
         # Cache 可以先保留沒有圖片的資料；真正發布時仍要求有圖片。
         if not item.title or not item.rent:
@@ -644,11 +674,13 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
 
             for item_id in new_ids:
                 seen.add(item_id)
-                links.append(f"https://rent.591.com.tw/{item_id}")
+                links.append(f"https://rent.591.com.tw/home/{item_id}")
 
             time.sleep(0.35)
 
     source_stats["candidate_links"] = len(links)
+    source_stats["list_cache"] = len(_591_LIST_CACHE)
+    source_stats["rejects"] = dict(sorted(_591_REJECTS.items()))
     if not links:
         source_stats["errors"].append(
             "591列表頁未取得物件編號；可能是GitHub Runner被591阻擋。"
@@ -678,35 +710,73 @@ def _591_detail_rent(soup: BeautifulSoup, text: str) -> int:
     return 0
 
 
+def _591_detail_image(soup: BeautifulSoup) -> str:
+    """591 詳情頁圖片：OG → JSON-LD → 內容圖片。"""
+    image = meta(soup, "og:image", "twitter:image")
+    if image:
+        return image
+
+    _, json_image = json_ld_title_image(soup)
+    if json_image:
+        return json_image
+
+    return _591_image_from_node(soup)
+
+
 def parse_591_detail(url: str) -> Listing | None:
     item_id_match = re.search(r"(\d{7,9})", urllib.parse.urlparse(url).path)
     item_id = item_id_match.group(1) if item_id_match else hashlib.md5(url.encode()).hexdigest()[:16]
     cached = _591_LIST_CACHE.get(item_id)
 
-    # 關鍵修正：591 詳情頁直接 Chromium 優先。
+    # 591 詳情頁直接 Chromium 優先；Chromium 成功時 fetch_html 會回 (None, rendered)，
+    # 不再被 requests 先前的 403 狀態誤判。
     response, raw = fetch_html(url, browser_first=True, browser_fallback=True)
 
     if response is not None and response.status_code in {404, 410}:
+        reject_591("dead_404_410")
         return None
 
-    # 只有真正仍被擋住時，才退回列表快照。
     if looks_blocked(raw):
-        if cached and cached.title and cached.rent and cached.image and allowed_district(cached):
-            return cached
-        return None
+        # 被擋時使用同一輪列表快照；但仍需符合必要欄位與排除條件。
+        if not cached:
+            reject_591("blocked_no_cache")
+            return None
+        if excluded(cached.raw_text):
+            reject_591("hard_excluded")
+            return None
+        if proxy_listing(cached.raw_text, cached.publisher):
+            reject_591("proxy_or_excluded")
+            return None
+        if not has_four_rooms(cached.raw_text):
+            reject_591("not_4_rooms")
+            return None
+        if not cached.title or not cached.rent or not cached.image or not allowed_district(cached):
+            reject_591("missing_required_fields")
+            return None
+        return cached
 
     if is_dead_page(response, raw, "591.com.tw"):
+        reject_591("dead_marker")
         return None
 
     soup = BeautifulSoup(raw, "html.parser")
     text = clean(soup.get_text(" "), 220000)
 
-    if not has_four_rooms(text) or excluded(text):
+    if not has_four_rooms(text):
+        reject_591("not_4_rooms")
+        return None
+    if excluded(text):
+        reject_591("hard_excluded")
         return None
 
-    json_title, json_image = json_ld_title_image(soup)
+    json_title, _ = json_ld_title_image(soup)
     title = meta(soup, "og:title", "twitter:title") or json_title
-    image = meta(soup, "og:image", "twitter:image") or json_image
+    if not title:
+        heading = soup.select_one("h1")
+        if heading:
+            title = clean(heading.get_text(" ", strip=True), 180)
+
+    image = _591_detail_image(soup)
     description = meta(soup, "og:description", "description")
 
     layout_match = re.search(r"(\d+\s*房\s*\d*\s*廳?\s*\d*\s*衛?)", text)
@@ -717,7 +787,7 @@ def parse_591_detail(url: str) -> Listing | None:
         r"(?:地址\s*[:：]?\s*)?(桃園市?\s*)?((?:桃園區|中壢區|平鎮區|八德區)[^。|]{1,80})",
         text,
     )
-    publisher_match = re.search(r"((?:屋主|仲介)[:：]?\s*[^0-9|]{1,35})", text)
+    publisher_match = re.search(r"((?:屋主|仲介|代理人)[:：]?\s*[^0-9|]{1,35})", text)
     updated_match = re.search(r"((?:\d+分鐘|\d+小時|\d+天)內?更新|\d+天前更新)", text)
     views_match = re.search(r"(昨日\d+人瀏覽|\d+人瀏覽)", text)
     lease_match = re.search(r"最短租期\s*([^，。|]{1,20})", text)
@@ -734,7 +804,7 @@ def parse_591_detail(url: str) -> Listing | None:
     item = Listing(
         source="591",
         source_id=item_id,
-        url=f"https://rent.591.com.tw/{item_id}",
+        url=f"https://rent.591.com.tw/home/{item_id}",
         title=clean(title, 180),
         district=district_from_text(text),
         address=clean(address_match.group(2), 100) if address_match else "",
@@ -755,7 +825,7 @@ def parse_591_detail(url: str) -> Listing | None:
         validated_at=NOW.isoformat(),
     )
 
-    # 詳情頁欄位不足時，可用當次列表快照補值，但不能覆蓋詳情頁已取得的值。
+    # 詳情頁欄位不足時，用當次列表快照補值，但不能覆蓋詳情頁已取得的值。
     if cached:
         for attr in (
             "title", "district", "address", "building_type", "floor", "layout",
@@ -767,7 +837,22 @@ def parse_591_detail(url: str) -> Listing | None:
         if not item.rent:
             item.rent = cached.rent
 
-    if not item.title or not item.rent or not item.image or not allowed_district(item):
+    if proxy_listing(text, item.publisher):
+        reject_591("proxy_or_excluded")
+        return None
+
+    missing = []
+    if not item.title:
+        missing.append("title")
+    if not item.rent:
+        missing.append("rent")
+    if not item.image:
+        missing.append("image")
+    if not allowed_district(item):
+        missing.append("district")
+    if missing:
+        reject_591("missing_required_fields")
+        print(f"[591 reject] id={item_id} missing={','.join(missing)}")
         return None
 
     if any(marker in text for marker in PRIORITY_MARKERS) or item.publisher.startswith("屋主"):
@@ -965,7 +1050,7 @@ def parse_rakuya_detail(url: str, hints: set[str]) -> Listing | None:
 
 def parse_social_row(row: dict[str, Any], source: str) -> Listing | None:
     text = clean(" ".join(str(row.get(k, "")) for k in row), 8000)
-    if not has_four_rooms(text) or excluded(text):
+    if not has_four_rooms(text) or excluded(text) or "代理人" in text:
         return None
 
     district = clean(row.get("district") or district_from_text(text), 20)
@@ -1221,12 +1306,23 @@ def render_status(stats: dict[str, Any], source: str) -> str:
     row = stats["sources"][source]
     errors = row.get("errors", [])
     error_html = "".join(f"<li>{esc(error)}</li>" for error in errors[:8])
+
+    diagnostics = ""
+    if source == "591":
+        rejects = row.get("rejects", {}) or {}
+        reject_text = "、".join(f"{key}={value}" for key, value in sorted(rejects.items())) or "無"
+        diagnostics = (
+            f"<span>列表快照 {row.get('list_cache', 0)} 筆</span>"
+            f"<details><summary>591排除診斷</summary><div>{esc(reject_text)}</div></details>"
+        )
+
     return f"""
     <div class="source-status">
       <b>本次紀錄</b>
       <span>候選 {row.get('candidate_links', 0)} 筆</span>
       <span>驗證通過 {row.get('validated', 0)} 筆</span>
       <span>本頁顯示 {row.get('published', 0)} 筆</span>
+      {diagnostics}
       {f'<details><summary>查看來源訊息</summary><ul>{error_html}</ul></details>' if errors else ''}
     </div>
     """
@@ -1370,7 +1466,14 @@ h3 a{{text-decoration:none}}
 
 
 def empty_source_stats() -> dict[str, Any]:
-    return {"candidate_links": 0, "validated": 0, "published": 0, "errors": []}
+    return {
+        "candidate_links": 0,
+        "validated": 0,
+        "published": 0,
+        "errors": [],
+        "list_cache": 0,
+        "rejects": {},
+    }
 
 
 def main() -> int:
@@ -1394,10 +1497,16 @@ def main() -> int:
                 candidates.append(item)
                 valid_591 += 1
         stats["sources"]["591"]["validated"] = valid_591
+        stats["sources"]["591"]["list_cache"] = len(_591_LIST_CACHE)
+        stats["sources"]["591"]["rejects"] = dict(sorted(_591_REJECTS.items()))
         if links_591 and valid_591 == 0:
+            reject_summary = ", ".join(
+                f"{key}={value}" for key, value in sorted(_591_REJECTS.items())
+            ) or "無拒絕原因紀錄"
             stats["sources"]["591"]["errors"].append(
-                "591有取得候選物件，但0筆通過驗證。請在Actions搜尋「[591]」與「[591 detail]」；"
-                "本版已改為Chromium詳情頁優先，若仍為0通常代表GitHub Runner仍被591阻擋或頁面結構再次變更。"
+                "591有取得候選物件，但0筆通過驗證。"
+                f"列表快照={len(_591_LIST_CACHE)}；排除原因：{reject_summary}。"
+                "請依 rejects 判斷是網站阻擋、缺欄位、4房解析或排除條件造成。"
             )
 
         rakuya_map = crawl_rakuya_links(stats["sources"]["樂屋網"])
