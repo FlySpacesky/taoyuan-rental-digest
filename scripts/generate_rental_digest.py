@@ -178,6 +178,7 @@ class Listing:
     equipment: str = ""
     rent: int = 0
     old_rent: int = 0
+    total_cost: int = 0
     min_lease: str = ""
     updated: str = ""
     views: str = ""
@@ -812,7 +813,11 @@ def parse_591_bff_cards(payload: Any) -> dict[str, Listing]:
 
         diff_price = money(str(raw_item.get("diff_price", "")))
         old_rent = rent + diff_price if diff_price > 0 else 0
+        extra_fee = money(str(raw_item.get("extra_fee", "")))
         browse_count = money(str(raw_item.get("browse_count", "")))
+        filter_tags = []
+        if int(raw_item.get("preferred", 0) or 0) == 1:
+            filter_tags.append("featured")
         item = Listing(
             source="591",
             source_id=item_id,
@@ -826,6 +831,7 @@ def parse_591_bff_cards(payload: Any) -> dict[str, Listing]:
             size=clean(raw_item.get("area_name", ""), 80),
             rent=rent,
             old_rent=old_rent,
+            total_cost=rent + extra_fee,
             updated=clean(raw_item.get("refresh_time", ""), 80),
             views=f"{browse_count}人瀏覽" if browse_count else "",
             publisher=publisher,
@@ -833,6 +839,7 @@ def parse_591_bff_cards(payload: Any) -> dict[str, Listing]:
             summary=text,
             raw_text=text,
             validated_at=NOW.isoformat(),
+            filter_tags=filter_tags,
         )
         if _591_is_owner(publisher):
             item.category_hint = "owner"
@@ -1309,6 +1316,7 @@ def load_591_snapshot(
             values = {key: row[key] for key in field_names if key in row}
             values["rent"] = int(values.get("rent", 0) or 0)
             values["old_rent"] = int(values.get("old_rent", 0) or 0)
+            values["total_cost"] = int(values.get("total_cost", 0) or 0)
             item = Listing(**values)
         except (TypeError, ValueError):
             continue
@@ -1780,6 +1788,7 @@ def parse_social_row(row: dict[str, Any], source: str) -> Listing | None:
         equipment=clean(row.get("equipment", ""), 220),
         rent=rent,
         old_rent=money(str(row.get("old_rent", ""))),
+        total_cost=money(str(row.get("total_cost", ""))) or rent,
         min_lease=clean(row.get("min_lease", ""), 30),
         updated=clean(row.get("updated", ""), 50),
         views=clean(row.get("views", ""), 50),
@@ -2024,6 +2033,8 @@ def is_591_featured(item: Listing) -> bool:
     """591「優選好屋」只接受官方列表文字中的明確標籤。"""
     if item.source != "591":
         return False
+    if "featured" in item.filter_tags:
+        return True
     text = " ".join((item.title, item.summary, item.raw_text))
     return "優選好屋" in text
 
@@ -2143,7 +2154,7 @@ def render_card(item: Listing, order: int = 0) -> str:
     categories = " ".join(listing_filter_tokens(item))
     area = numeric_value(item.size)
     popularity = int(numeric_value(item.views))
-    total_cost = item.rent
+    total_cost = item.total_cost or item.rent
 
     return f"""
     <article class="card" data-categories="{esc(categories)}"

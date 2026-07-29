@@ -161,7 +161,9 @@ class Extract591Tests(unittest.TestCase):
                         "kind_name": "整層住家",
                         "title": "屋主自租字樣但實際為仲介",
                         "price": "28,000",
+                        "extra_fee": "3,300",
                         "diff_price": 2_000,
+                        "preferred": 1,
                         "floor_name": "6F/12F",
                         "area_name": "35坪",
                         "layoutStr": "4房2廳",
@@ -198,6 +200,8 @@ class Extract591Tests(unittest.TestCase):
         self.assertEqual(broker.publisher, "仲介王先生")
         self.assertEqual(broker.category_hint, "discount")
         self.assertEqual(broker.old_rent, 30_000)
+        self.assertEqual(broker.total_cost, 31_300)
+        self.assertTrue(DIGEST.is_591_featured(broker))
         self.assertNotEqual(broker.category_hint, "owner")
         owner = cards["21700002"]
         self.assertEqual(owner.category_hint, "owner")
@@ -861,6 +865,7 @@ class CurrentListingDisplayTests(unittest.TestCase):
             category="owner",
         )
         owner.raw_text = "優選好屋"
+        owner.total_cost = 35_300
         discount = self.listing(
             "21700002",
             category_hint="discount",
@@ -896,6 +901,7 @@ class CurrentListingDisplayTests(unittest.TestCase):
         self.assertIn("由舊到新", rendered)
         self.assertIn("總費用低到高", rendered)
         self.assertIn("總費用高到低", rendered)
+        self.assertIn('data-total="35300"', rendered)
         self.assertIn("租金低到高", rendered)
         self.assertIn("租金高到低", rendered)
         self.assertIn("坪數小到大", rendered)

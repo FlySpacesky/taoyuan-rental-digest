@@ -16,6 +16,8 @@
   `data/facebook_posts.json`、`FACEBOOK_POSTS_JSON` Actions secret，或
   `FACEBOOK_POSTS_JSON_URL` HTTPS feed（Actions secret／repository variable）
 - 顯示：每個來源均為單欄列表、每筆左圖右文；591與樂屋網提供各自對應的分類與排序控制
+- 591：優選好屋使用官方 BFF `preferred`；租金總費用使用月租加上官方
+  `extra_fee`，若來源未提供額外月費則回退為月租
 - 樂屋網：搜尋桃園區、中壢區、平鎮區、八德區，分類直接使用現行
   `tab=rkp`（屋主）、`tab=frd`（友善房源）、`tab=low`（最新降價）頁籤
 - 591 成功抓取後會保存 `docs/rental-data/last-success-591.json`。兩小時內
