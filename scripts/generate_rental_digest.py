@@ -74,6 +74,7 @@ DISTRICTS_RAKUYA = {
     "中壢區": "320",
     "平鎮區": "324",
     "桃園區": "330",
+    "八德區": "334",
 }
 ALLOWED_DISTRICTS = set(DISTRICTS_591)
 
@@ -188,6 +189,7 @@ class Listing:
     fingerprint: str = ""
     validated_at: str = ""
     raw_text: str = field(default="", repr=False)
+    filter_tags: list[str] = field(default_factory=list, repr=False)
 
 
 class BrowserFetcher:
@@ -1419,6 +1421,29 @@ def collect_591_listings(source_stats: dict[str, Any]) -> list[Listing]:
             "請依rejects判斷是缺欄位、4房解析或排除條件造成。"
         )
 
+    # 若前段已有少量成功資料、後續卻因 403/429 中止，這不是完整刷新。
+    # 不得用部分結果覆蓋較完整的真實快照；新鮮資料優先，其餘沿用近期快照。
+    if fresh and source_stats.get("blocked_after_queries"):
+        source_stats["fresh_validated"] = len(fresh)
+        source_stats["partial_refresh"] = True
+        if snapshot and snapshot_age is not None:
+            fresh_ids = {item.source_id for item in fresh}
+            merged = fresh + [
+                item for item in snapshot if item.source_id not in fresh_ids
+            ]
+            return use_591_snapshot(
+                source_stats,
+                merged,
+                snapshot_at,
+                snapshot_age,
+                "partial_source_blocked",
+            )
+        source_stats["errors"].append(
+            f"591本輪只取得{len(fresh)}筆後即遭阻擋，沒有可沿用的近期完整快照；"
+            "本輪不會把部分結果保存成成功快照。"
+        )
+        return fresh
+
     if fresh:
         try:
             save_591_snapshot(fresh)
@@ -1468,14 +1493,20 @@ def extract_rakuya_links(raw: str, base_url: str) -> list[str]:
 
 def crawl_rakuya_links(source_stats: dict[str, Any]) -> dict[str, set[str]]:
     zipcodes = ",".join(DISTRICTS_RAKUYA.values())
-    categories: dict[str, set[str]] = {"general": set(), "owner": set(), "friendly": set()}
+    categories: dict[str, set[str]] = {
+        "general": set(),
+        "owner": set(),
+        "friendly": set(),
+        "discount": set(),
+    }
 
     query_sets: list[tuple[str, dict[str, str]]] = []
     for room in ("4", "5"):
         query_sets.append(("general", {"zipcode": zipcodes, "room": room}))
-        query_sets.append(("owner", {"zipcode": zipcodes, "room": room, "usecode": "7"}))
-        for keyword in ("可入籍", "租補", "可養寵物", "寵物友善", "高齡友善"):
-            query_sets.append(("friendly", {"zipcode": zipcodes, "room": room, "keyword": keyword}))
+        # 樂屋網現行四個頁籤使用 tab 參數；usecode=7 並不是「屋主」頁籤。
+        query_sets.append(("owner", {"zipcode": zipcodes, "room": room, "tab": "rkp"}))
+        query_sets.append(("friendly", {"zipcode": zipcodes, "room": room, "tab": "frd"}))
+        query_sets.append(("discount", {"zipcode": zipcodes, "room": room, "tab": "low"}))
 
     for category, params in query_sets:
         no_new = 0
@@ -1584,14 +1615,14 @@ def parse_rakuya_detail(url: str, hints: set[str]) -> Listing | None:
     district = district_from_text(title + " " + text)
     address = ""
     title_address = re.search(
-        r"桃園市?(桃園區|中壢區|平鎮區)([^\-｜|]{1,45})[\-｜|]",
+        r"桃園市?(桃園區|中壢區|平鎮區|八德區)([^\-｜|]{1,45})[\-｜|]",
         title,
     )
     if title_address:
         address = f"{title_address.group(1)}{clean(title_address.group(2), 50)}"
     else:
         address_match = re.search(
-            r"(桃園區|中壢區|平鎮區)\s*([^。|]{1,50}(?:路|街|巷|弄))",
+            r"(桃園區|中壢區|平鎮區|八德區)\s*([^。|]{1,50}(?:路|街|巷|弄))",
             text,
         )
         if address_match:
@@ -1627,18 +1658,22 @@ def parse_rakuya_detail(url: str, hints: set[str]) -> Listing | None:
         summary=description,
         raw_text=text,
         validated_at=NOW.isoformat(),
+        filter_tags=sorted(
+            hint for hint in hints if hint in {"owner", "friendly", "discount"}
+        ),
     )
 
     if not item.title or not item.rent or not item.image or not allowed_district(item):
         return None
 
-    if "owner" in hints or any(marker in text for marker in PRIORITY_MARKERS):
+    if "owner" in hints:
         item.category_hint = "owner"
-    elif "friendly" in hints or any(marker in text for marker in FRIENDLY_MARKERS):
+    elif "friendly" in hints:
         item.category_hint = "friendly"
 
-    if item.old_rent > item.rent:
+    if "discount" in hints or item.old_rent > item.rent:
         item.category_hint = "discount"
+        item.filter_tags = sorted(set(item.filter_tags) | {"discount"})
 
     item.fingerprint = fingerprint(item)
     return item
@@ -1682,22 +1717,53 @@ def is_public_http_url(url: str) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
-def parse_social_row(row: dict[str, Any], source: str) -> Listing | None:
+def is_direct_public_image_url(url: str) -> bool:
+    """拒絕 Facebook 照片頁；image 欄位必須能直接作為 img src 使用。"""
+    if not is_public_http_url(url):
+        return False
+    parsed = urllib.parse.urlparse(str(url).strip())
+    hostname = (parsed.hostname or "").lower()
+    return hostname not in {"facebook.com", "www.facebook.com", "m.facebook.com"}
+
+
+def facebook_row_reject_reasons(row: dict[str, Any]) -> list[str]:
+    """回傳一筆 FB JSON 的所有可操作拒絕原因。"""
     text = clean(" ".join(str(row.get(k, "")) for k in row), 8000)
-    if not has_four_rooms(text) or excluded(text) or "代理人" in text:
-        return None
+    reasons: list[str] = []
+
+    if not normalize_facebook_post_url(str(row.get("url", ""))):
+        reasons.append("invalid_or_unlisted_group_url")
+    if not has_four_rooms(text):
+        reasons.append("not_four_rooms")
+    if excluded(text):
+        reasons.append("excluded_management_or_broker")
+    if "代理人" in text:
+        reasons.append("excluded_proxy")
 
     district = clean(row.get("district") or district_from_text(text), 20)
     if district not in ALLOWED_DISTRICTS:
+        reasons.append("invalid_district")
+    if not money(str(row.get("rent", ""))):
+        reasons.append("missing_rent")
+    if not clean(row.get("title") or text.split("。")[0], 180):
+        reasons.append("missing_title")
+    if not is_direct_public_image_url(str(row.get("image", "")).strip()):
+        reasons.append("image_not_direct_public")
+
+    return list(dict.fromkeys(reasons))
+
+
+def parse_social_row(row: dict[str, Any], source: str) -> Listing | None:
+    if facebook_row_reject_reasons(row):
         return None
+
+    text = clean(" ".join(str(row.get(k, "")) for k in row), 8000)
+    district = clean(row.get("district") or district_from_text(text), 20)
 
     url = normalize_facebook_post_url(str(row.get("url", "")))
     image = str(row.get("image", "")).strip()
     title = clean(row.get("title") or text.split("。")[0], 180)
     rent = money(str(row.get("rent", "")))
-
-    if not url or not is_public_http_url(image) or not title or not rent:
-        return None
 
     item = Listing(
         source=source,
@@ -1802,14 +1868,21 @@ def load_facebook_import(source_stats: dict[str, Any]) -> list[Listing]:
             reject("invalid_row")
             continue
 
+        reasons = facebook_row_reject_reasons(row)
         url = normalize_facebook_post_url(str(row.get("url", "")))
         if not url:
-            reject("invalid_or_unlisted_group_url")
+            for reason in reasons or ["invalid_or_unlisted_group_url"]:
+                reject(reason)
             continue
         if url in seen_urls:
             reject("duplicate_url")
             continue
         seen_urls.add(url)
+
+        if reasons:
+            for reason in reasons:
+                reject(reason)
+            continue
 
         normalized_row = dict(row)
         normalized_row["url"] = url
@@ -1822,9 +1895,10 @@ def load_facebook_import(source_stats: dict[str, Any]) -> list[Listing]:
     source_stats["candidate_links"] = len(seen_urls)
     source_stats["validated"] = len(result)
     source_stats["rejects"] = dict(sorted(rejects.items()))
-    if seen_urls and not result:
+    if rows and not result:
         source_stats["errors"].append(
-            "FB匯入有貼文網址，但沒有資料通過4房、地區、租金、圖片與排除條件驗證。"
+            "FB匯入有資料列，但沒有資料通過社團永久網址、4房、地區、租金、"
+            "直接圖片網址與排除條件驗證；請查看 rejects 的精確原因。"
         )
     return result
 
@@ -1971,11 +2045,25 @@ def listing_filter_tokens(item: Listing) -> list[str]:
 
     if item.source == "樂屋網":
         tokens = ["rent"]
-        if item.category == "owner":
+        tags = set(item.filter_tags)
+        if (
+            item.category == "owner"
+            or item.category_hint == "owner"
+            or "owner" in tags
+        ):
             tokens.append("owner")
-        if item.category == "friendly":
+        if (
+            item.category == "friendly"
+            or item.category_hint == "friendly"
+            or "friendly" in tags
+        ):
             tokens.append("friendly")
-        if item.category == "discount" or item.old_rent > item.rent:
+        if (
+            item.category == "discount"
+            or item.category_hint == "discount"
+            or "discount" in tags
+            or item.old_rent > item.rent
+        ):
             tokens.append("discount")
         return tokens
 
@@ -2015,8 +2103,12 @@ def card_badges(item: Listing) -> list[str]:
         badges.append("優選好屋")
     if item.source == "591" and _591_is_owner(item.publisher):
         badges.append("屋主直租")
-    elif item.source == "樂屋網" and item.category == "owner":
-        badges.append("屋主")
+    elif item.source == "樂屋網":
+        tokens = listing_filter_tokens(item)
+        if "owner" in tokens:
+            badges.append("屋主")
+        if "friendly" in tokens:
+            badges.append("友善房源")
     elif item.source == "FB" and item.category == "priority":
         badges.append("優先物件")
     if item.old_rent > item.rent:
@@ -2161,12 +2253,33 @@ def render_listing_browser(
             f'data-filter="{esc(key)}">{esc(label)} <b>{count}</b></button>'
         )
 
-    sort_buttons = "".join(
-        f'<button type="button" class="sort-button{" active" if index == 0 else ""}" '
-        f'data-sort="{esc(key)}" data-direction="{"desc" if key == "popularity" else "asc"}">'
-        f'{esc(label)}<span class="sort-arrow">{"↓" if key in {"popularity"} else "↑"}</span></button>'
-        for index, (key, label) in enumerate(sorts)
-    )
+    direction_labels = {
+        "recency": ("由新到舊", "由舊到新", "asc"),
+        "total": ("總費用低到高", "總費用高到低", "asc"),
+        "rent": ("租金低到高", "租金高到低", "asc"),
+        "area": ("坪數小到大", "坪數大到小", "asc"),
+        "popularity": ("人氣高到低", "人氣低到高", "desc"),
+    }
+    sort_controls: list[str] = []
+    for index, (key, label) in enumerate(sorts):
+        first_label, second_label, default_direction = direction_labels[key]
+        first_direction = "desc" if key == "popularity" else "asc"
+        second_direction = "asc" if first_direction == "desc" else "desc"
+        sort_controls.append(
+            f'<label class="sort-control{" active" if index == 0 else ""}">'
+            f'<span>{esc(label)}</span>'
+            f'<select class="sort-select" data-sort="{esc(key)}" '
+            f'data-default-direction="{default_direction}" '
+            f'aria-current="{"true" if index == 0 else "false"}" '
+            f'aria-label="{esc(source_label(source))} {esc(label)}排序">'
+            f'<option value="{first_direction}"'
+            f'{" selected" if default_direction == first_direction else ""}>'
+            f'{esc(first_label)}</option>'
+            f'<option value="{second_direction}"'
+            f'{" selected" if default_direction == second_direction else ""}>'
+            f'{esc(second_label)}</option>'
+            "</select></label>"
+        )
     cards = "".join(
         render_card(item, order)
         for order, item in enumerate(source_items)
@@ -2180,9 +2293,9 @@ def render_listing_browser(
           {''.join(filter_buttons)}
         </div>
         <div class="sort-row">
-          <span>排序</span>
+          <span>排序：</span>
           <div class="sort-group" role="group" aria-label="{esc(source_label(source))} 排序">
-            {sort_buttons}
+            {''.join(sort_controls)}
           </div>
           <strong class="visible-count">{len(source_items)} 筆</strong>
         </div>
@@ -2276,25 +2389,27 @@ main{{padding:22px 0 48px}}
 .source-heading{{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-bottom:10px}}
 .source-heading h2{{font-size:31px;margin:0}}
 .source-heading a{{font-size:14px;color:#555;text-underline-offset:3px}}
-.source-status{{display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap;background:#fff;padding:12px 14px;border:1px solid var(--line);border-radius:10px}}
+.source-status{{display:flex;gap:8px 14px;align-items:center;justify-content:flex-end;text-align:right;flex-wrap:wrap;background:#fff;padding:12px 14px;border:1px solid var(--line);border-radius:10px}}
 .source-status span{{color:#555}}
-.source-status details{{width:100%;color:#8a3f00}}
-.source-status ul{{margin:8px 0 0;padding-left:20px}}
+.source-status details{{width:100%;color:#8a3f00;text-align:right}}
+.source-status ul{{margin:8px 0 0;padding-left:20px;text-align:left}}
 .source-status .fallback-warning{{width:100%;color:#8a3f00;background:#fff3cd;border:1px solid #f1ce72;padding:9px 11px;border-radius:7px}}
 .listing-browser{{margin-top:14px}}
 .filter-bar{{background:#fff;border:1px solid var(--line);border-radius:10px;padding:0 16px;box-shadow:0 2px 8px #00000008}}
 .filter-group,.sort-group{{display:flex;align-items:center;gap:4px;flex-wrap:wrap}}
-.filter-group{{border-bottom:1px solid var(--line)}}
-.filter-button,.sort-button{{appearance:none;border:0;background:transparent;color:#4f5965;font:inherit;font-weight:800;cursor:pointer;padding:14px 13px;border-bottom:3px solid transparent}}
+.filter-group{{justify-content:flex-end;border-bottom:1px solid var(--line)}}
+.filter-button{{appearance:none;border:0;background:transparent;color:#4f5965;font:inherit;font-weight:800;cursor:pointer;padding:14px 13px;border-bottom:3px solid transparent}}
 .filter-button b{{font-size:12px;color:#8a929b;margin-left:3px}}
-.filter-button:hover,.sort-button:hover{{color:var(--orange)}}
-.filter-button.active,.sort-button.active{{color:var(--orange);border-bottom-color:var(--orange)}}
+.filter-button:hover{{color:var(--orange)}}
+.filter-button.active{{color:var(--orange);border-bottom-color:var(--orange)}}
 .filter-button.active b{{color:var(--orange)}}
-.sort-row{{display:flex;align-items:center;gap:10px;min-height:53px}}
+.sort-row{{display:flex;align-items:center;justify-content:flex-end;gap:10px;min-height:68px;padding:8px 0}}
 .sort-row>span{{color:#8a929b;font-size:13px;font-weight:800}}
-.sort-group{{flex:1}}
-.sort-button{{padding-top:11px;padding-bottom:10px}}
-.sort-arrow{{font-size:12px;margin-left:4px}}
+.sort-group{{justify-content:flex-end;gap:8px}}
+.sort-control{{display:flex;align-items:center;gap:6px;padding:6px 7px;border:1px solid var(--line);border-radius:7px;background:#fafbfc;color:#555;font-size:13px;font-weight:850}}
+.sort-control.active{{border-color:#ffb879;background:var(--orange-soft);color:#b55a09}}
+.sort-select{{max-width:145px;border:1px solid #d9dde3;border-radius:5px;background:#fff;color:#30343a;padding:7px 25px 7px 8px;font:inherit;cursor:pointer}}
+.sort-select:focus{{outline:2px solid #ffb879;outline-offset:1px}}
 .visible-count{{color:#5a626d;white-space:nowrap}}
 .listing-list{{display:flex;flex-direction:column;gap:12px;margin-top:12px}}
 .card{{display:grid;grid-template-columns:minmax(260px,32%) minmax(0,1fr);min-height:245px;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff;box-shadow:0 2px 8px #0000000a}}
@@ -2324,7 +2439,7 @@ h3 a{{text-decoration:none}}
 .button{{display:inline-block;text-align:center;margin-top:16px;padding:9px 14px;background:#fff1df;color:#c35f00;text-decoration:none;border-radius:6px;font-weight:900}}
 .button:hover{{background:var(--orange);color:#fff}}
 .empty{{border:1px dashed #bbb;background:#fff;border-radius:8px;padding:28px;text-align:center;color:var(--muted)}}
-.social-links{{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}}
+.social-links{{display:flex;justify-content:flex-end;gap:7px;flex-wrap:wrap;margin-top:12px}}
 .social-links a{{background:var(--fb);color:#fff;text-decoration:none;padding:8px 10px;border-radius:6px;font-weight:800}}
 .social-note{{background:#fff8e9;border:1px solid #ffd7a6;padding:13px;border-radius:9px;margin-top:12px;line-height:1.7}}
 [hidden]{{display:none!important}}
@@ -2342,10 +2457,13 @@ h3 a{{text-decoration:none}}
   .source-nav{{gap:6px;margin-top:8px}}
   .source-nav a{{flex:1;text-align:center;padding:9px 6px}}
   .filter-bar{{padding:0 9px}}
-  .filter-button,.sort-button{{padding-left:8px;padding-right:8px;font-size:13px}}
-  .sort-row{{align-items:flex-start;flex-wrap:wrap;padding:5px 0}}
-  .sort-row>span{{padding-top:10px}}
-  .visible-count{{width:100%;padding:0 8px 9px}}
+  .filter-button{{padding-left:8px;padding-right:8px;font-size:13px}}
+  .sort-row{{align-items:flex-start;flex-wrap:wrap;padding:8px 0}}
+  .sort-row>span{{padding-top:9px}}
+  .sort-group{{width:100%}}
+  .sort-control{{flex:1 1 160px;justify-content:flex-end}}
+  .sort-select{{max-width:none;min-width:0}}
+  .visible-count{{width:100%;padding:0 8px 4px;text-align:right}}
   .card{{grid-template-columns:minmax(130px,38%) minmax(0,1fr);min-height:220px}}
   .photo{{min-height:220px}}
   .body{{padding:12px;gap:10px}}
@@ -2400,6 +2518,7 @@ h3 a{{text-decoration:none}}
     提供允許社團的單篇永久貼文網址、貼文內容、租金／格局／地區，以及可公開讀取的照片網址，
     即可代為建立真實JSON並驗證。也可設定可匿名讀取的HTTPS JSON feed持續更新。
     不需要、也請勿提供Facebook帳號、密碼、Cookie或Session；只有社團首頁或無法讀取的私密貼文網址不足以匯入。
+    Facebook分享短網址與 <code>facebook.com/photo</code> 照片頁也無法取代社團永久網址及直接圖片網址。
   </div>
   <div class="social-links">{fb_buttons}</div>
   {render_listing_browser(
@@ -2430,10 +2549,10 @@ document.querySelectorAll('[data-listing-browser]').forEach((panel) => {{
   const empty = panel.querySelector('.browser-empty');
   const count = panel.querySelector('.visible-count');
   const filterButtons = Array.from(panel.querySelectorAll('.filter-button'));
-  const sortButtons = Array.from(panel.querySelectorAll('.sort-button'));
+  const sortSelects = Array.from(panel.querySelectorAll('.sort-select'));
   let activeFilter = filterButtons[0]?.dataset.filter || 'all';
-  let activeSort = sortButtons[0]?.dataset.sort || 'order';
-  let direction = sortButtons[0]?.dataset.direction || 'asc';
+  let activeSort = sortSelects[0]?.dataset.sort || 'order';
+  let direction = sortSelects[0]?.value || 'asc';
 
   const numeric = (card, key) => {{
     const value = Number(card.dataset[key]);
@@ -2448,6 +2567,15 @@ document.querySelectorAll('[data-listing-browser]').forEach((panel) => {{
     visible.sort((a, b) => {{
       const first = numeric(a, activeSort);
       const second = numeric(b, activeSort);
+      const firstMissing = (
+        (activeSort === 'recency' && first >= 1000000000) ||
+        (['area', 'popularity'].includes(activeSort) && first <= 0)
+      );
+      const secondMissing = (
+        (activeSort === 'recency' && second >= 1000000000) ||
+        (['area', 'popularity'].includes(activeSort) && second <= 0)
+      );
+      if (firstMissing !== secondMissing) return firstMissing ? 1 : -1;
       const delta = direction === 'asc' ? first - second : second - first;
       return delta || numeric(a, 'order') - numeric(b, 'order');
     }});
@@ -2467,19 +2595,13 @@ document.querySelectorAll('[data-listing-browser]').forEach((panel) => {{
     apply();
   }}));
 
-  sortButtons.forEach((button) => button.addEventListener('click', () => {{
-    if (activeSort === button.dataset.sort) {{
-      direction = direction === 'asc' ? 'desc' : 'asc';
-    }} else {{
-      activeSort = button.dataset.sort;
-      direction = button.dataset.direction || 'asc';
-    }}
-    sortButtons.forEach((value) => {{
-      const selected = value === button;
-      value.classList.toggle('active', selected);
-      value.setAttribute('aria-pressed', String(selected));
-      const arrow = value.querySelector('.sort-arrow');
-      if (arrow && selected) arrow.textContent = direction === 'asc' ? '↑' : '↓';
+  sortSelects.forEach((select) => select.addEventListener('change', () => {{
+    activeSort = select.dataset.sort;
+    direction = select.value;
+    sortSelects.forEach((value) => {{
+      const selected = value === select;
+      value.closest('.sort-control')?.classList.toggle('active', selected);
+      value.setAttribute('aria-current', selected ? 'true' : 'false');
     }});
     apply();
   }}));

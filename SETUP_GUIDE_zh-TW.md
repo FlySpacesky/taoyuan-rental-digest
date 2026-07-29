@@ -200,6 +200,12 @@ schedule:
 更新GitHub並確認Actions結果。請勿提供Facebook帳號、密碼、Cookie或Session。
 只有私密社團首頁或登入後才可讀、且沒有貼文內容與公開照片網址的連結，無法安全轉成房源資料。
 
+`https://www.facebook.com/share/...` 分享短網址不能證明貼文來自允許清單內的社團；
+請從貼文選單複製可看出社團ID與貼文ID的永久網址，例如
+`https://www.facebook.com/groups/{社團ID}/posts/{貼文ID}/`。
+`https://www.facebook.com/photo?...` 是照片網頁而不是圖片檔，不能放在 `image`；
+請提供可直接顯示的公開圖片網址。貼文仍須明確包含4房以上，並通過代租代管／代理人等排除條件。
+
 ### 使用HTTPS feed持續更新
 
 若你或合法資料供應系統能持續輸出JSON，請提供一個不需登入、GitHub Actions可直接讀取、

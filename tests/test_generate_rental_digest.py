@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import sys
 import unittest
@@ -497,6 +498,45 @@ class Snapshot591Tests(unittest.TestCase):
         self.assertEqual(stats["validated"], 1)
         save.assert_called_once_with([item])
 
+    def test_partial_blocked_refresh_merges_and_preserves_complete_snapshot(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        refreshed = self.listing()
+        prior_only = self.listing()
+        prior_only.source_id = "21700002"
+        prior_only.url = "https://rent.591.com.tw/21700002"
+        prior_only.title = "中壢區四房整層住家"
+        prior_only.address = "中壢區中華路"
+        prior_only.fingerprint = DIGEST.fingerprint(prior_only)
+
+        def partial_crawl(row: dict[str, object]) -> list[str]:
+            row["candidate_links"] = 1
+            row["blocked_after_queries"] = 2
+            return [refreshed.url]
+
+        with (
+            patch.object(
+                DIGEST,
+                "load_591_snapshot",
+                return_value=(
+                    [self.listing(), prior_only],
+                    DIGEST.NOW.isoformat(),
+                    3.0,
+                    "",
+                ),
+            ),
+            patch.object(DIGEST, "crawl_591_links", side_effect=partial_crawl),
+            patch.object(DIGEST, "parse_591_detail", return_value=refreshed),
+            patch.object(DIGEST, "save_591_snapshot") as save,
+        ):
+            result = DIGEST.collect_591_listings(stats)
+
+        self.assertEqual([item.source_id for item in result], ["21700001", "21700002"])
+        self.assertEqual(stats["fresh_candidate_links"], 1)
+        self.assertEqual(stats["fresh_validated"], 1)
+        self.assertEqual(stats["candidate_links"], 2)
+        self.assertEqual(stats["fallback"], "partial_source_blocked")
+        save.assert_not_called()
+
 
 class RakuyaFallbackTests(unittest.TestCase):
     def test_blocked_search_records_error_after_browser_fallback(self) -> None:
@@ -513,6 +553,63 @@ class RakuyaFallbackTests(unittest.TestCase):
         self.assertEqual(stats["candidate_links"], 0)
         self.assertEqual(len(stats["errors"]), 1)
         self.assertTrue(fetch.call_args.kwargs["browser_fallback"])
+
+    def test_search_uses_current_tabs_and_includes_bade(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        response = SimpleNamespace(url="https://rent.rakuya.com.tw/result")
+        finished = "<html>符合條件的房屋已瀏覽完畢" + ("x" * 900) + "</html>"
+        with patch.object(
+            DIGEST,
+            "fetch_html",
+            return_value=(response, finished),
+        ) as fetch:
+            categories = DIGEST.crawl_rakuya_links(stats)
+
+        requested = [call.args[0] for call in fetch.call_args_list]
+        self.assertEqual(
+            set(categories),
+            {"general", "owner", "friendly", "discount"},
+        )
+        self.assertTrue(all("334" in url for url in requested))
+        self.assertTrue(any("tab=rkp" in url for url in requested))
+        self.assertTrue(any("tab=frd" in url for url in requested))
+        self.assertTrue(any("tab=low" in url for url in requested))
+        self.assertFalse(any("usecode=7" in url for url in requested))
+
+    def test_friendly_filter_can_overlap_owner_and_discount(self) -> None:
+        item = DIGEST.Listing(
+            source="樂屋網",
+            source_id="rakuya-1",
+            url="https://rent.rakuya.com.tw/item/abc",
+            title="桃園區四房可租補",
+            district="桃園區",
+            layout="4房2廳",
+            rent=30_000,
+            old_rent=32_000,
+            category="owner",
+            category_hint="owner",
+            filter_tags=["owner", "friendly", "discount"],
+        )
+
+        self.assertEqual(
+            DIGEST.listing_filter_tokens(item),
+            ["rent", "owner", "friendly", "discount"],
+        )
+
+    def test_owner_filter_requires_official_owner_tab_hint(self) -> None:
+        item = DIGEST.Listing(
+            source="樂屋網",
+            source_id="rakuya-2",
+            url="https://rent.rakuya.com.tw/item/def",
+            title="免仲介費四房出租",
+            district="桃園區",
+            layout="4房2廳",
+            rent=30_000,
+            category="general",
+            raw_text="免仲介費，但未出現在樂屋網屋主頁籤。",
+        )
+
+        self.assertEqual(DIGEST.listing_filter_tokens(item), ["rent"])
 
 
 class FacebookImportTests(unittest.TestCase):
@@ -543,6 +640,50 @@ class FacebookImportTests(unittest.TestCase):
         self.assertEqual(item.updated, "2小時前更新")
         self.assertEqual(item.views, "88人瀏覽")
         self.assertEqual(item.publisher, "屋主林先生")
+
+    def test_supplied_share_post_reports_every_rejection_reason(self) -> None:
+        row = {
+            "url": "https://www.facebook.com/share/p/1EDpLMRgBC/",
+            "title": "中壢區環中東路二段大空間出租",
+            "district": "中壢區",
+            "size": "50坪",
+            "rent": "28000",
+            "image": (
+                "https://www.facebook.com/photo?"
+                "fbid=122316970610218602&set=pcb.4332511403559617"
+            ),
+            "summary": "可自住可辦公，成交後收半個月服務費，歡迎房東委託包租代管。",
+        }
+
+        reasons = set(DIGEST.facebook_row_reject_reasons(row))
+
+        self.assertIn("invalid_or_unlisted_group_url", reasons)
+        self.assertIn("not_four_rooms", reasons)
+        self.assertIn("excluded_management_or_broker", reasons)
+        self.assertIn("image_not_direct_public", reasons)
+        self.assertIsNone(DIGEST.parse_social_row(row, "FB"))
+
+        stats = DIGEST.empty_source_stats()
+        missing = ROOT / "data" / "__missing_facebook_posts__.json"
+        with (
+            patch.object(DIGEST, "FB_IMPORT", missing),
+            patch.dict(
+                os.environ,
+                {
+                    DIGEST.FB_IMPORT_ENV: json.dumps([row], ensure_ascii=False),
+                    DIGEST.FB_IMPORT_URL_ENV: "",
+                },
+                clear=False,
+            ),
+        ):
+            items = DIGEST.load_facebook_import(stats)
+
+        self.assertEqual(items, [])
+        self.assertEqual(stats["candidate_links"], 0)
+        self.assertEqual(stats["input_rows"], 1)
+        self.assertEqual(stats["rejects"]["not_four_rooms"], 1)
+        self.assertEqual(stats["rejects"]["image_not_direct_public"], 1)
+        self.assertEqual(len(stats["errors"]), 1)
 
     def test_missing_file_and_secret_reports_actionable_error(self) -> None:
         stats = DIGEST.empty_source_stats()
@@ -751,6 +892,19 @@ class CurrentListingDisplayTests(unittest.TestCase):
         self.assertIn("租金總費用", rendered)
         self.assertIn("室內坪數", rendered)
         self.assertIn("人氣", rendered)
+        self.assertIn("由新到舊", rendered)
+        self.assertIn("由舊到新", rendered)
+        self.assertIn("總費用低到高", rendered)
+        self.assertIn("總費用高到低", rendered)
+        self.assertIn("租金低到高", rendered)
+        self.assertIn("租金高到低", rendered)
+        self.assertIn("坪數小到大", rendered)
+        self.assertIn("坪數大到小", rendered)
+        self.assertIn("人氣高到低", rendered)
+        self.assertIn("人氣低到高", rendered)
+        self.assertEqual(rendered.count('<select class="sort-select"'), 12)
+        self.assertNotIn('class="sort-button', rendered)
+        self.assertIn("justify-content:flex-end", rendered)
         self.assertIn("grid-template-columns:minmax(260px,32%)", rendered)
         self.assertNotIn("repeat(2,minmax(0,1fr))", rendered)
         self.assertEqual(rendered.count('<article class="card"'), 2)
