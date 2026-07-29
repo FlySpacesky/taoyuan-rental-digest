@@ -50,10 +50,13 @@ DATA_DIR = DOCS / "rental-data"
 STATE_FILE = DATA_DIR / "history.json"
 OUTPUT_JSON = DATA_DIR / "latest.json"
 OUTPUT_HTML = DOCS / "index.html"
+LAST_SUCCESS_591 = DATA_DIR / "last-success-591.json"
 FB_IMPORT = ROOT / "data" / "facebook_posts.json"
 FB_IMPORT_ENV = "FACEBOOK_POSTS_JSON"
 FB_IMPORT_URL_ENV = "FACEBOOK_POSTS_JSON_URL"
 _591_BFF_LIST_URL = "https://bff-house.591.com.tw/v3/web/rent/list"
+_591_REFRESH_COOLDOWN = timedelta(hours=2)
+_591_SNAPSHOT_MAX_AGE = timedelta(hours=72)
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -194,8 +197,11 @@ class BrowserFetcher:
         self._pw = None
         self._browser = None
         self._context = None
+        self._disabled = False
 
     def start(self) -> bool:
+        if self._disabled:
+            return False
         if self._context is not None:
             return True
         if sync_playwright is None:
@@ -220,6 +226,7 @@ class BrowserFetcher:
         except Exception as exc:
             print(f"[WARN] Chromium 啟動失敗：{exc}", file=sys.stderr)
             self.close()
+            self._disabled = True
             return False
 
     def html(self, url: str, wait_ms: int = 2200) -> str:
@@ -895,6 +902,13 @@ def fetch_591_bff_cards(
 def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
     links: list[str] = []
     seen: set[str] = set()
+    blocked_streak = 0
+    stop_after_block = False
+
+    def record_status(channel: str, status: int | None) -> None:
+        statuses = source_stats.setdefault("http_statuses", {}).setdefault(channel, {})
+        key = str(status) if status is not None else "network_error"
+        statuses[key] = statuses.get(key, 0) + 1
 
     # 先跑 591 官方的屋主篩選，再跑一般列表。即使一般列表後段被限流，
     # 屋主物件仍會先進入驗證；是否為屋主最後仍由詳情頁聯絡人角色確認。
@@ -921,10 +935,12 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                 # 優先讀 591 清單頁前端本身使用的官方 BFF。它提供明確角色、
                 # 主租金與官方降價差額，避免 HTML 額外費用覆蓋主租金。
                 bff_status, first_row, bff_cards = fetch_591_bff_cards(query)
+                record_status("bff", bff_status)
                 response: requests.Response | None = None
                 raw = ""
                 ids: list[str] = []
                 cards: dict[str, Listing] = {}
+                browser_result = "not_used"
                 if bff_cards:
                     cards = bff_cards
                     ids = list(cards)
@@ -932,17 +948,45 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                 elif bff_status != 200:
                     # BFF 被擋或暫時失效時，才讀 SSR HTML。
                     response, raw = fetch_html(url)
+                    record_status(
+                        "html",
+                        response.status_code if response is not None else None,
+                    )
                     ids = extract_591_ids(raw)
                     cards = parse_591_list_cards(raw)
 
                 if (not ids or not cards) and bff_status != 200:
+                    source_stats["browser_attempts"] = (
+                        int(source_stats.get("browser_attempts", 0)) + 1
+                    )
                     rendered = browser.html(url)
                     if rendered:
                         rendered_cards = parse_591_list_cards(rendered)
                         if rendered_cards:
+                            browser_result = "valid"
+                            source_stats["browser_valid_pages"] = (
+                                int(source_stats.get("browser_valid_pages", 0)) + 1
+                            )
                             raw = rendered
                             cards = rendered_cards
                             ids = extract_591_ids(rendered)
+                        else:
+                            browser_result = (
+                                "blocked" if looks_blocked(rendered) else "no_cards"
+                            )
+                    else:
+                        browser_result = "empty"
+
+                html_status = response.status_code if response is not None else None
+                if (
+                    not cards
+                    and bff_status in {401, 403, 429}
+                    and html_status in {401, 403, 429}
+                    and browser_result in {"blocked", "empty", "no_cards"}
+                ):
+                    blocked_streak += 1
+                else:
+                    blocked_streak = 0
 
                 for item_id, item in cards.items():
                     existing = _591_LIST_CACHE.get(item_id)
@@ -952,13 +996,25 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                 # 只把已成功解析為目標卡片的 ID 放進詳情驗證，排除廣告、
                 # 社區 market 連結與非 4 房卡片。
                 new_ids = [item_id for item_id in cards if item_id not in seen]
-                status = response.status_code if response is not None else "browser"
+                status = (
+                    response.status_code
+                    if response is not None
+                    else ("bff" if bff_cards else "network")
+                )
                 print(
                     f"[591] mode={mode} {district} page={page_no} "
                     f"status={status} bff={bff_status} firstRow={first_row} "
+                    f"browser={browser_result} "
                     f"ids={len(ids)} cards={len(cards)} "
                     f"cache={len(_591_LIST_CACHE)} new={len(new_ids)}"
                 )
+
+                # 官方 BFF、SSR 與 Chromium 連續兩次都明確被擋時，繼續打
+                # 其餘行政區只會加重共享 Runner IP 的限流。
+                if blocked_streak >= 2:
+                    stop_after_block = True
+                    source_stats["blocked_after_queries"] = 2
+                    break
 
                 if not new_ids:
                     empty_pages += 1
@@ -972,15 +1028,25 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                     links.append(f"https://rent.591.com.tw/{item_id}")
 
                 time.sleep(0.75)
+            if stop_after_block:
+                break
+        if stop_after_block:
+            break
 
     source_stats["candidate_links"] = len(links)
     source_stats["list_cache"] = len(_591_LIST_CACHE)
     source_stats["rejects"] = dict(sorted(_591_REJECTS.items()))
     if not links:
-        source_stats["errors"].append(
-            "591列表頁未取得物件編號；可能是GitHub Runner被591阻擋。"
-            "請查看Actions記錄確認Chromium是否成功安裝與啟動。"
-        )
+        if stop_after_block:
+            source_stats["errors"].append(
+                "591官方BFF與列表HTML連續回應403/429；Chromium也只取得受阻頁。"
+                "這是GitHub Runner出口IP被591限制，不是Chromium未安裝或物件ID解析失敗。"
+            )
+        else:
+            source_stats["errors"].append(
+                "591列表頁未取得物件編號；請查看http_statuses、browser_attempts"
+                "與Actions記錄判斷取得層失敗原因。"
+            )
     elif not _591_LIST_CACHE:
         source_stats["errors"].append(
             "591已取得候選物件編號，但列表快照為0筆；將以Chromium詳情頁驗證為主。"
@@ -1046,19 +1112,11 @@ def parse_591_detail(url: str) -> Listing | None:
     item_id = item_id_match.group(1) if item_id_match else hashlib.md5(url.encode()).hexdigest()[:16]
     cached = _591_LIST_CACHE.get(item_id)
 
-    # BFF 已提供當輪官方清單快照時，先用 requests 嘗試詳情頁；若 Runner
-    # 直接被 403，立即使用經嚴格驗證的快照，避免每筆再啟動無效 Chromium。
+    # BFF 清單本身已提供物件ID、明確刊登角色、主租金、官方降價差額、
+    # 格局、地址與圖片。直接使用嚴格驗證後的同輪快照，避免成功抓完清單後
+    # 再對 261 筆詳情頁各送一次請求，把共享 Runner 出口 IP 推進限流。
     if cached and item_id in _591_BFF_CACHE_IDS:
-        response, raw = get_requests(url)
-        if response is not None and response.status_code in {404, 410}:
-            reject_591("dead_404_410")
-            return None
-        if (
-            response is None
-            or response.status_code in {401, 403, 429}
-            or looks_blocked(raw)
-        ):
-            return _591_validated_cache(cached)
+        return _591_validated_cache(cached)
     else:
         # 非 BFF 列表來源仍保留 Chromium 備援。
         response, raw = fetch_html(url, browser_fallback=True)
@@ -1199,6 +1257,188 @@ def parse_591_detail(url: str) -> Listing | None:
 
     item.fingerprint = fingerprint(item)
     return item
+
+
+def load_591_snapshot(
+    path: Path | None = None,
+) -> tuple[list[Listing], str, float | None, str]:
+    """讀取最近一次成功的 591 真實快照，並拒絕過期或不完整資料。"""
+    snapshot_path = path or LAST_SUCCESS_591
+    try:
+        payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return [], "", None, ""
+    except (OSError, json.JSONDecodeError) as exc:
+        return [], "", None, f"591上次成功快照無法讀取：{exc}"
+
+    generated_at = str(payload.get("generated_at", ""))
+    try:
+        generated_time = datetime.fromisoformat(generated_at)
+        if generated_time.tzinfo is None:
+            raise ValueError("timezone is required")
+        age = max(timedelta(0), NOW - generated_time.astimezone(TZ))
+    except (TypeError, ValueError):
+        return [], generated_at, None, "591上次成功快照缺少有效時區時間戳。"
+
+    age_hours = age.total_seconds() / 3600
+    if age > _591_SNAPSHOT_MAX_AGE:
+        return (
+            [],
+            generated_at,
+            age_hours,
+            f"591上次成功快照已超過{int(_591_SNAPSHOT_MAX_AGE.total_seconds() / 3600)}小時，"
+            "為避免顯示過期房源，本輪不沿用。",
+        )
+
+    rows = payload.get("items")
+    if not isinstance(rows, list):
+        return [], generated_at, age_hours, "591上次成功快照的items不是陣列。"
+
+    field_names = set(Listing.__dataclass_fields__)
+    items: list[Listing] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict) or row.get("source") != "591":
+            continue
+        item_id = str(row.get("source_id", ""))
+        if not re.fullmatch(r"\d{7,9}", item_id) or item_id in seen:
+            continue
+        try:
+            values = {key: row[key] for key in field_names if key in row}
+            values["rent"] = int(values.get("rent", 0) or 0)
+            values["old_rent"] = int(values.get("old_rent", 0) or 0)
+            item = Listing(**values)
+        except (TypeError, ValueError):
+            continue
+
+        item.source_id = item_id
+        item.url = f"https://rent.591.com.tw/{item_id}"
+        if (
+            excluded(item.raw_text)
+            or _591_is_proxy(item.publisher)
+            or item.house_type != "整層住家"
+            or not _591_has_four_room_layout(item.layout)
+            or not item.title
+            or not item.rent
+            or not item.image
+            or not allowed_district(item)
+        ):
+            continue
+        item.fingerprint = item.fingerprint or fingerprint(item)
+        seen.add(item_id)
+        items.append(item)
+
+    if not items:
+        return [], generated_at, age_hours, "591上次成功快照沒有可安全沿用的有效物件。"
+    return items, generated_at, age_hours, ""
+
+
+def save_591_snapshot(items: list[Listing], path: Path | None = None) -> None:
+    """只在本輪成功取得 591 時更新備援快照。"""
+    snapshot_path = path or LAST_SUCCESS_591
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot_path.write_text(
+        json.dumps(
+            {
+                "generated_at": NOW.isoformat(),
+                "items": [asdict(item) for item in items if item.source == "591"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def use_591_snapshot(
+    source_stats: dict[str, Any],
+    items: list[Listing],
+    generated_at: str,
+    age_hours: float,
+    reason: str,
+) -> list[Listing]:
+    """把上次成功資料列入本輪顯示，同時保留新鮮抓取的真實統計。"""
+    fresh_candidates = int(source_stats.get("candidate_links", 0) or 0)
+    source_stats["fresh_candidate_links"] = fresh_candidates
+    source_stats["candidate_links"] = len(items)
+    source_stats["validated"] = len(items)
+    source_stats["snapshot_items"] = len(items)
+    source_stats["snapshot_generated_at"] = generated_at
+    source_stats["snapshot_age_hours"] = round(age_hours, 2)
+    source_stats["fallback"] = reason
+
+    if reason == "refresh_cooldown":
+        source_stats["notices"].append(
+            f"距上次成功抓取僅{age_hours:.1f}小時；為避免591限流，本輪沿用"
+            f"{generated_at}的{len(items)}筆真實快照，未重新請求591。"
+        )
+    else:
+        source_stats["errors"].append(
+            f"本輪591新鮮候選為{fresh_candidates}筆，沿用{generated_at}的"
+            f"{len(items)}筆上次成功真實快照；這些物件本輪未重新驗證，"
+            "請點開591確認仍在刊登。"
+        )
+    return items
+
+
+def collect_591_listings(source_stats: dict[str, Any]) -> list[Listing]:
+    """取得 591；短時間重跑或來源受阻時，誠實標示並沿用近期成功快照。"""
+    snapshot, snapshot_at, snapshot_age, snapshot_error = load_591_snapshot()
+
+    if (
+        snapshot
+        and snapshot_age is not None
+        and timedelta(hours=snapshot_age) < _591_REFRESH_COOLDOWN
+    ):
+        return use_591_snapshot(
+            source_stats,
+            snapshot,
+            snapshot_at,
+            snapshot_age,
+            "refresh_cooldown",
+        )
+
+    links = crawl_591_links(source_stats)
+    fresh: list[Listing] = []
+    for index, url in enumerate(links, 1):
+        print(f"[591 detail] {index}/{len(links)} {url}")
+        item = parse_591_detail(url)
+        if item:
+            fresh.append(item)
+
+    source_stats["validated"] = len(fresh)
+    source_stats["list_cache"] = len(_591_LIST_CACHE)
+    source_stats["rejects"] = dict(sorted(_591_REJECTS.items()))
+    if links and not fresh:
+        reject_summary = ", ".join(
+            f"{key}={value}" for key, value in sorted(_591_REJECTS.items())
+        ) or "無拒絕原因紀錄"
+        source_stats["errors"].append(
+            "591有取得候選物件，但0筆通過驗證。"
+            f"列表快照={len(_591_LIST_CACHE)}；排除原因：{reject_summary}。"
+            "請依rejects判斷是缺欄位、4房解析或排除條件造成。"
+        )
+
+    if fresh:
+        try:
+            save_591_snapshot(fresh)
+            source_stats["snapshot_updated_at"] = NOW.isoformat()
+        except OSError as exc:
+            source_stats["errors"].append(f"591成功資料無法保存為備援快照：{exc}")
+        return fresh
+
+    if snapshot and snapshot_age is not None:
+        return use_591_snapshot(
+            source_stats,
+            snapshot,
+            snapshot_at,
+            snapshot_age,
+            "source_blocked",
+        )
+
+    if snapshot_error:
+        source_stats["errors"].append(snapshot_error)
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -1811,12 +2051,22 @@ def render_status(stats: dict[str, Any], source: str) -> str:
     row = stats["sources"][source]
     errors = row.get("errors", [])
     error_html = "".join(f"<li>{esc(error)}</li>" for error in errors[:8])
+    notices = row.get("notices", [])
+    notice_html = "".join(f"<li>{esc(notice)}</li>" for notice in notices[:8])
 
     diagnostics = ""
     if source == "591":
         rejects = row.get("rejects", {}) or {}
         reject_text = "、".join(f"{key}={value}" for key, value in sorted(rejects.items())) or "無"
+        snapshot_html = ""
+        if row.get("fallback"):
+            snapshot_html = (
+                '<strong class="fallback-warning">⚠ 本輪顯示上次成功快照：'
+                f"{row.get('snapshot_items', 0)} 筆，"
+                f"{row.get('snapshot_age_hours', 0)} 小時前；未重新驗證</strong>"
+            )
         diagnostics = (
+            f"{snapshot_html}"
             f"<span>列表快照 {row.get('list_cache', 0)} 筆</span>"
             f"<details><summary>591排除診斷</summary><div>{esc(reject_text)}</div></details>"
         )
@@ -1828,6 +2078,7 @@ def render_status(stats: dict[str, Any], source: str) -> str:
       <span>驗證通過 {row.get('validated', 0)} 筆</span>
       <span>本頁顯示 {row.get('published', 0)} 筆</span>
       {diagnostics}
+      {f'<details><summary>來源說明</summary><ul>{notice_html}</ul></details>' if notices else ''}
       {f'<details><summary>查看來源訊息</summary><ul>{error_html}</ul></details>' if errors else ''}
     </div>
     """
@@ -1879,6 +2130,7 @@ main{{padding:22px 0 48px}}
 .source-status span{{color:#555}}
 .source-status details{{width:100%;color:#8a3f00}}
 .source-status ul{{margin:8px 0 0;padding-left:20px}}
+.source-status .fallback-warning{{width:100%;color:#8a3f00;background:#fff3cd;border:1px solid #f1ce72;padding:9px 11px;border-radius:7px}}
 .subsection{{margin-top:14px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px}}
 .subsection>header{{display:flex;justify-content:space-between;align-items:end;gap:12px}}
 .subsection h2{{margin:0;font-size:25px}}
@@ -1976,6 +2228,7 @@ def empty_source_stats() -> dict[str, Any]:
         "validated": 0,
         "published": 0,
         "errors": [],
+        "notices": [],
         "list_cache": 0,
         "rejects": {},
     }
@@ -1993,26 +2246,7 @@ def main() -> int:
     candidates: list[Listing] = []
 
     try:
-        links_591 = crawl_591_links(stats["sources"]["591"])
-        valid_591 = 0
-        for index, url in enumerate(links_591, 1):
-            print(f"[591 detail] {index}/{len(links_591)} {url}")
-            item = parse_591_detail(url)
-            if item:
-                candidates.append(item)
-                valid_591 += 1
-        stats["sources"]["591"]["validated"] = valid_591
-        stats["sources"]["591"]["list_cache"] = len(_591_LIST_CACHE)
-        stats["sources"]["591"]["rejects"] = dict(sorted(_591_REJECTS.items()))
-        if links_591 and valid_591 == 0:
-            reject_summary = ", ".join(
-                f"{key}={value}" for key, value in sorted(_591_REJECTS.items())
-            ) or "無拒絕原因紀錄"
-            stats["sources"]["591"]["errors"].append(
-                "591有取得候選物件，但0筆通過驗證。"
-                f"列表快照={len(_591_LIST_CACHE)}；排除原因：{reject_summary}。"
-                "請依 rejects 判斷是網站阻擋、缺欄位、4房解析或排除條件造成。"
-            )
+        candidates.extend(collect_591_listings(stats["sources"]["591"]))
 
         rakuya_map = crawl_rakuya_links(stats["sources"]["樂屋網"])
         hints_by_url: dict[str, set[str]] = {}

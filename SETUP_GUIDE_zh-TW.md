@@ -179,7 +179,8 @@ schedule:
 
 - `data/facebook_posts.json`
 - Repository Actions secret：`FACEBOOK_POSTS_JSON`
-- Repository Actions secret：`FACEBOOK_POSTS_JSON_URL`（可匿名讀取的HTTPS JSON feed）
+- Repository Actions secret 或 variable：`FACEBOOK_POSTS_JSON_URL`
+  （可匿名讀取的HTTPS JSON feed；URL本身不敏感時建議用 variable）
 
 格式參考：
 
@@ -192,7 +193,8 @@ schedule:
 3. 可將JSON存為 `data/facebook_posts.json`；若不希望資料檔進入版本控制，
    則把完整JSON陣列設為Repository Actions secret `FACEBOOK_POSTS_JSON`。
 4. 若資料由其他合法系統持續整理，可把HTTPS JSON feed網址設為
-   `FACEBOOK_POSTS_JSON_URL`，workflow每次執行時會重新讀取，不必反覆commit資料檔。
+   Repository Actions variable（或secret）`FACEBOOK_POSTS_JSON_URL`，
+   workflow每次執行時會重新讀取，不必反覆commit資料檔。
 5. 手動執行workflow並在來源診斷確認 `candidate_links`、`validated` 與拒絕原因。
 
 程式只接受設定清單內社團的單篇貼文網址，並驗證4房以上、指定地區、租金與公開圖片；

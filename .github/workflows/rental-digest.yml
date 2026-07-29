@@ -68,7 +68,7 @@ jobs:
       - name: 抓取、驗證、去重並產生網頁
         env:
           FACEBOOK_POSTS_JSON: ${{ secrets.FACEBOOK_POSTS_JSON }}
-          FACEBOOK_POSTS_JSON_URL: ${{ secrets.FACEBOOK_POSTS_JSON_URL }}
+          FACEBOOK_POSTS_JSON_URL: ${{ secrets.FACEBOOK_POSTS_JSON_URL || vars.FACEBOOK_POSTS_JSON_URL }}
         run: python scripts/generate_rental_digest.py
 
       - name: 顯示來源診斷摘要

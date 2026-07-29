@@ -273,6 +273,35 @@ class Extract591Tests(unittest.TestCase):
         self.assertEqual(links, ["https://rent.591.com.tw/21700001"])
         fetch.assert_not_called()
 
+    def test_crawler_stops_after_two_fully_blocked_queries(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        forbidden = SimpleNamespace(status_code=403)
+        with (
+            patch.object(
+                DIGEST,
+                "fetch_591_bff_cards",
+                return_value=(403, 0, {}),
+            ),
+            patch.object(
+                DIGEST,
+                "fetch_html",
+                return_value=(forbidden, "<html>access denied</html>"),
+            ) as fetch,
+            patch.object(
+                DIGEST.browser,
+                "html",
+                return_value="<html>captcha</html>",
+            ) as browser_fetch,
+        ):
+            links = DIGEST.crawl_591_links(stats)
+
+        self.assertEqual(links, [])
+        self.assertEqual(fetch.call_count, 2)
+        self.assertEqual(browser_fetch.call_count, 2)
+        self.assertEqual(stats["blocked_after_queries"], 2)
+        self.assertEqual(stats["http_statuses"]["bff"]["403"], 2)
+        self.assertIn("不是Chromium未安裝", stats["errors"][0])
+
 
 class Detail591Tests(unittest.TestCase):
     def setUp(self) -> None:
@@ -333,7 +362,7 @@ class Detail591Tests(unittest.TestCase):
         self.assertIsNone(item)
         self.assertEqual(DIGEST._591_REJECTS.get("not_4_rooms"), 1)
 
-    def test_bff_cache_skips_browser_when_detail_is_forbidden(self) -> None:
+    def test_bff_cache_skips_all_detail_network_requests(self) -> None:
         cached = DIGEST.parse_591_bff_cards(
             {
                 "status": 1,
@@ -361,16 +390,112 @@ class Detail591Tests(unittest.TestCase):
         )["21700001"]
         DIGEST._591_LIST_CACHE["21700001"] = cached
         DIGEST._591_BFF_CACHE_IDS.add("21700001")
-        forbidden = SimpleNamespace(status_code=403)
 
         with (
-            patch.object(DIGEST, "get_requests", return_value=(forbidden, "denied")),
+            patch.object(DIGEST, "get_requests") as get,
             patch.object(DIGEST, "fetch_html") as fetch,
         ):
             item = DIGEST.parse_591_detail("https://rent.591.com.tw/21700001")
 
         self.assertIs(item, cached)
+        get.assert_not_called()
         fetch.assert_not_called()
+
+
+class Snapshot591Tests(unittest.TestCase):
+    def setUp(self) -> None:
+        DIGEST._591_LIST_CACHE.clear()
+        DIGEST._591_BFF_CACHE_IDS.clear()
+        DIGEST._591_REJECTS.clear()
+
+    @staticmethod
+    def listing() -> object:
+        item = DIGEST.Listing(
+            source="591",
+            source_id="21700001",
+            url="https://rent.591.com.tw/21700001",
+            title="桃園區四房整層住家",
+            district="桃園區",
+            address="桃園區中正路",
+            house_type="整層住家",
+            layout="4房2廳",
+            rent=32_000,
+            publisher="屋主林先生",
+            image="https://img1.591.com.tw/house/example.jpg",
+            validated_at=DIGEST.NOW.isoformat(),
+            raw_text="桃園區四房整層住家",
+        )
+        item.fingerprint = DIGEST.fingerprint(item)
+        return item
+
+    def test_recent_snapshot_avoids_refresh_rate_limit(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        item = self.listing()
+        with (
+            patch.object(
+                DIGEST,
+                "load_591_snapshot",
+                return_value=([item], DIGEST.NOW.isoformat(), 0.5, ""),
+            ),
+            patch.object(DIGEST, "crawl_591_links") as crawl,
+        ):
+            result = DIGEST.collect_591_listings(stats)
+
+        self.assertEqual(result, [item])
+        crawl.assert_not_called()
+        self.assertEqual(stats["candidate_links"], 1)
+        self.assertEqual(stats["fresh_candidate_links"], 0)
+        self.assertEqual(stats["validated"], 1)
+        self.assertEqual(stats["fallback"], "refresh_cooldown")
+
+    def test_blocked_refresh_uses_recent_real_snapshot(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        item = self.listing()
+
+        def blocked_crawl(row: dict[str, object]) -> list[str]:
+            row["errors"].append("591 BFF 403")
+            row["candidate_links"] = 0
+            return []
+
+        with (
+            patch.object(
+                DIGEST,
+                "load_591_snapshot",
+                return_value=([item], DIGEST.NOW.isoformat(), 3.0, ""),
+            ),
+            patch.object(DIGEST, "crawl_591_links", side_effect=blocked_crawl),
+        ):
+            result = DIGEST.collect_591_listings(stats)
+
+        self.assertEqual(result, [item])
+        self.assertEqual(stats["candidate_links"], 1)
+        self.assertEqual(stats["fresh_candidate_links"], 0)
+        self.assertEqual(stats["validated"], 1)
+        self.assertEqual(stats["fallback"], "source_blocked")
+        self.assertTrue(any("未重新驗證" in value for value in stats["errors"]))
+
+    def test_successful_refresh_updates_snapshot(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        item = self.listing()
+        with (
+            patch.object(
+                DIGEST,
+                "load_591_snapshot",
+                return_value=([], "", None, ""),
+            ),
+            patch.object(
+                DIGEST,
+                "crawl_591_links",
+                return_value=[item.url],
+            ),
+            patch.object(DIGEST, "parse_591_detail", return_value=item),
+            patch.object(DIGEST, "save_591_snapshot") as save,
+        ):
+            result = DIGEST.collect_591_listings(stats)
+
+        self.assertEqual(result, [item])
+        self.assertEqual(stats["validated"], 1)
+        save.assert_called_once_with([item])
 
 
 class RakuyaFallbackTests(unittest.TestCase):
