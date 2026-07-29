@@ -2300,7 +2300,8 @@ def render_listing_browser(
     return f"""
     <section class="listing-browser" data-listing-browser data-source="{esc(source)}">
       <div class="filter-bar">
-        <div class="filter-group" role="group" aria-label="{esc(source_label(source))} 分類">
+        <div class="filter-group" data-filter-count="{len(filters)}"
+             role="group" aria-label="{esc(source_label(source))} 分類">
           {''.join(filter_buttons)}
         </div>
         <div class="sort-row">
@@ -2345,13 +2346,17 @@ def render_status(stats: dict[str, Any], source: str) -> str:
 
     return f"""
     <div class="source-status">
-      <b>本次紀錄</b>
-      <span>候選 {row.get('candidate_links', 0)} 筆</span>
-      <span>驗證通過 {row.get('validated', 0)} 筆</span>
-      <span>本頁顯示 {row.get('published', 0)} 筆</span>
-      {diagnostics}
-      {f'<details><summary>來源說明</summary><ul>{notice_html}</ul></details>' if notices else ''}
-      {f'<details><summary>查看來源訊息</summary><ul>{error_html}</ul></details>' if errors else ''}
+      <div class="status-primary">
+        <b>本次紀錄</b>
+        <span>候選 {row.get('candidate_links', 0)} 筆</span>
+        <span>驗證通過 {row.get('validated', 0)} 筆</span>
+        <span>本頁顯示 {row.get('published', 0)} 筆</span>
+      </div>
+      <div class="status-secondary">
+        {diagnostics}
+        {f'<details><summary>來源說明</summary><ul>{notice_html}</ul></details>' if notices else ''}
+        {f'<details><summary>查看來源訊息</summary><ul>{error_html}</ul></details>' if errors else ''}
+      </div>
     </div>
     """
 
@@ -2400,23 +2405,28 @@ main{{padding:22px 0 48px}}
 .source-heading{{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-bottom:10px}}
 .source-heading h2{{font-size:31px;margin:0}}
 .source-heading a{{font-size:14px;color:#555;text-underline-offset:3px}}
-.source-status{{display:flex;gap:8px 14px;align-items:center;justify-content:flex-end;text-align:right;flex-wrap:wrap;background:#fff;padding:12px 14px;border:1px solid var(--line);border-radius:10px}}
-.source-status span{{color:#555}}
+.source-status{{display:flex;flex-direction:column;align-items:flex-end;background:#fff;padding:12px 14px;border:1px solid var(--line);border-radius:10px}}
+.status-primary{{width:75%;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));align-items:center;direction:rtl}}
+.status-primary>*{{min-width:0;padding:2px 10px;direction:ltr;text-align:center}}
+.status-primary span{{color:#555}}
+.status-secondary{{width:100%;display:flex;gap:8px 14px;align-items:center;justify-content:flex-end;text-align:right;flex-wrap:wrap}}
+.status-secondary:empty{{display:none}}
 .source-status details{{width:100%;color:#8a3f00;text-align:right}}
 .source-status ul{{margin:8px 0 0;padding-left:20px;text-align:left}}
 .source-status .fallback-warning{{width:100%;color:#8a3f00;background:#fff3cd;border:1px solid #f1ce72;padding:9px 11px;border-radius:7px}}
 .listing-browser{{margin-top:14px}}
 .filter-bar{{background:#fff;border:1px solid var(--line);border-radius:10px;padding:0 16px;box-shadow:0 2px 8px #00000008}}
-.filter-group,.sort-group{{display:flex;align-items:center;gap:4px;flex-wrap:wrap}}
-.filter-group{{justify-content:flex-end;border-bottom:1px solid var(--line)}}
-.filter-button{{appearance:none;border:0;background:transparent;color:#4f5965;font:inherit;font-weight:800;cursor:pointer;padding:14px 13px;border-bottom:3px solid transparent}}
+.filter-group{{width:75%;margin-left:auto;display:grid;grid-template-columns:repeat(var(--filter-count),minmax(0,1fr));align-items:stretch;direction:rtl;border-bottom:1px solid var(--line)}}
+.filter-group[data-filter-count="4"]{{--filter-count:4}}
+.filter-group[data-filter-count="3"]{{--filter-count:3}}
+.filter-button{{width:100%;appearance:none;border:0;background:transparent;color:#4f5965;font:inherit;font-weight:800;cursor:pointer;padding:14px 8px;border-bottom:3px solid transparent;direction:ltr;text-align:center}}
 .filter-button b{{font-size:12px;color:#8a929b;margin-left:3px}}
 .filter-button:hover{{color:var(--orange)}}
 .filter-button.active{{color:var(--orange);border-bottom-color:var(--orange)}}
 .filter-button.active b{{color:var(--orange)}}
 .sort-row{{display:flex;align-items:center;justify-content:flex-end;gap:10px;min-height:68px;padding:8px 0}}
 .sort-row>span{{color:#8a929b;font-size:13px;font-weight:800}}
-.sort-group{{justify-content:flex-end;gap:8px}}
+.sort-group{{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}}
 .sort-control{{display:flex;align-items:center;gap:6px;padding:6px 7px;border:1px solid var(--line);border-radius:7px;background:#fafbfc;color:#555;font-size:13px;font-weight:850}}
 .sort-control.active{{border-color:#ffb879;background:var(--orange-soft);color:#b55a09}}
 .sort-select{{max-width:145px;border:1px solid #d9dde3;border-radius:5px;background:#fff;color:#30343a;padding:7px 25px 7px 8px;font:inherit;cursor:pointer}}
@@ -2455,6 +2465,7 @@ h3 a{{text-decoration:none}}
 .social-note{{background:#fff8e9;border:1px solid #ffd7a6;padding:13px;border-radius:9px;margin-top:12px;line-height:1.7}}
 [hidden]{{display:none!important}}
 @media(max-width:820px){{
+  .status-primary,.filter-group{{width:100%}}
   .card{{grid-template-columns:minmax(210px,34%) minmax(0,1fr)}}
   .body{{grid-template-columns:1fr}}
   .price-column{{align-items:flex-start;text-align:left;border-left:0;border-top:1px solid #f0f1f3;padding:10px 0 0}}
@@ -2468,6 +2479,8 @@ h3 a{{text-decoration:none}}
   .source-nav{{gap:6px;margin-top:8px}}
   .source-nav a{{flex:1;text-align:center;padding:9px 6px}}
   .filter-bar{{padding:0 9px}}
+  .filter-group{{display:flex;justify-content:flex-start;flex-wrap:nowrap;overflow-x:auto}}
+  .filter-button{{flex:1 0 auto}}
   .filter-button{{padding-left:8px;padding-right:8px;font-size:13px}}
   .sort-row{{align-items:flex-start;flex-wrap:wrap;padding:8px 0}}
   .sort-row>span{{padding-top:9px}}

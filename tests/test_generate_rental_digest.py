@@ -911,6 +911,26 @@ class CurrentListingDisplayTests(unittest.TestCase):
         self.assertEqual(rendered.count('<select class="sort-select"'), 12)
         self.assertNotIn('class="sort-button', rendered)
         self.assertIn("justify-content:flex-end", rendered)
+        self.assertEqual(rendered.count('class="status-primary"'), 3)
+        self.assertEqual(
+            rendered.count('<div class="filter-group" data-filter-count="4"'),
+            2,
+        )
+        self.assertEqual(
+            rendered.count('<div class="filter-group" data-filter-count="3"'),
+            1,
+        )
+        self.assertIn(
+            ".status-primary{width:75%;display:grid;"
+            "grid-template-columns:repeat(4,minmax(0,1fr));",
+            rendered,
+        )
+        self.assertIn(
+            ".filter-group{width:75%;margin-left:auto;display:grid;",
+            rendered,
+        )
+        self.assertIn("align-items:stretch;direction:rtl", rendered)
+        self.assertIn(".status-primary,.filter-group{width:100%}", rendered)
         self.assertIn("grid-template-columns:minmax(260px,32%)", rendered)
         self.assertNotIn("repeat(2,minmax(0,1fr))", rendered)
         self.assertEqual(rendered.count('<article class="card"'), 2)
