@@ -186,6 +186,26 @@ schedule:
 
 `data/facebook_posts.example.json`
 
+### 直接交給Codex代為建立
+
+你可以直接提供每一筆真實房源的：
+
+1. 設定清單內社團的「單篇永久貼文網址」（不是社團首頁）。
+2. 貼文文字，或你有權使用、內容清楚可辨識的貼文截圖。
+3. 租金、4房以上格局、桃園區／中壢區／平鎮區／八德區其中一區。
+4. 可公開讀取的原始照片HTTPS網址。
+5. 若貼文有提供，也可附上坪數、樓層、刊登者、更新時間、瀏覽人氣與原租金。
+
+收到上述資料後，Codex可以協助整理成 `data/facebook_posts.json`、執行驗證、
+更新GitHub並確認Actions結果。請勿提供Facebook帳號、密碼、Cookie或Session。
+只有私密社團首頁或登入後才可讀、且沒有貼文內容與公開照片網址的連結，無法安全轉成房源資料。
+
+### 使用HTTPS feed持續更新
+
+若你或合法資料供應系統能持續輸出JSON，請提供一個不需登入、GitHub Actions可直接讀取、
+回傳內容小於2MB的HTTPS網址。最外層可為陣列，或為包含 `posts` 陣列的物件。
+Codex可以協助把網址設定成Repository variable `FACEBOOK_POSTS_JSON_URL` 並執行驗證。
+
 建立方式：
 
 1. 從你有權使用的外部資料來源取得真實貼文資料；本程式不登入或匿名繞過Facebook存取限制。

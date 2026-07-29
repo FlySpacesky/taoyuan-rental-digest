@@ -516,6 +516,34 @@ class RakuyaFallbackTests(unittest.TestCase):
 
 
 class FacebookImportTests(unittest.TestCase):
+    def test_real_row_supports_listing_sort_fields(self) -> None:
+        row = {
+            "url": f"{DIGEST.FB_GROUPS[0]}/posts/1234567890/",
+            "title": "桃園區四房整層住家",
+            "district": "桃園區",
+            "address": "桃園區中正路",
+            "house_type": "整層住家",
+            "layout": "4房2廳",
+            "size": "35坪",
+            "rent": "32000",
+            "old_rent": "35000",
+            "updated": "2小時前更新",
+            "views": "88人瀏覽",
+            "publisher": "屋主林先生",
+            "image": "https://images.example.test/real-authorized-photo.jpg",
+            "summary": "屋主自租，仲介勿擾。",
+        }
+
+        item = DIGEST.parse_social_row(row, "FB")
+
+        self.assertIsNotNone(item)
+        assert item is not None
+        self.assertEqual(item.size, "35坪")
+        self.assertEqual(item.old_rent, 35_000)
+        self.assertEqual(item.updated, "2小時前更新")
+        self.assertEqual(item.views, "88人瀏覽")
+        self.assertEqual(item.publisher, "屋主林先生")
+
     def test_missing_file_and_secret_reports_actionable_error(self) -> None:
         stats = DIGEST.empty_source_stats()
         missing = ROOT / "data" / "__missing_facebook_posts__.json"
@@ -669,6 +697,74 @@ class CurrentListingDisplayTests(unittest.TestCase):
         self.assertEqual(
             DIGEST.section_items([owner], "591", "discount"),
             [owner],
+        )
+
+    def test_591_featured_requires_explicit_official_label(self) -> None:
+        featured = self.listing("21700001")
+        featured.raw_text = "優選好屋 可開伙"
+        ordinary = self.listing("21700002")
+        ordinary.title = "精選四房物件"
+
+        self.assertTrue(DIGEST.is_591_featured(featured))
+        self.assertFalse(DIGEST.is_591_featured(ordinary))
+        self.assertEqual(
+            DIGEST.section_items([featured, ordinary], "591", "featured"),
+            [featured],
+        )
+
+    def test_render_uses_single_listing_column_tabs_sorts_and_date(self) -> None:
+        owner = self.listing(
+            "21700001",
+            publisher="屋主: 林先生",
+            category_hint="owner",
+            category="owner",
+        )
+        owner.raw_text = "優選好屋"
+        discount = self.listing(
+            "21700002",
+            category_hint="discount",
+            category="discount",
+            old_rent=35_000,
+        )
+        stats = {
+            "sources": {
+                "591": DIGEST.empty_source_stats(),
+                "FB": DIGEST.empty_source_stats(),
+                "樂屋網": DIGEST.empty_source_stats(),
+            },
+            "candidates": 2,
+            "validated": 2,
+            "duplicates": 0,
+            "published": 2,
+        }
+        stats["sources"]["591"].update(
+            {"candidate_links": 2, "validated": 2, "published": 2}
+        )
+
+        rendered = DIGEST.render_html([owner, discount], stats)
+
+        self.assertIn(
+            f'<time datetime="{DIGEST.NOW:%Y-%m-%d}">{DIGEST.NOW:%Y/%m/%d}</time>',
+            rendered,
+        )
+        self.assertIn("優選好屋", rendered)
+        self.assertIn("租金總費用", rendered)
+        self.assertIn("室內坪數", rendered)
+        self.assertIn("人氣", rendered)
+        self.assertIn("grid-template-columns:minmax(260px,32%)", rendered)
+        self.assertNotIn("repeat(2,minmax(0,1fr))", rendered)
+        self.assertEqual(rendered.count('<article class="card"'), 2)
+        self.assertIn(
+            'href="https://rent.591.com.tw/list?kind=1&layout=4&region=6"',
+            rendered,
+        )
+        self.assertIn(
+            'href="https://www.facebook.com/groups/feed/"',
+            rendered,
+        )
+        self.assertIn(
+            'href="https://rent.rakuya.com.tw/"',
+            rendered,
         )
 
 

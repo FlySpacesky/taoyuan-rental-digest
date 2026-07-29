@@ -1710,9 +1710,14 @@ def parse_social_row(row: dict[str, Any], source: str) -> Listing | None:
         building_type=clean(row.get("building_type", ""), 30),
         floor=clean(row.get("floor", ""), 30),
         layout=clean(row.get("layout", ""), 30),
+        size=clean(row.get("size", ""), 30),
         equipment=clean(row.get("equipment", ""), 220),
         rent=rent,
+        old_rent=money(str(row.get("old_rent", ""))),
         min_lease=clean(row.get("min_lease", ""), 30),
+        updated=clean(row.get("updated", ""), 50),
+        views=clean(row.get("views", ""), 50),
+        publisher=clean(row.get("publisher", ""), 80),
         image=image,
         summary=clean(row.get("summary", ""), 500),
         category_hint="priority" if any(marker in text for marker in PRIORITY_MARKERS) else "general",
@@ -1941,47 +1946,138 @@ def category_label(item: Listing) -> str:
     return labels.get((item.source, item.category), item.category)
 
 
-def render_card(item: Listing) -> str:
+def is_591_featured(item: Listing) -> bool:
+    """591「優選好屋」只接受官方列表文字中的明確標籤。"""
+    if item.source != "591":
+        return False
+    text = " ".join((item.title, item.summary, item.raw_text))
+    return "優選好屋" in text
+
+
+def listing_filter_tokens(item: Listing) -> list[str]:
+    if item.source == "591":
+        tokens = ["all"]
+        if is_591_featured(item):
+            tokens.append("featured")
+        if _591_is_owner(item.publisher):
+            tokens.append("owner")
+        if (
+            item.category_hint == "discount"
+            or item.category == "discount"
+            or item.old_rent > item.rent
+        ):
+            tokens.append("discount")
+        return tokens
+
+    if item.source == "樂屋網":
+        tokens = ["rent"]
+        if item.category == "owner":
+            tokens.append("owner")
+        if item.category == "friendly":
+            tokens.append("friendly")
+        if item.category == "discount" or item.old_rent > item.rent:
+            tokens.append("discount")
+        return tokens
+
+    tokens = ["all"]
+    tokens.append("priority" if item.category == "priority" else "general")
+    return tokens
+
+
+def numeric_value(text: str) -> float:
+    match = re.search(r"\d+(?:\.\d+)?", text or "")
+    return float(match.group(0)) if match else 0.0
+
+
+def recency_minutes(item: Listing) -> int:
+    """供前端排序使用；數字越小代表越新。"""
+    value = item.updated or ""
+    if "剛剛" in value or "新上架" in value:
+        return 0
+    match = re.search(r"(\d+)\s*分鐘", value)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"(\d+)\s*小時", value)
+    if match:
+        return int(match.group(1)) * 60
+    match = re.search(r"(\d+)\s*天", value)
+    if match:
+        return int(match.group(1)) * 24 * 60
+    match = re.search(r"(\d+)\s*個月", value)
+    if match:
+        return int(match.group(1)) * 30 * 24 * 60
+    return 10**9
+
+
+def card_badges(item: Listing) -> list[str]:
+    badges: list[str] = []
+    if is_591_featured(item):
+        badges.append("優選好屋")
+    if item.source == "591" and _591_is_owner(item.publisher):
+        badges.append("屋主直租")
+    elif item.source == "樂屋網" and item.category == "owner":
+        badges.append("屋主")
+    elif item.source == "FB" and item.category == "priority":
+        badges.append("優先物件")
+    if item.old_rent > item.rent:
+        badges.append("降價")
+    return badges
+
+
+def render_card(item: Listing, order: int = 0) -> str:
     old_html = (
-        f'<div class="old">原租金：<del>{item.old_rent:,} 元／月</del></div>'
+        f'<div class="old"><del>{item.old_rent:,} 元／月</del></div>'
         if item.old_rent > item.rent
         else ""
     )
 
-    details = [
-        ("房屋類型", item.house_type),
-        ("房屋型態", item.building_type),
-        ("出租地址", item.address),
-        ("總樓層／層別", item.floor),
-        ("格局", item.layout),
-        ("提供設備", item.equipment),
+    facts = [
+        item.house_type,
+        item.building_type,
+        item.layout,
+        item.size,
+        item.floor,
     ]
-    if item.source in {"591", "FB"}:
-        details.append(("最短租期", item.min_lease))
-
-    detail_html = "".join(
-        f"<div><span>{esc(label)}</span><b>{esc(value or '未提供')}</b></div>"
-        for label, value in details
+    facts_html = "".join(
+        f"<span>{esc(value)}</span>" for value in facts if value
+    )
+    tags = [value for value in (item.equipment, item.min_lease) if value]
+    tags_html = "".join(f"<span>{esc(value)}</span>" for value in tags)
+    badges_html = "".join(
+        f'<span class="tag highlight">{esc(value)}</span>'
+        for value in card_badges(item)
     )
     activity = "・".join(v for v in (item.updated, item.views) if v)
+    categories = " ".join(listing_filter_tokens(item))
+    area = numeric_value(item.size)
+    popularity = int(numeric_value(item.views))
+    total_cost = item.rent
 
     return f"""
-    <article class="card">
+    <article class="card" data-categories="{esc(categories)}"
+             data-order="{order}" data-recency="{recency_minutes(item)}"
+             data-total="{total_cost}" data-rent="{item.rent}"
+             data-area="{area}" data-popularity="{popularity}">
       <a class="photo" href="{esc(item.url)}" target="_blank" rel="noopener noreferrer">
         <img src="{esc(item.image)}" alt="{esc(item.title)}" referrerpolicy="no-referrer"
              onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
         <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span>{esc(source_label(item.source))}｜{esc(category_label(item))}</span>
+        <span class="source-badge">{esc(source_label(item.source))}</span>
       </a>
       <div class="body">
-        <small>{esc(item.district)}</small>
-        <h3><a href="{esc(item.url)}" target="_blank" rel="noopener noreferrer">{esc(item.title)}</a></h3>
-        <p class="summary">{esc(item.layout or '格局未提供')}・{esc(item.size or '坪數未提供')}・{esc(item.floor or '樓層未提供')}</p>
-        <div class="details">{detail_html}</div>
-        {old_html}
-        <div class="rent">{item.rent:,} 元／月</div>
-        <div class="activity">{esc(activity)}</div>
-        <a class="button" href="{esc(item.url)}" target="_blank" rel="noopener noreferrer">物件直達連結 ↗</a>
+        <div class="body-main">
+          <div class="tag-row">{badges_html}</div>
+          <h3><a href="{esc(item.url)}" target="_blank" rel="noopener noreferrer">{esc(item.title)}</a></h3>
+          <p class="facts">{facts_html or '<span>房屋資訊未完整提供</span>'}</p>
+          <p class="address">⌖ {esc(item.address or item.district or '地址未提供')}</p>
+          {f'<div class="feature-row">{tags_html}</div>' if tags_html else ''}
+          <div class="activity">{esc(item.publisher)}{f'・{esc(activity)}' if activity else ''}</div>
+        </div>
+        <div class="price-column">
+          {old_html}
+          <div class="rent">{item.rent:,}<small> 元／月</small></div>
+          <a class="button" href="{esc(item.url)}" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
       </div>
     </article>
     """
@@ -2015,6 +2111,8 @@ def section_items(
     source_items = [item for item in items if item.source == source]
     if category == "all":
         return source_items
+    if source == "591" and category == "featured":
+        return [item for item in source_items if is_591_featured(item)]
     if source == "591" and category == "owner":
         return [item for item in source_items if _591_is_owner(item.publisher)]
     if source == "591" and category == "discount":
@@ -2045,6 +2143,56 @@ def render_subsection(
         f'<section class="subsection"><header><h2>{esc(title)}</h2><b>{len(values)} 筆</b></header>'
         f'<div class="cards">{cards}</div></section>'
     )
+
+
+def render_listing_browser(
+    items: list[Listing],
+    stats: dict[str, Any],
+    source: str,
+    filters: tuple[tuple[str, str], ...],
+    sorts: tuple[tuple[str, str], ...],
+) -> str:
+    source_items = [item for item in items if item.source == source]
+    filter_buttons: list[str] = []
+    for index, (key, label) in enumerate(filters):
+        count = sum(key in listing_filter_tokens(item) for item in source_items)
+        filter_buttons.append(
+            f'<button type="button" class="filter-button{" active" if index == 0 else ""}" '
+            f'data-filter="{esc(key)}">{esc(label)} <b>{count}</b></button>'
+        )
+
+    sort_buttons = "".join(
+        f'<button type="button" class="sort-button{" active" if index == 0 else ""}" '
+        f'data-sort="{esc(key)}" data-direction="{"desc" if key == "popularity" else "asc"}">'
+        f'{esc(label)}<span class="sort-arrow">{"↓" if key in {"popularity"} else "↑"}</span></button>'
+        for index, (key, label) in enumerate(sorts)
+    )
+    cards = "".join(
+        render_card(item, order)
+        for order, item in enumerate(source_items)
+    )
+    empty = esc(empty_message(stats, source, filters[0][0]))
+
+    return f"""
+    <section class="listing-browser" data-listing-browser data-source="{esc(source)}">
+      <div class="filter-bar">
+        <div class="filter-group" role="group" aria-label="{esc(source_label(source))} 分類">
+          {''.join(filter_buttons)}
+        </div>
+        <div class="sort-row">
+          <span>排序</span>
+          <div class="sort-group" role="group" aria-label="{esc(source_label(source))} 排序">
+            {sort_buttons}
+          </div>
+          <strong class="visible-count">{len(source_items)} 筆</strong>
+        </div>
+      </div>
+      <div class="listing-list">
+        {cards}
+        <div class="empty browser-empty"{" hidden" if cards else ""}>{empty}</div>
+      </div>
+    </section>
+    """
 
 
 def render_status(stats: dict[str, Any], source: str) -> str:
@@ -2097,26 +2245,28 @@ def render_html(items: list[Listing], stats: dict[str, Any]) -> str:
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>桃園四房以上租屋快報</title>
 <style>
-:root{{--orange:#f46b18;--bg:#f3f4f6;--line:#e1e4e8;--muted:#68717d;--fb:#1877f2;--raku:#d65431}}
+:root{{--orange:#f56a00;--orange-soft:#fff5eb;--bg:#f6f7f8;--line:#e5e7eb;--muted:#69717d;--fb:#1877f2;--raku:#d65431}}
 *{{box-sizing:border-box}}
 html{{scroll-behavior:smooth}}
 body{{margin:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;color:#202124}}
 a{{color:inherit}}
-.wrap{{width:min(1220px,calc(100% - 28px));margin:auto}}
+.wrap{{width:min(1120px,calc(100% - 28px));margin:auto}}
 body>header{{
   position:sticky;
   top:0;
   z-index:1000;
-  background:linear-gradient(135deg,rgba(255,255,255,.98),rgba(255,244,231,.98));
-  border-bottom:4px solid var(--orange);
+  background:rgba(255,255,255,.97);
+  border-bottom:3px solid var(--orange);
   padding:14px 0 12px;
-  box-shadow:0 5px 20px rgba(0,0,0,.13);
+  box-shadow:0 5px 20px rgba(0,0,0,.09);
   backdrop-filter:blur(10px);
 }}
-h1{{font-size:clamp(25px,4vw,36px);margin:0 0 6px}}
+h1{{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:clamp(25px,4vw,36px);margin:0 0 6px}}
+h1 time{{font-size:15px;color:#995018;background:var(--orange-soft);border:1px solid #ffd5b5;padding:6px 10px;border-radius:999px;white-space:nowrap}}
 .subtitle{{font-size:15px;line-height:1.45;color:#4e5660;margin:0}}
 .source-nav{{display:flex;gap:9px;flex-wrap:wrap;margin-top:9px}}
-.source-nav a{{text-decoration:none;background:#fff;padding:10px 18px;border-radius:9px;font-weight:900;box-shadow:0 2px 9px #0001}}
+.source-nav a{{text-decoration:none;background:#fff;padding:9px 18px;border:1px solid var(--line);border-radius:7px;font-weight:900}}
+.source-nav a:hover{{border-color:var(--orange);color:var(--orange)}}
 .source-nav a:nth-child(2){{color:var(--fb)}}
 .source-nav a:nth-child(3){{color:var(--raku)}}
 .statusbar{{background:#23272d;color:#fff;padding:12px 0;font-size:14px}}
@@ -2125,47 +2275,85 @@ main{{padding:22px 0 48px}}
 .source-block{{margin-top:22px;scroll-margin-top:175px}}
 .source-heading{{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-bottom:10px}}
 .source-heading h2{{font-size:31px;margin:0}}
-.source-heading a{{font-size:14px;color:#555}}
+.source-heading a{{font-size:14px;color:#555;text-underline-offset:3px}}
 .source-status{{display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap;background:#fff;padding:12px 14px;border:1px solid var(--line);border-radius:10px}}
 .source-status span{{color:#555}}
 .source-status details{{width:100%;color:#8a3f00}}
 .source-status ul{{margin:8px 0 0;padding-left:20px}}
 .source-status .fallback-warning{{width:100%;color:#8a3f00;background:#fff3cd;border:1px solid #f1ce72;padding:9px 11px;border-radius:7px}}
-.subsection{{margin-top:14px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px}}
-.subsection>header{{display:flex;justify-content:space-between;align-items:end;gap:12px}}
-.subsection h2{{margin:0;font-size:25px}}
-.cards{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px;margin-top:14px}}
-.card{{border:1px solid var(--line);border-radius:11px;overflow:hidden;background:#fff}}
-.photo{{height:275px;display:block;position:relative;background:#596273}}
+.listing-browser{{margin-top:14px}}
+.filter-bar{{background:#fff;border:1px solid var(--line);border-radius:10px;padding:0 16px;box-shadow:0 2px 8px #00000008}}
+.filter-group,.sort-group{{display:flex;align-items:center;gap:4px;flex-wrap:wrap}}
+.filter-group{{border-bottom:1px solid var(--line)}}
+.filter-button,.sort-button{{appearance:none;border:0;background:transparent;color:#4f5965;font:inherit;font-weight:800;cursor:pointer;padding:14px 13px;border-bottom:3px solid transparent}}
+.filter-button b{{font-size:12px;color:#8a929b;margin-left:3px}}
+.filter-button:hover,.sort-button:hover{{color:var(--orange)}}
+.filter-button.active,.sort-button.active{{color:var(--orange);border-bottom-color:var(--orange)}}
+.filter-button.active b{{color:var(--orange)}}
+.sort-row{{display:flex;align-items:center;gap:10px;min-height:53px}}
+.sort-row>span{{color:#8a929b;font-size:13px;font-weight:800}}
+.sort-group{{flex:1}}
+.sort-button{{padding-top:11px;padding-bottom:10px}}
+.sort-arrow{{font-size:12px;margin-left:4px}}
+.visible-count{{color:#5a626d;white-space:nowrap}}
+.listing-list{{display:flex;flex-direction:column;gap:12px;margin-top:12px}}
+.card{{display:grid;grid-template-columns:minmax(260px,32%) minmax(0,1fr);min-height:245px;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff;box-shadow:0 2px 8px #0000000a}}
+.card:hover{{border-color:#ffc596;box-shadow:0 6px 22px #00000012}}
+.photo{{height:100%;min-height:245px;display:block;position:relative;background:#596273;overflow:hidden}}
 .photo img{{width:100%;height:100%;object-fit:cover}}
-.photo>span{{position:absolute;left:12px;top:12px;background:#000b;color:#fff;padding:7px 9px;border-radius:6px;font-weight:800}}
+.photo .source-badge{{position:absolute;left:10px;top:10px;background:#111c;color:#fff;padding:6px 9px;border-radius:5px;font-size:13px;font-weight:900}}
 .photo-fallback{{display:none;position:absolute;inset:0;align-items:center;justify-content:center;text-align:center;color:#fff;font-weight:900;background:#4b5563}}
-.body{{padding:16px}}
-small{{color:var(--orange);font-weight:900}}
-h3{{font-size:21px;line-height:1.4;margin:7px 0}}
+.body{{display:grid;grid-template-columns:minmax(0,1fr) 175px;gap:18px;padding:18px 20px}}
+.body-main{{min-width:0}}
+h3{{font-size:21px;line-height:1.4;margin:7px 0 12px}}
 h3 a{{text-decoration:none}}
-.summary{{font-weight:800}}
-.details{{display:grid;gap:7px;border-top:1px solid #eee;padding-top:11px}}
-.details div{{display:grid;grid-template-columns:100px 1fr;gap:8px;font-size:14px;line-height:1.5}}
-.details span{{color:var(--muted)}}
-.old{{margin-top:10px;color:#8a9098}}
-.rent{{font-size:28px;color:#d95700;font-weight:950;margin-top:8px}}
-.activity{{color:var(--muted);font-size:14px}}
-.button{{display:block;text-align:center;margin-top:12px;padding:11px;background:var(--orange);color:#fff;text-decoration:none;border-radius:7px;font-weight:900}}
-.empty{{border:1px dashed #bbb;border-radius:8px;padding:25px;text-align:center;color:var(--muted);grid-column:1/-1}}
+.tag-row,.feature-row,.facts{{display:flex;gap:6px;align-items:center;flex-wrap:wrap}}
+.tag-row:empty{{display:none}}
+.tag{{font-size:13px;background:#edf5ff;color:#3472ad;padding:4px 7px;border-radius:4px}}
+.tag.highlight{{background:#eaf7ed;color:#218145;font-weight:850}}
+.facts{{margin:0 0 11px}}
+.facts span{{font-size:14px;font-weight:800;padding-right:9px;border-right:1px solid #d9dce1}}
+.facts span:last-child{{border-right:0}}
+.address{{margin:0 0 11px;color:#59616c;line-height:1.55}}
+.feature-row span{{font-size:13px;background:#fff4e8;color:#aa590f;padding:4px 7px;border-radius:4px}}
+.activity{{color:var(--muted);font-size:13px;margin-top:14px}}
+.price-column{{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;text-align:right;border-left:1px solid #f0f1f3;padding-left:16px}}
+.old{{color:#9a9fa7;font-size:13px;margin-bottom:2px}}
+.rent{{font-size:29px;color:#df2a1b;font-weight:950;white-space:nowrap}}
+.rent small{{font-size:13px;color:#df2a1b}}
+.button{{display:inline-block;text-align:center;margin-top:16px;padding:9px 14px;background:#fff1df;color:#c35f00;text-decoration:none;border-radius:6px;font-weight:900}}
+.button:hover{{background:var(--orange);color:#fff}}
+.empty{{border:1px dashed #bbb;background:#fff;border-radius:8px;padding:28px;text-align:center;color:var(--muted)}}
 .social-links{{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}}
 .social-links a{{background:var(--fb);color:#fff;text-decoration:none;padding:8px 10px;border-radius:6px;font-weight:800}}
 .social-note{{background:#fff8e9;border:1px solid #ffd7a6;padding:13px;border-radius:9px;margin-top:12px;line-height:1.7}}
-@media(max-width:850px){{
-  .cards{{grid-template-columns:1fr}}
+[hidden]{{display:none!important}}
+@media(max-width:820px){{
+  .card{{grid-template-columns:minmax(210px,34%) minmax(0,1fr)}}
+  .body{{grid-template-columns:1fr}}
+  .price-column{{align-items:flex-start;text-align:left;border-left:0;border-top:1px solid #f0f1f3;padding:10px 0 0}}
+  .button{{margin-top:9px}}
 }}
-@media(max-width:560px){{
+@media(max-width:620px){{
   body>header{{padding:10px 0 9px}}
   h1{{font-size:25px}}
+  h1 time{{font-size:12px;padding:5px 8px}}
   .subtitle{{font-size:13px;line-height:1.4}}
   .source-nav{{gap:6px;margin-top:8px}}
   .source-nav a{{flex:1;text-align:center;padding:9px 6px}}
-  .photo{{height:230px}}
+  .filter-bar{{padding:0 9px}}
+  .filter-button,.sort-button{{padding-left:8px;padding-right:8px;font-size:13px}}
+  .sort-row{{align-items:flex-start;flex-wrap:wrap;padding:5px 0}}
+  .sort-row>span{{padding-top:10px}}
+  .visible-count{{width:100%;padding:0 8px 9px}}
+  .card{{grid-template-columns:minmax(130px,38%) minmax(0,1fr);min-height:220px}}
+  .photo{{min-height:220px}}
+  .body{{padding:12px;gap:10px}}
+  h3{{font-size:17px;margin-top:4px}}
+  .facts span{{font-size:12px}}
+  .feature-row{{display:none}}
+  .activity{{font-size:12px}}
+  .rent{{font-size:23px}}
   .source-block{{scroll-margin-top:190px}}
 }}
 </style>
@@ -2173,7 +2361,7 @@ h3 a{{text-decoration:none}}
 <body>
 <header>
   <div class="wrap">
-    <h1>桃園四房以上租屋快報</h1>
+    <h1>桃園四房以上租屋快報 <time datetime="{NOW.strftime('%Y-%m-%d')}">{NOW.strftime('%Y/%m/%d')}</time></h1>
     <p class="subtitle">三個來源分區顯示；每筆物件均包含照片與來源直達連結，本輪有效物件不因近48小時曾顯示而隱藏。</p>
     <nav class="source-nav">
       <a href="#source-591">591</a>
@@ -2195,29 +2383,110 @@ h3 a{{text-decoration:none}}
 <div id="source-591" class="source-block">
   <div class="source-heading"><h2>591</h2><a href="https://rent.591.com.tw/list?kind=1&layout=4&region=6" target="_blank">開啟591搜尋 ↗</a></div>
   {render_status(stats, '591')}
-  {render_subsection(items, stats, '591', 'owner', '屋主直租')}
-  {render_subsection(items, stats, '591', 'discount', '降價物件')}
-  {render_subsection(items, stats, '591', 'all', '全部符合條件物件')}
+  {render_listing_browser(
+      items,
+      stats,
+      '591',
+      (('all', '全部'), ('featured', '優選好屋'), ('owner', '屋主直租'), ('discount', '降價物件')),
+      (('recency', '最新'), ('total', '租金總費用'), ('rent', '租金'), ('area', '坪數')),
+  )}
 </div>
 
 <div id="source-fb" class="source-block">
   <div class="source-heading"><h2>FB社團</h2><a href="https://www.facebook.com/groups/feed/" target="_blank">開啟Facebook社團 ↗</a></div>
   {render_status(stats, 'FB')}
-  <div class="social-note">Facebook社團採安全JSON匯入，不需要提供Facebook帳號、密碼或Cookie。</div>
+  <div class="social-note">
+    <strong>Facebook真實資料提供方式：</strong>
+    提供允許社團的單篇永久貼文網址、貼文內容、租金／格局／地區，以及可公開讀取的照片網址，
+    即可代為建立真實JSON並驗證。也可設定可匿名讀取的HTTPS JSON feed持續更新。
+    不需要、也請勿提供Facebook帳號、密碼、Cookie或Session；只有社團首頁或無法讀取的私密貼文網址不足以匯入。
+  </div>
   <div class="social-links">{fb_buttons}</div>
-  {render_subsection(items, stats, 'FB', 'priority', '屋主自租／仲介勿擾／社宅勿擾')}
-  {render_subsection(items, stats, 'FB', 'general', '其他符合條件FB物件')}
+  {render_listing_browser(
+      items,
+      stats,
+      'FB',
+      (('all', '全部'), ('priority', '屋主自租／仲介勿擾／社宅勿擾'), ('general', '其他符合物件')),
+      (('recency', '最新'), ('total', '租金總費用'), ('rent', '租金'), ('area', '坪數')),
+  )}
 </div>
 
 <div id="source-rakuya" class="source-block">
   <div class="source-heading"><h2>樂屋網</h2><a href="https://rent.rakuya.com.tw/" target="_blank">開啟樂屋網 ↗</a></div>
   {render_status(stats, '樂屋網')}
-  {render_subsection(items, stats, '樂屋網', 'general', '出租')}
-  {render_subsection(items, stats, '樂屋網', 'owner', '屋主')}
-  {render_subsection(items, stats, '樂屋網', 'friendly', '友善房源')}
-  {render_subsection(items, stats, '樂屋網', 'discount', '最新降價')}
+  {render_listing_browser(
+      items,
+      stats,
+      '樂屋網',
+      (('rent', '出租'), ('owner', '屋主'), ('friendly', '友善房源'), ('discount', '最新降價')),
+      (('recency', '最近更新'), ('rent', '租金'), ('area', '室內坪數'), ('popularity', '人氣')),
+  )}
 </div>
 </main>
+<script>
+document.querySelectorAll('[data-listing-browser]').forEach((panel) => {{
+  const list = panel.querySelector('.listing-list');
+  const cards = Array.from(panel.querySelectorAll('.card'));
+  const empty = panel.querySelector('.browser-empty');
+  const count = panel.querySelector('.visible-count');
+  const filterButtons = Array.from(panel.querySelectorAll('.filter-button'));
+  const sortButtons = Array.from(panel.querySelectorAll('.sort-button'));
+  let activeFilter = filterButtons[0]?.dataset.filter || 'all';
+  let activeSort = sortButtons[0]?.dataset.sort || 'order';
+  let direction = sortButtons[0]?.dataset.direction || 'asc';
+
+  const numeric = (card, key) => {{
+    const value = Number(card.dataset[key]);
+    return Number.isFinite(value) ? value : 0;
+  }};
+
+  const apply = () => {{
+    const visible = cards.filter((card) =>
+      (card.dataset.categories || '').split(' ').includes(activeFilter)
+    );
+    cards.forEach((card) => {{ card.hidden = !visible.includes(card); }});
+    visible.sort((a, b) => {{
+      const first = numeric(a, activeSort);
+      const second = numeric(b, activeSort);
+      const delta = direction === 'asc' ? first - second : second - first;
+      return delta || numeric(a, 'order') - numeric(b, 'order');
+    }});
+    visible.forEach((card) => list.insertBefore(card, empty));
+    empty.hidden = visible.length > 0;
+    if (!visible.length) empty.textContent = '此分類目前沒有符合條件的物件。';
+    count.textContent = `${{visible.length}} 筆`;
+  }};
+
+  filterButtons.forEach((button) => button.addEventListener('click', () => {{
+    activeFilter = button.dataset.filter;
+    filterButtons.forEach((value) => {{
+      const selected = value === button;
+      value.classList.toggle('active', selected);
+      value.setAttribute('aria-pressed', String(selected));
+    }});
+    apply();
+  }}));
+
+  sortButtons.forEach((button) => button.addEventListener('click', () => {{
+    if (activeSort === button.dataset.sort) {{
+      direction = direction === 'asc' ? 'desc' : 'asc';
+    }} else {{
+      activeSort = button.dataset.sort;
+      direction = button.dataset.direction || 'asc';
+    }}
+    sortButtons.forEach((value) => {{
+      const selected = value === button;
+      value.classList.toggle('active', selected);
+      value.setAttribute('aria-pressed', String(selected));
+      const arrow = value.querySelector('.sort-arrow');
+      if (arrow && selected) arrow.textContent = direction === 'asc' ? '↑' : '↓';
+    }});
+    apply();
+  }}));
+
+  apply();
+}});
+</script>
 </body>
 </html>"""
 

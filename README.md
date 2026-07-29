@@ -15,6 +15,7 @@
 - Facebook：不登入、不使用帳密／Cookie／Session；資料來源為
   `data/facebook_posts.json`、`FACEBOOK_POSTS_JSON` Actions secret，或
   `FACEBOOK_POSTS_JSON_URL` HTTPS feed（Actions secret／repository variable）
+- 顯示：每個來源均為單欄列表、每筆左圖右文；591與樂屋網提供各自對應的分類與排序控制
 - 591 成功抓取後會保存 `docs/rental-data/last-success-591.json`。兩小時內
   重跑會沿用這份真實快照以避免限流；新一輪受 403／429 阻擋時最多沿用
   72 小時，頁面會明確標示「未重新驗證」，不會把舊資料冒充新抓結果。

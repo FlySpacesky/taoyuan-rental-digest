@@ -8,9 +8,14 @@
     "building_type": "電梯大樓",
     "floor": "8F／15F",
     "layout": "4房2廳2衛",
+    "size": "35坪",
     "equipment": "冰箱、洗衣機、冷氣、熱水器、廚房",
     "rent": "32000",
+    "old_rent": "",
     "min_lease": "一年",
+    "updated": "2小時前更新",
+    "views": "",
+    "publisher": "屋主林先生",
     "image": "https://可公開存取的原始照片網址",
     "summary": "屋主自租，仲介勿擾，社宅勿擾。"
   }
