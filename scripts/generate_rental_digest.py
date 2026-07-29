@@ -89,6 +89,7 @@ FB_GROUPS = [
     "https://www.facebook.com/groups/261357414247414",
     "https://www.facebook.com/groups/178112912695401",
     "https://www.facebook.com/groups/768849317151214",
+    "https://www.facebook.com/groups/4091621327828556",
 ]
 FB_GROUP_IDS = frozenset(
     urllib.parse.urlparse(group_url).path.strip("/").split("/", 1)[1]
@@ -2406,7 +2407,7 @@ main{{padding:22px 0 48px}}
 .source-heading h2{{font-size:31px;margin:0}}
 .source-heading a{{font-size:14px;color:#555;text-underline-offset:3px}}
 .source-status{{display:flex;flex-direction:column;align-items:flex-end;background:#fff;padding:12px 14px;border:1px solid var(--line);border-radius:10px}}
-.status-primary{{width:75%;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));align-items:center;direction:rtl}}
+.status-primary{{width:75%;align-self:flex-start;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));align-items:center;direction:ltr}}
 .status-primary>*{{min-width:0;padding:2px 10px;direction:ltr;text-align:center}}
 .status-primary span{{color:#555}}
 .status-secondary{{width:100%;display:flex;gap:8px 14px;align-items:center;justify-content:flex-end;text-align:right;flex-wrap:wrap}}
@@ -2416,7 +2417,7 @@ main{{padding:22px 0 48px}}
 .source-status .fallback-warning{{width:100%;color:#8a3f00;background:#fff3cd;border:1px solid #f1ce72;padding:9px 11px;border-radius:7px}}
 .listing-browser{{margin-top:14px}}
 .filter-bar{{background:#fff;border:1px solid var(--line);border-radius:10px;padding:0 16px;box-shadow:0 2px 8px #00000008}}
-.filter-group{{width:75%;margin-left:auto;display:grid;grid-template-columns:repeat(var(--filter-count),minmax(0,1fr));align-items:stretch;direction:rtl;border-bottom:1px solid var(--line)}}
+.filter-group{{width:75%;margin-right:auto;display:grid;grid-template-columns:repeat(var(--filter-count),minmax(0,1fr));align-items:stretch;direction:ltr;border-bottom:1px solid var(--line)}}
 .filter-group[data-filter-count="4"]{{--filter-count:4}}
 .filter-group[data-filter-count="3"]{{--filter-count:3}}
 .filter-button{{width:100%;appearance:none;border:0;background:transparent;color:#4f5965;font:inherit;font-weight:800;cursor:pointer;padding:14px 8px;border-bottom:3px solid transparent;direction:ltr;text-align:center}}

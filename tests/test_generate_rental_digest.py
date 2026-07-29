@@ -617,6 +617,22 @@ class RakuyaFallbackTests(unittest.TestCase):
 
 
 class FacebookImportTests(unittest.TestCase):
+    def test_resolved_group_permalink_is_allowlisted(self) -> None:
+        permalink = (
+            "https://www.facebook.com/groups/4091621327828556/"
+            "permalink/4623380861319264/?rdid=tracking"
+        )
+
+        self.assertIn(
+            "https://www.facebook.com/groups/4091621327828556",
+            DIGEST.FB_GROUPS,
+        )
+        self.assertEqual(
+            DIGEST.normalize_facebook_post_url(permalink),
+            "https://www.facebook.com/groups/4091621327828556/"
+            "permalink/4623380861319264/",
+        )
+
     def test_real_row_supports_listing_sort_fields(self) -> None:
         row = {
             "url": f"{DIGEST.FB_GROUPS[0]}/posts/1234567890/",
@@ -921,15 +937,15 @@ class CurrentListingDisplayTests(unittest.TestCase):
             1,
         )
         self.assertIn(
-            ".status-primary{width:75%;display:grid;"
+            ".status-primary{width:75%;align-self:flex-start;display:grid;"
             "grid-template-columns:repeat(4,minmax(0,1fr));",
             rendered,
         )
         self.assertIn(
-            ".filter-group{width:75%;margin-left:auto;display:grid;",
+            ".filter-group{width:75%;margin-right:auto;display:grid;",
             rendered,
         )
-        self.assertIn("align-items:stretch;direction:rtl", rendered)
+        self.assertIn("align-items:stretch;direction:ltr", rendered)
         self.assertIn(".status-primary,.filter-group{width:100%}", rendered)
         self.assertIn("grid-template-columns:minmax(260px,32%)", rendered)
         self.assertNotIn("repeat(2,minmax(0,1fr))", rendered)
