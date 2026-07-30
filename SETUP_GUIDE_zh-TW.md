@@ -227,7 +227,35 @@ Codex可以協助把網址設定成Repository variable `FACEBOOK_POSTS_JSON_URL`
 同時排除代租代管、包租代管、租管通、租賃服務業及代理人。未提供上述任一真實資料來源時，
 FB統計會維持0並顯示可操作的錯誤訊息，不會製造替代房源。
 
-## 11. 常見錯誤
+## 11. 設定Threads官方搜尋
+
+Threads區塊只使用Meta官方API，不使用Threads帳號密碼、Cookie或瀏覽器Session。
+
+1. 在Meta for Developers建立具有Threads使用案例的App。
+2. 由使用者完成OAuth授權，Access Token必須包含
+   `threads_basic` 與 `threads_keyword_search` 權限。
+3. 到GitHub儲存庫的 `Settings → Secrets and variables → Actions`。
+4. 建立Repository secret：
+
+```text
+THREADS_ACCESS_TOKEN
+```
+
+5. 手動執行「桃園租屋快報」workflow驗證。
+
+程式會使用官方 `keyword_search` 搜尋桃園區租屋相關關鍵字，再逐筆確認：
+
+- 正文明確包含桃園區
+- 格局為4房以上
+- 有明確租金
+- 是出租／租屋貼文
+- 單圖或輪播中的全部照片都能下載並保存到本站
+
+任一條件不足或任一張照片保存失敗時，該物件不會刊出。未設定
+`THREADS_ACCESS_TOKEN` 時，Threads統計維持0並在來源訊息顯示設定方式。
+Token只能放在GitHub Actions secret，不要寫入程式、README、Issue或commit。
+
+## 12. 常見錯誤
 
 ### Actions頁面沒有工作流程
 
