@@ -1,209 +1,6 @@
 {
   "sent": [
     {
-      "source_key": "591:21705865",
-      "fingerprint": "8769a766f2a2e96f1ac71867",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "桃園指標豪邸中悅瑰麗層峰4房雙車適合尊貴人士 - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21705865"
-    },
-    {
-      "source_key": "591:21705720",
-      "fingerprint": "d30e30b7edc4c4b02ebfad94",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "桃園超大全新完工高質感商辦含管理費 - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21705720"
-    },
-    {
-      "source_key": "591:21704875",
-      "fingerprint": "997ce065aed822eec9e598ad",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "591精選🏠藝文稀有3+1房,可補助,戶籍 - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21704875"
-    },
-    {
-      "source_key": "591:21667224",
-      "fingerprint": "904552be0178438525f345fa",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "龍壽街一樓店面便宜出租 - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21667224"
-    },
-    {
-      "source_key": "591:21667097",
-      "fingerprint": "50d2b14a64adc14a82c5eaeb",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "《出租幸福窩》實況照~找屋不費時~即簽即住~ - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21667097"
-    },
-    {
-      "source_key": "591:21667090",
-      "fingerprint": "7e496622a718aeeb213d2414",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "《出租幸福窩》實況照~找屋不費時~即簽即住~ - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21667090"
-    },
-    {
-      "source_key": "591:21667072",
-      "fingerprint": "381d6bdea188a20f51850389",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "《出租幸福窩》實況照~找屋不費時~即簽即住 - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21667072"
-    },
-    {
-      "source_key": "591:21627823",
-      "fingerprint": "d1e8f788737cbc724253889c",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "酷企鵝🐧推薦，桃園火車站旁四房 - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21627823"
-    },
-    {
-      "source_key": "591:21627293",
-      "fingerprint": "eba1ed63c77d7d6bf1d5758d",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "⭐中正路⭐慈文國中⭐藝文特區G10⭐舒適5房車 - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21627293"
-    },
-    {
-      "source_key": "591:21626193",
-      "fingerprint": "1a8d9af5c1e38ac30ebcab41",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "經國莊敬路口~四房平面車~可補助可補助 - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21626193"
-    },
-    {
-      "source_key": "591:21625368",
-      "fingerprint": "41926915f710970e59b5616b",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "桃園藝文#大坪數3房+1和室空間#適合大家庭及懂生活品味的您 - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21625368"
-    },
-    {
-      "source_key": "591:21622928",
-      "fingerprint": "c413fdb552840f8cbec48e88",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "正成功路優質一樓店住 - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21622928"
-    },
-    {
-      "source_key": "591:21622807",
-      "fingerprint": "18ec1d31c8d4756a0c4181d6",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "大興西路二段❤4房2廳2衛❤安靜宜居 - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21622807"
-    },
-    {
-      "source_key": "591:21622781",
-      "fingerprint": "41c7801f21f89e3edd9541a6",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "守法路近市府振聲中學/3房 - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21622781"
-    },
-    {
-      "source_key": "591:21574189",
-      "fingerprint": "c663c7aae0c2e3b56bb5ebe5",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "桃園民生路正文昌國中對面出租個人工作室髮廊美睫 - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21574189"
-    },
-    {
-      "source_key": "591:21569636",
-      "fingerprint": "1f985022140adc5f30d1d0df",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "~龍安區空間寬敞公寓~ - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21569636"
-    },
-    {
-      "source_key": "591:21567254",
-      "fingerprint": "5ade0291ca468ff4357f2e5d",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "🌸近陽明公園~南豐街透天店住🌸 - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21567254"
-    },
-    {
-      "source_key": "591:21563513",
-      "fingerprint": "a24b3a50109891a91c7ae8fa",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "超大5樓公寓~使用空間就是大~邊間~一對三新冷氣~ - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21563513"
-    },
-    {
-      "source_key": "591:21653686",
-      "fingerprint": "f83f8df45f541ad8330c3c4d",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "青埔彬彬【城市之星】【學區宅4房車】 - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21653686"
-    },
-    {
-      "source_key": "591:21652349",
-      "fingerprint": "bc787980e470508476b8b45b",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "A22捷運站旁美電梯商業租案 - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21652349"
-    },
-    {
-      "source_key": "591:21650565",
-      "fingerprint": "2017f1a209174b5eab42f0fe",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "內壢家樂福旁可店可住一樓大套房~~機會難得趕快來看 - 591租屋網",
-      "url": "https://rent.591.com.tw/home/21650565"
-    },
-    {
-      "source_key": "樂屋網:0b712133849019a",
-      "fingerprint": "d9e2863fc81d0f61572ec2b6",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "[樂屋網] 桃園市中壢區領航北路二段-青埔國中A19 四房雙車位",
-      "url": "https://community.rakuya.com.tw/5868/rent/0b712133849019a"
-    },
-    {
-      "source_key": "樂屋網:0d91da329739624",
-      "fingerprint": "f06597294cfcce3324bf4167",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "[樂屋網] 桃園市中壢區永泰路-ALIN推薦-青埔-城市之星-學區宅優質四房車",
-      "url": "https://community.rakuya.com.tw/5403/rent/0d91da329739624"
-    },
-    {
-      "source_key": "樂屋網:0a7b7934505356c",
-      "fingerprint": "177e6e51042f429f90c2c8e5",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "[樂屋網] 桃園市桃園區溫州街-藝文中路6米大面寬透天-店住辦可停雙車-地坪28坪",
-      "url": "https://rent.rakuya.com.tw/item/0a7b7934505356c"
-    },
-    {
-      "source_key": "樂屋網:0b414733919136b",
-      "fingerprint": "dcdbfc9dc8e0fd912020b7f6",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "[樂屋網] 桃園市桃園區南平路-租藝文大四房車位 熱鬧優質住宅區",
-      "url": "https://community.rakuya.com.tw/4436/rent/0b414733919136b"
-    },
-    {
-      "source_key": "樂屋網:04c1df341017436",
-      "fingerprint": "2c2584fbe33cc27065443960",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "[樂屋網] 桃園市桃園區同安街-藝文特區、近同安國小＃新裝潢大4房",
-      "url": "https://community.rakuya.com.tw/87701/rent/04c1df341017436"
-    },
-    {
-      "source_key": "樂屋網:05db7a347710524",
-      "fingerprint": "0f84531dbe22166a281cbed4",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "[樂屋網] 桃園市中壢區民權路-⭐近A21、A22⭐民權極景⭐拎包入住",
-      "url": "https://community.rakuya.com.tw/3324/rent/05db7a347710524"
-    },
-    {
-      "source_key": "樂屋網:0ad54733942168b",
-      "fingerprint": "b0a7740f344ba03768e12afc",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "[樂屋網] 桃園市桃園區南平路-藝文四房車位 G11捷運商圈",
-      "url": "https://community.rakuya.com.tw/4436/rent/0ad54733942168b"
-    },
-    {
-      "source_key": "樂屋網:0391be346939461",
-      "fingerprint": "aee66b4e161f9b40a082f119",
-      "sent_at": "2026-07-28T22:42:16.573440+08:00",
-      "title": "[樂屋網] 桃園市中壢區環北路-⭐可貓⭐2萬5含管⭐代收包裹",
-      "url": "https://community.rakuya.com.tw/25940/rent/0391be346939461"
-    },
-    {
       "source_key": "591:21711454",
       "fingerprint": "6f5121bc7f49d8201ab8d3e5",
       "sent_at": "2026-07-28T23:55:09.615849+08:00",
@@ -2505,6 +2302,97 @@
       "sent_at": "2026-07-30T22:36:13.374389+08:00",
       "title": "TO免仲可租補✨八德國中小大四房車",
       "url": "https://rent.591.com.tw/21733760"
+    },
+    {
+      "source_key": "591:21622781",
+      "fingerprint": "02f78e0191aff7c0db09688a",
+      "sent_at": "2026-07-30T22:45:18.124055+08:00",
+      "title": "守法路近市府振聲中學/3房",
+      "url": "https://rent.591.com.tw/21622781"
+    },
+    {
+      "source_key": "591:21705865",
+      "fingerprint": "3468413e7c7f7b4fc7ded8fc",
+      "sent_at": "2026-07-30T22:45:18.124055+08:00",
+      "title": "桃園指標豪邸中悅瑰麗層峰4房雙車適合尊貴人士",
+      "url": "https://rent.591.com.tw/21705865"
+    },
+    {
+      "source_key": "591:21704875",
+      "fingerprint": "c82fa03fd50e532d21398629",
+      "sent_at": "2026-07-30T22:45:18.124055+08:00",
+      "title": "591精選🏠藝文稀有3+1房,可補助,戶籍",
+      "url": "https://rent.591.com.tw/21704875"
+    },
+    {
+      "source_key": "591:21667090",
+      "fingerprint": "22f7f62824b0de70ff13094f",
+      "sent_at": "2026-07-30T22:45:18.124055+08:00",
+      "title": "《出租幸福窩》實況照~找屋不費時~即簽即住~",
+      "url": "https://rent.591.com.tw/21667090"
+    },
+    {
+      "source_key": "591:21627823",
+      "fingerprint": "75c4721bf30cf74ebd405ff3",
+      "sent_at": "2026-07-30T22:45:18.124055+08:00",
+      "title": "酷企鵝🐧推薦，桃園火車站旁四房",
+      "url": "https://rent.591.com.tw/21627823"
+    },
+    {
+      "source_key": "591:21627293",
+      "fingerprint": "826d2cf49d42a3c6693d6006",
+      "sent_at": "2026-07-30T22:45:18.124055+08:00",
+      "title": "⭐中正路⭐慈文國中⭐藝文特區G10⭐舒適5房車",
+      "url": "https://rent.591.com.tw/21627293"
+    },
+    {
+      "source_key": "591:21626193",
+      "fingerprint": "b826668f2858771db004f897",
+      "sent_at": "2026-07-30T22:45:18.124055+08:00",
+      "title": "經國莊敬路口~四房平面車~可補助可補助",
+      "url": "https://rent.591.com.tw/21626193"
+    },
+    {
+      "source_key": "591:21625368",
+      "fingerprint": "a805cd895f977c440eda224f",
+      "sent_at": "2026-07-30T22:45:18.124055+08:00",
+      "title": "桃園藝文#大坪數3房+1和室空間#適合大家庭及懂生活品味的您",
+      "url": "https://rent.591.com.tw/21625368"
+    },
+    {
+      "source_key": "591:21622807",
+      "fingerprint": "952164c5b9780e15155350b6",
+      "sent_at": "2026-07-30T22:45:18.124055+08:00",
+      "title": "大興西路二段❤4房2廳2衛❤安靜宜居",
+      "url": "https://rent.591.com.tw/21622807"
+    },
+    {
+      "source_key": "591:21569636",
+      "fingerprint": "4b5ad143f6fa04e23d233303",
+      "sent_at": "2026-07-30T22:45:18.124055+08:00",
+      "title": "~龍安區空間寬敞公寓~",
+      "url": "https://rent.591.com.tw/21569636"
+    },
+    {
+      "source_key": "591:21563513",
+      "fingerprint": "1e9d6f6edca14029cee6c102",
+      "sent_at": "2026-07-30T22:45:18.124055+08:00",
+      "title": "超大5樓公寓~使用空間就是大~邊間~一對三新冷氣~",
+      "url": "https://rent.591.com.tw/21563513"
+    },
+    {
+      "source_key": "591:21653686",
+      "fingerprint": "e92dcb863263c452dbc3242a",
+      "sent_at": "2026-07-30T22:45:18.124055+08:00",
+      "title": "青埔彬彬【城市之星】【學區宅4房車】",
+      "url": "https://rent.591.com.tw/21653686"
+    },
+    {
+      "source_key": "591:21652349",
+      "fingerprint": "fddb82c192c5851056655252",
+      "sent_at": "2026-07-30T22:45:18.124055+08:00",
+      "title": "A22捷運站旁美電梯商業租案",
+      "url": "https://rent.591.com.tw/21652349"
     }
   ],
   "prices": {
