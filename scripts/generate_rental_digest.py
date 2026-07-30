@@ -2425,15 +2425,15 @@ main{{padding:22px 0 48px}}
 .filter-button:hover{{color:var(--orange)}}
 .filter-button.active{{color:var(--orange);border-bottom-color:var(--orange)}}
 .filter-button.active b{{color:var(--orange)}}
-.sort-row{{display:flex;align-items:center;justify-content:flex-start;gap:6px;min-height:56px;padding:7px 0}}
+.sort-row{{display:flex;align-items:center;flex-direction:row-reverse;justify-content:flex-start;gap:4px;min-height:52px;padding:6px 0}}
 .sort-row>span{{color:#8a929b;font-size:13px;font-weight:800}}
-.sort-group{{display:flex;align-items:center;justify-content:flex-start;gap:6px;flex-wrap:wrap}}
-.sort-control{{display:flex;align-items:center;gap:3px;padding:0;border:0;background:transparent;color:#555;font-size:13px;font-weight:850}}
+.sort-group{{display:flex;align-items:center;flex-direction:row-reverse;justify-content:flex-start;gap:4px;flex-wrap:wrap}}
+.sort-control{{display:flex;align-items:center;flex-direction:row-reverse;gap:2px;padding:0;border:0;background:transparent;color:#555;font-size:13px;font-weight:850}}
 .sort-control.active{{color:#b55a09}}
 .sort-control.active .sort-select{{border-color:#ffb879;background:var(--orange-soft)}}
-.sort-select{{max-width:128px;border:1px solid #d9dde3;border-radius:5px;background:#fff;color:#30343a;padding:6px 21px 6px 7px;font:inherit;cursor:pointer}}
+.sort-select{{max-width:118px;border:1px solid #d9dde3;border-radius:5px;background:#fff;color:#30343a;padding:5px 19px 5px 6px;font:inherit;font-size:12px;cursor:pointer}}
 .sort-select:focus{{outline:2px solid #ffb879;outline-offset:1px}}
-.visible-count{{color:#5a626d;white-space:nowrap;margin-left:2px}}
+.visible-count{{color:#5a626d;white-space:nowrap;margin-right:2px;direction:ltr}}
 .listing-list{{display:flex;flex-direction:column;gap:12px;margin-top:12px}}
 .card{{display:grid;grid-template-columns:minmax(260px,32%) minmax(0,1fr);min-height:245px;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff;box-shadow:0 2px 8px #0000000a}}
 .card:hover{{border-color:#ffc596;box-shadow:0 6px 22px #00000012}}
@@ -2465,6 +2465,9 @@ h3 a{{text-decoration:none}}
 .social-links{{display:flex;justify-content:flex-end;gap:7px;flex-wrap:wrap;margin-top:12px}}
 .social-links a{{background:var(--fb);color:#fff;text-decoration:none;padding:8px 10px;border-radius:6px;font-weight:800}}
 .social-note{{background:#fff8e9;border:1px solid #ffd7a6;padding:13px;border-radius:9px;margin-top:12px;line-height:1.7}}
+.back-to-top{{position:fixed;right:18px;bottom:18px;z-index:1200;width:48px;height:48px;border:0;border-radius:50%;background:var(--orange);color:#fff;font-size:25px;font-weight:950;line-height:1;cursor:pointer;box-shadow:0 5px 18px #0004}}
+.back-to-top:hover{{background:#d95d00;transform:translateY(-2px)}}
+.back-to-top:focus-visible{{outline:3px solid #ffbd87;outline-offset:3px}}
 [hidden]{{display:none!important}}
 @media(max-width:820px){{
   .status-primary,.filter-group{{width:100%}}
@@ -2487,9 +2490,10 @@ h3 a{{text-decoration:none}}
   .sort-row{{align-items:flex-start;flex-wrap:wrap;padding:8px 0}}
   .sort-row>span{{padding-top:9px}}
   .sort-group{{width:100%}}
-  .sort-control{{flex:1 1 150px;justify-content:flex-start}}
-  .sort-select{{max-width:none;min-width:0}}
-  .visible-count{{width:100%;padding:0 8px 4px;text-align:right}}
+  .sort-control{{flex:0 1 auto;justify-content:flex-start}}
+  .sort-select{{max-width:118px;min-width:0}}
+  .visible-count{{width:100%;padding:0 8px 4px;text-align:left}}
+  .back-to-top{{right:12px;bottom:12px;width:44px;height:44px;font-size:23px}}
   .card{{grid-template-columns:minmax(130px,38%) minmax(0,1fr);min-height:220px}}
   .photo{{min-height:220px}}
   .body{{padding:12px;gap:10px}}
@@ -2568,7 +2572,21 @@ h3 a{{text-decoration:none}}
   )}
 </div>
 </main>
+<button id="back-to-top" class="back-to-top" type="button"
+        aria-label="回到頁面頂端" title="回到頁面頂端" hidden>↑</button>
 <script>
+const backToTop = document.querySelector('#back-to-top');
+if (backToTop) {{
+  const updateBackToTop = () => {{
+    backToTop.hidden = window.scrollY < 480;
+  }};
+  backToTop.addEventListener('click', () => {{
+    window.scrollTo({{top: 0, behavior: 'smooth'}});
+  }});
+  window.addEventListener('scroll', updateBackToTop, {{passive: true}});
+  updateBackToTop();
+}}
+
 document.querySelectorAll('[data-listing-browser]').forEach((panel) => {{
   const list = panel.querySelector('.listing-list');
   const cards = Array.from(panel.querySelectorAll('.card'));

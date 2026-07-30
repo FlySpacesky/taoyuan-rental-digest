@@ -633,7 +633,9 @@ class FacebookImportTests(unittest.TestCase):
             "permalink/4623380861319264/",
         )
 
-    def test_supplied_taoyuan_four_room_post_only_lacks_public_image(self) -> None:
+    def test_supplied_taoyuan_four_room_post_accepts_archived_public_image(
+        self,
+    ) -> None:
         row = {
             "url": (
                 "https://www.facebook.com/groups/4091621327828556/"
@@ -648,15 +650,40 @@ class FacebookImportTests(unittest.TestCase):
             "equipment": "家具家電全配、可養寵物",
             "rent": "23000",
             "total_cost": "28000",
-            "image": "",
+            "image": (
+                "https://flyspacesky.github.io/taoyuan-rental-digest/"
+                "assets/facebook/4623380861319264.jpg"
+            ),
             "summary": "可租補、可入戶籍，管理費2000元，停車位3000元。",
         }
 
-        self.assertEqual(
-            DIGEST.facebook_row_reject_reasons(row),
-            ["image_not_direct_public"],
+        self.assertEqual(DIGEST.facebook_row_reject_reasons(row), [])
+        item = DIGEST.parse_social_row(row, "FB")
+        self.assertIsNotNone(item)
+        assert item is not None
+        self.assertEqual(item.rent, 23_000)
+        self.assertEqual(item.total_cost, 28_000)
+        self.assertEqual(item.category_hint, "general")
+
+    def test_repo_facebook_import_contains_supplied_real_post(self) -> None:
+        stats = DIGEST.empty_source_stats()
+
+        items = DIGEST.load_facebook_import(stats)
+
+        target = next(
+            (
+                item
+                for item in items
+                if item.url.endswith("/permalink/4623380861319264/")
+            ),
+            None,
         )
-        self.assertIsNone(DIGEST.parse_social_row(row, "FB"))
+        self.assertIsNotNone(target)
+        assert target is not None
+        self.assertEqual(target.layout, "4房2廳2衛")
+        self.assertEqual(target.size, "46坪")
+        self.assertEqual(target.rent, 23_000)
+        self.assertEqual(stats["import_source"], "data/facebook_posts.json")
 
     def test_real_row_supports_listing_sort_fields(self) -> None:
         row = {
@@ -974,20 +1001,26 @@ class CurrentListingDisplayTests(unittest.TestCase):
         self.assertIn(".status-primary,.filter-group{width:100%}", rendered)
         self.assertIn(
             ".sort-row{display:flex;align-items:center;"
-            "justify-content:flex-start;gap:6px;min-height:56px;",
+            "flex-direction:row-reverse;justify-content:flex-start;"
+            "gap:4px;min-height:52px;",
             rendered,
         )
         self.assertIn(
             ".sort-group{display:flex;align-items:center;"
-            "justify-content:flex-start;gap:6px;",
+            "flex-direction:row-reverse;justify-content:flex-start;gap:4px;",
             rendered,
         )
         self.assertIn(
-            ".sort-control{display:flex;align-items:center;gap:3px;"
+            ".sort-control{display:flex;align-items:center;"
+            "flex-direction:row-reverse;gap:2px;"
             "padding:0;border:0;background:transparent;",
             rendered,
         )
-        self.assertIn(".sort-select{max-width:128px;", rendered)
+        self.assertIn(".sort-select{max-width:118px;", rendered)
+        self.assertIn('id="back-to-top"', rendered)
+        self.assertIn('aria-label="回到頁面頂端"', rendered)
+        self.assertIn("window.scrollY < 480", rendered)
+        self.assertIn("window.scrollTo({top: 0, behavior: 'smooth'})", rendered)
         self.assertIn("grid-template-columns:minmax(260px,32%)", rendered)
         self.assertNotIn("repeat(2,minmax(0,1fr))", rendered)
         self.assertEqual(rendered.count('<article class="card"'), 2)
