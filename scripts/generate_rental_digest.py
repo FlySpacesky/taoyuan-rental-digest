@@ -6,9 +6,10 @@
 - 591：桃園區、中壢區、平鎮區、八德區，整層住家、4房以上
 - Facebook：安全 JSON 匯入
 - 樂屋網：中壢區、桃園區、平鎮區，4房及5房以上
+- Threads：官方關鍵字搜尋，僅收錄桃園區、4房以上且全部照片可保存的物件
 
 本版重點：
-1. 完全不含 Threads。
+1. Threads 使用官方 API，不使用帳號密碼、Cookie 或瀏覽器 Session。
 2. 591 列表優先讀網站前端使用的官方 BFF；失效時才退回 SSR HTML / Chromium。
 3. 591 屋主只接受 role_name / 詳情聯絡人角色明確以「屋主」開頭的物件。
 4. 591 降價優先使用 BFF 官方 diff_price，詳情頁阻擋時使用同輪嚴格列表快照。
@@ -57,6 +58,22 @@ FB_IMPORT_URL_ENV = "FACEBOOK_POSTS_JSON_URL"
 FB_ASSET_DIR = DOCS / "assets" / "facebook"
 FB_ASSET_PUBLIC_BASE = (
     "https://flyspacesky.github.io/taoyuan-rental-digest/assets/facebook"
+)
+THREADS_ACCESS_TOKEN_ENV = "THREADS_ACCESS_TOKEN"
+THREADS_GRAPH_BASE = "https://graph.threads.net"
+THREADS_ASSET_DIR = DOCS / "assets" / "threads"
+THREADS_ASSET_PUBLIC_BASE = (
+    "https://flyspacesky.github.io/taoyuan-rental-digest/assets/threads"
+)
+THREADS_SEARCH_QUERIES = (
+    "桃園區 租屋",
+    "桃園區 出租",
+    "桃園區 四房",
+    "桃園區 4房",
+)
+THREADS_SEARCH_FIELDS = (
+    "id,media_product_type,media_type,media_url,permalink,username,text,"
+    "timestamp,shortcode,thumbnail_url,children"
 )
 FB_ISSUE_TITLE_PREFIX = "[FB房源]"
 FB_ISSUE_TEMPLATE_URL = (
@@ -200,6 +217,7 @@ class Listing:
     views: str = ""
     publisher: str = ""
     image: str = ""
+    images: list[str] = field(default_factory=list)
     summary: str = ""
     category_hint: str = ""
     category: str = ""
@@ -2403,6 +2421,377 @@ def load_facebook_import(source_stats: dict[str, Any]) -> list[Listing]:
 
 
 # ---------------------------------------------------------------------------
+# Threads 官方關鍵字搜尋
+# ---------------------------------------------------------------------------
+
+
+def normalize_threads_post_url(url: str) -> str:
+    value = str(url or "").strip()
+    try:
+        parsed = urllib.parse.urlparse(value)
+    except ValueError:
+        return ""
+    hostname = (parsed.hostname or "").lower()
+    if hostname not in {
+        "threads.com",
+        "www.threads.com",
+        "threads.net",
+        "www.threads.net",
+    }:
+        return ""
+    path = re.sub(r"/+", "/", parsed.path).rstrip("/")
+    if not re.fullmatch(r"/@[A-Za-z0-9._-]+/post/[A-Za-z0-9_-]+", path):
+        return ""
+    return f"https://www.threads.com{path}"
+
+
+def threads_nested_children(row: dict[str, Any]) -> list[dict[str, Any]]:
+    value = row.get("children")
+    if isinstance(value, dict):
+        value = value.get("data", [])
+    if not isinstance(value, list):
+        return []
+    return [child for child in value if isinstance(child, dict)]
+
+
+def fetch_threads_children(post_id: str, token: str) -> list[dict[str, Any]]:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{3,100}", post_id or ""):
+        return []
+    try:
+        response = requests.get(
+            f"{THREADS_GRAPH_BASE}/{post_id}/children",
+            headers={"Authorization": f"Bearer {token}"},
+            params={
+                "fields": "id,media_type,media_url,thumbnail_url",
+                "limit": 100,
+            },
+            timeout=35,
+        )
+        payload = response.json() if response.status_code == 200 else {}
+    except (requests.RequestException, ValueError):
+        return []
+    rows = payload.get("data", []) if isinstance(payload, dict) else []
+    return [child for child in rows if isinstance(child, dict)]
+
+
+def threads_media_urls(row: dict[str, Any], token: str) -> list[str]:
+    media_type = clean(row.get("media_type"), 40).upper()
+    media_rows: list[dict[str, Any]] = []
+    if media_type == "IMAGE":
+        media_rows.append(row)
+
+    if "CAROUSEL" in media_type:
+        media_rows.extend(threads_nested_children(row))
+        if not any(clean(child.get("media_url"), 2000) for child in media_rows):
+            media_rows.extend(fetch_threads_children(clean(row.get("id"), 100), token))
+
+    urls: list[str] = []
+    for media in media_rows:
+        child_type = clean(media.get("media_type"), 40).upper()
+        url = clean(media.get("media_url"), 2000)
+        if child_type and child_type != "IMAGE":
+            continue
+        if is_public_http_url(url) and url not in urls:
+            urls.append(url)
+    return urls
+
+
+def is_safe_threads_image_download(url: str) -> bool:
+    if not is_public_http_url(url):
+        return False
+    parsed = urllib.parse.urlparse(str(url).strip())
+    if parsed.scheme != "https":
+        return False
+    hostname = (parsed.hostname or "").lower()
+    return (
+        hostname == "lookaside.fbsbx.com"
+        or hostname.endswith(".fbsbx.com")
+        or hostname.endswith(".fbcdn.net")
+        or hostname.endswith(".cdninstagram.com")
+    )
+
+
+def archive_threads_images(
+    post_id: str,
+    image_urls: list[str],
+    source_stats: dict[str, Any],
+) -> list[str]:
+    """保存一篇 Threads 物件的全部照片；任一張失敗就不刊出不完整圖集。"""
+    safe_post_id = re.sub(r"[^A-Za-z0-9_-]", "", post_id or "")[:100]
+    if not safe_post_id or not image_urls:
+        return []
+
+    archived: list[str] = []
+    for index, image_url in enumerate(image_urls, 1):
+        existing_url = ""
+        for extension in ("jpg", "png", "webp", "gif"):
+            existing = THREADS_ASSET_DIR / f"{safe_post_id}-{index:02d}.{extension}"
+            if existing.exists() and existing.stat().st_size > 500:
+                existing_url = f"{THREADS_ASSET_PUBLIC_BASE}/{existing.name}"
+                break
+        if existing_url:
+            archived.append(existing_url)
+            continue
+
+        if not is_safe_threads_image_download(image_url):
+            source_stats["image_download_failures"] = (
+                source_stats.get("image_download_failures", 0) + 1
+            )
+            return []
+        try:
+            response = requests.get(
+                image_url,
+                headers={
+                    "User-Agent": UA,
+                    "Accept": "image/avif,image/webp,image/png,image/jpeg,image/*",
+                },
+                timeout=35,
+                allow_redirects=True,
+            )
+        except requests.RequestException:
+            source_stats["image_download_failures"] = (
+                source_stats.get("image_download_failures", 0) + 1
+            )
+            return []
+
+        content_type = (
+            response.headers.get("Content-Type", "").split(";", 1)[0].lower()
+        )
+        extension = {
+            "image/jpeg": "jpg",
+            "image/jpg": "jpg",
+            "image/png": "png",
+            "image/webp": "webp",
+            "image/gif": "gif",
+        }.get(content_type, "")
+        content = response.content
+        if (
+            response.status_code != 200
+            or not extension
+            or not (500 < len(content) <= 20_000_000)
+        ):
+            source_stats["image_download_failures"] = (
+                source_stats.get("image_download_failures", 0) + 1
+            )
+            return []
+
+        THREADS_ASSET_DIR.mkdir(parents=True, exist_ok=True)
+        target = THREADS_ASSET_DIR / f"{safe_post_id}-{index:02d}.{extension}"
+        target.write_bytes(content)
+        archived.append(f"{THREADS_ASSET_PUBLIC_BASE}/{target.name}")
+        source_stats["images_archived"] = source_stats.get("images_archived", 0) + 1
+    return archived
+
+
+def threads_timestamp_label(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return clean(raw, 50)
+    return parsed.astimezone(TZ).strftime("%Y/%m/%d %H:%M刊登")
+
+
+def threads_district_from_text(text: str) -> str:
+    """優先讀地點欄與標題；只有全文單一行政區時才接受全文推斷。"""
+    value = clean_multiline(text, 16000)
+    labeled = re.search(
+        r"(?:地點|地址|位置|區域)\s*[:：]\s*([^\n\r]{2,120})",
+        value,
+        re.I,
+    )
+    if labeled:
+        return district_from_text(labeled.group(1))
+
+    first_line = next((line for line in value.splitlines() if line.strip()), "")
+    first_line_district = district_from_text(first_line)
+    if first_line_district:
+        return first_line_district
+
+    mentions = set(re.findall(r"(桃園區|中壢區|平鎮區|八德區)", value))
+    return next(iter(mentions)) if len(mentions) == 1 else ""
+
+
+def threads_api_error(response: requests.Response, payload: Any) -> str:
+    message = ""
+    if isinstance(payload, dict) and isinstance(payload.get("error"), dict):
+        message = clean(payload["error"].get("message"), 240)
+    return f"HTTP {response.status_code}{f'：{message}' if message else ''}"
+
+
+def fetch_threads_search_rows(
+    token: str,
+    source_stats: dict[str, Any],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    pages = 0
+    for query in THREADS_SEARCH_QUERIES:
+        next_url = f"{THREADS_GRAPH_BASE}/keyword_search"
+        params: dict[str, Any] | None = {
+            "q": query,
+            "search_type": "RECENT",
+            "search_mode": "KEYWORD",
+            "limit": 50,
+            "fields": THREADS_SEARCH_FIELDS,
+        }
+        for _ in range(2):
+            try:
+                response = requests.get(
+                    next_url,
+                    headers={"Authorization": f"Bearer {token}"},
+                    params=params,
+                    timeout=35,
+                )
+                payload = response.json()
+            except (requests.RequestException, ValueError) as exc:
+                source_stats["errors"].append(
+                    f"Threads官方搜尋「{query}」無法讀取：{clean(exc, 180)}"
+                )
+                break
+            if response.status_code != 200 or not isinstance(payload, dict):
+                source_stats["errors"].append(
+                    f"Threads官方搜尋「{query}」失敗："
+                    f"{threads_api_error(response, payload)}"
+                )
+                break
+
+            pages += 1
+            data = payload.get("data", [])
+            if isinstance(data, list):
+                rows.extend(row for row in data if isinstance(row, dict))
+
+            candidate_next = (
+                payload.get("paging", {}).get("next", "")
+                if isinstance(payload.get("paging"), dict)
+                else ""
+            )
+            parsed_next = urllib.parse.urlparse(str(candidate_next))
+            if (
+                not candidate_next
+                or parsed_next.scheme != "https"
+                or parsed_next.hostname != "graph.threads.net"
+            ):
+                break
+            next_url = str(candidate_next)
+            params = None
+    source_stats["api_pages"] = pages
+    return rows
+
+
+def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
+    token = os.environ.get(THREADS_ACCESS_TOKEN_ENV, "").strip()
+    source_stats["search_queries"] = len(THREADS_SEARCH_QUERIES)
+    source_stats["target"] = "桃園區、4房以上、租金與全部照片完整"
+    source_stats["notices"].append(
+        "Threads只使用官方keyword_search；搜尋桃園區租屋相關關鍵字後，"
+        "逐筆驗證桃園區、4房以上、租金，並保存輪播中的全部照片。"
+    )
+    if not token:
+        source_stats["errors"].append(
+            f"Threads官方搜尋尚未啟用：請在GitHub Actions設定"
+            f"{THREADS_ACCESS_TOKEN_ENV} secret；Token需具備threads_keyword_search權限。"
+        )
+        return []
+
+    raw_rows = fetch_threads_search_rows(token, source_stats)
+    unique_rows: dict[str, dict[str, Any]] = {}
+    for row in raw_rows:
+        post_id = clean(row.get("id"), 100)
+        permalink = normalize_threads_post_url(str(row.get("permalink", "")))
+        key = post_id or permalink
+        if key:
+            unique_rows[key] = row
+    source_stats["candidate_links"] = len(unique_rows)
+
+    rejects: dict[str, int] = {}
+
+    def reject(reason: str) -> None:
+        rejects[reason] = rejects.get(reason, 0) + 1
+
+    result: list[Listing] = []
+    for row in unique_rows.values():
+        post_id = clean(row.get("id"), 100)
+        url = normalize_threads_post_url(str(row.get("permalink", "")))
+        text = clean_multiline(row.get("text"), 16000)
+        district = threads_district_from_text(text)
+        rent = facebook_labeled_money(text, "租金", "月租", "房租")
+        media_urls = threads_media_urls(row, token)
+        source_stats["images_found"] = (
+            source_stats.get("images_found", 0) + len(media_urls)
+        )
+
+        reasons: list[str] = []
+        if not post_id or not url:
+            reasons.append("invalid_permalink")
+        if not any(marker in text for marker in ("租屋", "出租", "月租", "租金")):
+            reasons.append("not_rental_post")
+        if district != "桃園區":
+            reasons.append("not_taoyuan_district")
+        if not has_four_rooms(text):
+            reasons.append("not_four_rooms")
+        if not rent:
+            reasons.append("missing_rent")
+        if not media_urls:
+            reasons.append("missing_photos")
+
+        if reasons:
+            for reason in reasons:
+                reject(reason)
+            continue
+
+        archived_images = archive_threads_images(post_id, media_urls, source_stats)
+        if len(archived_images) != len(media_urls):
+            reject("incomplete_photo_archive")
+            continue
+
+        management = facebook_labeled_money(text, "管理費")
+        parking = facebook_labeled_money(text, "停車位", "車位")
+        item = Listing(
+            source="Threads",
+            source_id=post_id,
+            url=url,
+            title=facebook_title_from_text(text) or "桃園區四房以上出租",
+            district="桃園區",
+            address=facebook_address_from_text(text),
+            house_type="整層住家",
+            building_type="電梯大樓" if "電梯" in text else "",
+            layout=facebook_layout_from_text(text),
+            size=facebook_size_from_text(text),
+            equipment=facebook_equipment_from_text(text),
+            rent=rent,
+            total_cost=rent + management + parking,
+            updated=threads_timestamp_label(row.get("timestamp")),
+            publisher=(
+                f"@{clean(row.get('username'), 80)}"
+                if clean(row.get("username"), 80)
+                else ""
+            ),
+            image=archived_images[0],
+            images=archived_images,
+            summary=clean(text, 500),
+            category_hint="general",
+            category="general",
+            raw_text=text,
+            validated_at=NOW.isoformat(),
+        )
+        item.fingerprint = fingerprint(item)
+        result.append(item)
+
+    source_stats["validated"] = len(result)
+    source_stats["rejects"] = dict(sorted(rejects.items()))
+    if unique_rows and not result:
+        source_stats["errors"].append(
+            "Threads有搜尋候選貼文，但沒有物件同時通過桃園區、4房以上、"
+            "租金與全部照片保存驗證；請查看rejects。"
+        )
+    return result
+
+
+# ---------------------------------------------------------------------------
 # 分類、去重與版面
 # ---------------------------------------------------------------------------
 
@@ -2501,7 +2890,12 @@ def esc(value: Any) -> str:
 
 
 def source_label(source: str) -> str:
-    return {"591": "591", "FB": "FB社團", "樂屋網": "樂屋網"}.get(source, source)
+    return {
+        "591": "591",
+        "FB": "FB社團",
+        "樂屋網": "樂屋網",
+        "Threads": "Threads",
+    }.get(source, source)
 
 
 def category_label(item: Listing) -> str:
@@ -2515,6 +2909,7 @@ def category_label(item: Listing) -> str:
         ("樂屋網", "general"): "出租",
         ("FB", "priority"): "優先置頂",
         ("FB", "general"): "其他符合物件",
+        ("Threads", "general"): "一般物件",
     }
     return labels.get((item.source, item.category), item.category)
 
@@ -2569,6 +2964,8 @@ def listing_filter_tokens(item: Listing) -> list[str]:
         return tokens
 
     tokens = ["all"]
+    if item.source == "Threads":
+        return tokens
     tokens.append("priority" if item.category == "priority" else "general")
     return tokens
 
@@ -2645,18 +3042,36 @@ def render_card(item: Listing, order: int = 0) -> str:
     area = numeric_value(item.size)
     popularity = int(numeric_value(item.views))
     total_cost = item.total_cost or item.rent
+    images = list(
+        dict.fromkeys(
+            value
+            for value in ([item.image] + list(item.images or []))
+            if value
+        )
+    )
+    if not images:
+        images = [""]
+    photo_html = "".join(
+        f"""
+        <a class="photo gallery-photo" href="{esc(item.url)}" target="_blank"
+           rel="noopener noreferrer" aria-label="{esc(item.title)} 照片 {index}/{len(images)}">
+          <img src="{esc(image_url)}" alt="{esc(item.title)} 照片 {index}"
+               referrerpolicy="no-referrer"
+               onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+          <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+          {f'<span class="source-badge">{esc(source_label(item.source))}</span>' if index == 1 else ''}
+          {f'<span class="photo-index">{index}/{len(images)}</span>' if len(images) > 1 else ''}
+        </a>
+        """
+        for index, image_url in enumerate(images, 1)
+    )
 
     return f"""
     <article class="card" data-categories="{esc(categories)}"
              data-order="{order}" data-recency="{recency_minutes(item)}"
              data-total="{total_cost}" data-rent="{item.rent}"
              data-area="{area}" data-popularity="{popularity}">
-      <a class="photo" href="{esc(item.url)}" target="_blank" rel="noopener noreferrer">
-        <img src="{esc(item.image)}" alt="{esc(item.title)}" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">{esc(source_label(item.source))}</span>
-      </a>
+      <div class="photo-gallery" data-photo-count="{len(images)}">{photo_html}</div>
       <div class="body">
         <div class="body-main">
           <div class="tag-row">{badges_html}</div>
@@ -2681,6 +3096,11 @@ def empty_message(stats: dict[str, Any], source: str, category: str) -> str:
     candidate = int(row.get("candidate_links", 0) or 0)
     validated = int(row.get("validated", 0) or 0)
 
+    if source == "Threads" and validated == 0:
+        return (
+            "本次沒有經 Threads 官方 API 驗證通過的桃園區4房以上物件；"
+            "請查看上方來源訊息。"
+        )
     if category == "discount":
         return (
             "本輪沒有經來源標示或租金歷史確認的降價物件；"
@@ -2704,17 +3124,11 @@ def section_items(
     source_items = [item for item in items if item.source == source]
     if category == "all":
         return source_items
-    if source == "591" and category == "featured":
-        return [item for item in source_items if is_591_featured(item)]
-    if source == "591" and category == "owner":
-        return [item for item in source_items if _591_is_owner(item.publisher)]
-    if source == "591" and category == "discount":
+    if source == "591" and category in {"featured", "owner", "discount"}:
         return [
             item
             for item in source_items
-            if item.category_hint == "discount"
-            or item.category == "discount"
-            or item.old_rent > item.rent
+            if category in listing_filter_tokens(item)
         ]
     return [item for item in source_items if item.category == category]
 
@@ -2841,6 +3255,13 @@ def render_status(stats: dict[str, Any], source: str) -> str:
             f"<span>公開投稿 {row.get('issue_submissions_seen', 0)} 筆</span>"
             f"<span>自動補齊 {row.get('public_metadata_enriched', 0)} 筆</span>"
         )
+    elif source == "Threads":
+        diagnostics = (
+            f"<span>搜尋查詢 {row.get('search_queries', 0)} 組</span>"
+            f"<span>API頁面 {row.get('api_pages', 0)} 頁</span>"
+            f"<span>找到照片 {row.get('images_found', 0)} 張</span>"
+            f"<span>完整保存 {row.get('images_archived', 0)} 張</span>"
+        )
 
     return f"""
     <div class="source-status">
@@ -2872,7 +3293,7 @@ def render_html(items: list[Listing], stats: dict[str, Any]) -> str:
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>桃園四房以上租屋快報</title>
 <style>
-:root{{--orange:#f56a00;--orange-soft:#fff5eb;--bg:#f6f7f8;--line:#e5e7eb;--muted:#69717d;--fb:#1877f2;--raku:#d65431}}
+:root{{--orange:#f56a00;--orange-soft:#fff5eb;--bg:#f6f7f8;--line:#e5e7eb;--muted:#69717d;--fb:#1877f2;--raku:#d65431;--threads:#101010}}
 *{{box-sizing:border-box}}
 html{{scroll-behavior:smooth}}
 body{{margin:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;color:#202124}}
@@ -2896,6 +3317,7 @@ h1 time{{font-size:15px;color:#995018;background:var(--orange-soft);border:1px s
 .source-nav a:hover{{border-color:var(--orange);color:var(--orange)}}
 .source-nav a:nth-child(2){{color:var(--fb)}}
 .source-nav a:nth-child(3){{color:var(--raku)}}
+.source-nav a:nth-child(4){{color:var(--threads)}}
 .statusbar{{background:#23272d;color:#fff;padding:12px 0;font-size:14px}}
 main{{padding:22px 0 48px}}
 .notice{{background:#fff;border-left:5px solid var(--orange);padding:15px 18px;border-radius:10px;line-height:1.7}}
@@ -2919,6 +3341,7 @@ main{{padding:22px 0 48px}}
 .filter-group{{width:75%;margin-right:auto;display:grid;grid-template-columns:repeat(var(--filter-count),minmax(0,1fr));align-items:stretch;direction:ltr;border-bottom:1px solid var(--line)}}
 .filter-group[data-filter-count="4"]{{--filter-count:4}}
 .filter-group[data-filter-count="3"]{{--filter-count:3}}
+.filter-group[data-filter-count="1"]{{--filter-count:1}}
 .filter-button{{width:100%;appearance:none;border:0;background:transparent;color:#4f5965;font:inherit;font-weight:800;cursor:pointer;padding:14px 8px;border-bottom:3px solid transparent;direction:ltr;text-align:center}}
 .filter-button b{{font-size:12px;color:#8a929b;margin-left:3px}}
 .filter-button:hover{{color:var(--orange)}}
@@ -2936,9 +3359,12 @@ main{{padding:22px 0 48px}}
 .listing-list{{display:flex;flex-direction:column;gap:12px;margin-top:12px}}
 .card{{display:grid;grid-template-columns:minmax(260px,32%) minmax(0,1fr);min-height:245px;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff;box-shadow:0 2px 8px #0000000a}}
 .card:hover{{border-color:#ffc596;box-shadow:0 6px 22px #00000012}}
+.photo-gallery{{min-width:0;display:flex;overflow-x:auto;scroll-snap-type:x mandatory;background:#596273;scrollbar-width:thin}}
 .photo{{height:100%;min-height:245px;display:block;position:relative;background:#596273;overflow:hidden}}
+.gallery-photo{{flex:0 0 100%;scroll-snap-align:start}}
 .photo img{{width:100%;height:100%;object-fit:cover}}
 .photo .source-badge{{position:absolute;left:10px;top:10px;background:#111c;color:#fff;padding:6px 9px;border-radius:5px;font-size:13px;font-weight:900}}
+.photo-index{{position:absolute;right:10px;bottom:10px;background:#111c;color:#fff;padding:5px 8px;border-radius:999px;font-size:12px;font-weight:900}}
 .photo-fallback{{display:none;position:absolute;inset:0;align-items:center;justify-content:center;text-align:center;color:#fff;font-weight:900;background:#4b5563}}
 .body{{display:grid;grid-template-columns:minmax(0,1fr) 175px;gap:18px;padding:18px 20px}}
 .body-main{{min-width:0}}
@@ -3013,11 +3439,12 @@ h3 a{{text-decoration:none}}
         {NOW.strftime('%Y/%m/%d %H:%M')}
       </time>
     </h1>
-    <p class="subtitle">三個來源分區顯示；每筆物件均包含照片與來源直達連結，本輪有效物件不因近48小時曾顯示而隱藏。</p>
+    <p class="subtitle">四個來源分區顯示；每筆物件均包含照片與來源直達連結，本輪有效物件不因近48小時曾顯示而隱藏。</p>
     <nav class="source-nav">
       <a href="#source-591">591</a>
       <a href="#source-fb">FB社團</a>
       <a href="#source-rakuya">樂屋網</a>
+      <a href="#source-threads">Threads</a>
     </nav>
   </div>
 </header>
@@ -3082,6 +3509,28 @@ h3 a{{text-decoration:none}}
       (('recency', '最近更新'), ('rent', '租金'), ('area', '室內坪數'), ('popularity', '人氣')),
   )}
 </div>
+
+<div id="source-threads" class="source-block">
+  <div class="source-heading">
+    <h2>Threads</h2>
+    <a href="https://www.threads.com/" target="_blank" rel="noopener noreferrer">開啟Threads ↗</a>
+  </div>
+  {render_status(stats, 'Threads')}
+  <div class="social-note">
+    <strong>Threads真實物件：</strong>
+    本區只使用Threads官方關鍵字搜尋，並且只刊出正文可確認為桃園區、
+    4房以上、具有租金且輪播全部照片都已完整保存的出租物件。
+    不使用帳號密碼、Cookie或瀏覽器Session；未設定官方Access Token、
+    貼文資料不足或任一照片無法保存時，會保留0筆與來源原因，不會加入假物件。
+  </div>
+  {render_listing_browser(
+      items,
+      stats,
+      'Threads',
+      (('all', 'Threads'),),
+      (('recency', '最新'), ('total', '租金總費用'), ('rent', '租金'), ('area', '坪數')),
+  )}
+</div>
 </main>
 <button id="back-to-top" class="back-to-top" type="button"
         aria-label="回到頁面頂端" title="回到頁面頂端" hidden>↑</button>
@@ -3102,6 +3551,7 @@ document.querySelectorAll('[data-listing-browser]').forEach((panel) => {{
   const list = panel.querySelector('.listing-list');
   const cards = Array.from(panel.querySelectorAll('.card'));
   const empty = panel.querySelector('.browser-empty');
+  const sourceEmptyMessage = empty?.textContent || '';
   const count = panel.querySelector('.visible-count');
   const filterButtons = Array.from(panel.querySelectorAll('.filter-button'));
   const sortSelects = Array.from(panel.querySelectorAll('.sort-select'));
@@ -3136,7 +3586,11 @@ document.querySelectorAll('[data-listing-browser]').forEach((panel) => {{
     }});
     visible.forEach((card) => list.insertBefore(card, empty));
     empty.hidden = visible.length > 0;
-    if (!visible.length) empty.textContent = '此分類目前沒有符合條件的物件。';
+    if (!visible.length) {{
+      empty.textContent = cards.length
+        ? '此分類目前沒有符合條件的物件。'
+        : sourceEmptyMessage;
+    }}
     count.textContent = `${{visible.length}} 筆`;
   }};
 
@@ -3187,8 +3641,13 @@ def main() -> int:
             "591": empty_source_stats(),
             "FB": empty_source_stats(),
             "樂屋網": empty_source_stats(),
+            "Threads": empty_source_stats(),
         }
     }
+    stats["sources"]["Threads"]["notices"].append(
+        "Threads只顯示官方API驗證通過的桃園區4房以上出租物件；"
+        "每篇輪播的全部照片都必須成功保存。"
+    )
     candidates: list[Listing] = []
 
     try:
@@ -3210,6 +3669,7 @@ def main() -> int:
         stats["sources"]["樂屋網"]["validated"] = valid_rakuya
 
         candidates.extend(load_facebook_import(stats["sources"]["FB"]))
+        candidates.extend(load_threads_listings(stats["sources"]["Threads"]))
 
     finally:
         browser.close()

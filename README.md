@@ -11,7 +11,8 @@
 - 排程：台灣時間每天08:17、20:17
 - 網站：GitHub Pages
 - 通知：LINE Messaging API；排程每次都發送最新快報連結，即使本次沒有新物件也會發送
-- Threads：不納入本快報，也不需要設定 Threads Access Token
+- Threads：使用官方 `keyword_search` 與 `THREADS_ACCESS_TOKEN`；只刊出桃園區、
+  4房以上、租金明確且全部照片成功保存的真實物件
 - Facebook：不登入、不使用帳密／Cookie／Session；資料來源為
   `data/facebook_posts.json`、`FACEBOOK_POSTS_JSON` Actions secret，或
   `FACEBOOK_POSTS_JSON_URL` HTTPS feed（Actions secret／repository variable），

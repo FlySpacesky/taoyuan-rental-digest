@@ -1060,6 +1060,182 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
         self.assertIn(DIGEST.FB_IMPORT_URL_ENV, stats["import_source"])
 
 
+class ThreadsImportTests(unittest.TestCase):
+    def test_missing_access_token_reports_actionable_error(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        with patch.dict(
+            os.environ,
+            {DIGEST.THREADS_ACCESS_TOKEN_ENV: ""},
+            clear=False,
+        ):
+            items = DIGEST.load_threads_listings(stats)
+
+        self.assertEqual(items, [])
+        self.assertEqual(stats["candidate_links"], 0)
+        self.assertEqual(stats["validated"], 0)
+        self.assertIn(DIGEST.THREADS_ACCESS_TOKEN_ENV, stats["errors"][0])
+        self.assertIn("threads_keyword_search", stats["errors"][0])
+
+    def test_official_search_keeps_taoyuan_four_room_and_all_photos(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "data": [
+                {
+                    "id": "180123456789",
+                    "media_type": "CAROUSEL_ALBUM",
+                    "permalink": (
+                        "https://www.threads.net/@real.home/post/ABC_123"
+                    ),
+                    "username": "real.home",
+                    "text": (
+                        "桃園區大有路四房出租\n"
+                        "租金：25,000元\n"
+                        "4房2廳2衛，約46坪，電梯大樓"
+                    ),
+                    "timestamp": "2026-07-30T01:02:03+0000",
+                    "children": {
+                        "data": [
+                            {
+                                "media_type": "IMAGE",
+                                "media_url": (
+                                    "https://scontent.cdninstagram.com/one.jpg"
+                                ),
+                            },
+                            {
+                                "media_type": "IMAGE",
+                                "media_url": (
+                                    "https://scontent.cdninstagram.com/two.jpg"
+                                ),
+                            },
+                        ]
+                    },
+                }
+            ]
+        }
+
+        def archive_all(
+            post_id: str,
+            image_urls: list[str],
+            source_stats: dict[str, object],
+        ) -> list[str]:
+            source_stats["images_archived"] = len(image_urls)
+            return [
+                f"https://example.test/assets/threads/{post_id}-{index:02d}.jpg"
+                for index in range(1, len(image_urls) + 1)
+            ]
+
+        with (
+            patch.dict(
+                os.environ,
+                {DIGEST.THREADS_ACCESS_TOKEN_ENV: "test-token"},
+                clear=False,
+            ),
+            patch.object(DIGEST.requests, "get", return_value=response),
+            patch.object(
+                DIGEST,
+                "archive_threads_images",
+                side_effect=archive_all,
+            ),
+        ):
+            items = DIGEST.load_threads_listings(stats)
+
+        self.assertEqual(len(items), 1)
+        item = items[0]
+        self.assertEqual(item.source, "Threads")
+        self.assertEqual(item.district, "桃園區")
+        self.assertEqual(item.layout, "4房2廳2衛")
+        self.assertEqual(item.rent, 25_000)
+        self.assertEqual(item.total_cost, 25_000)
+        self.assertEqual(item.publisher, "@real.home")
+        self.assertEqual(
+            item.url,
+            "https://www.threads.com/@real.home/post/ABC_123",
+        )
+        self.assertEqual(len(item.images), 2)
+        self.assertEqual(item.image, item.images[0])
+        self.assertEqual(stats["candidate_links"], 1)
+        self.assertEqual(stats["validated"], 1)
+        self.assertEqual(stats["images_found"], 2)
+        self.assertEqual(stats["images_archived"], 2)
+
+        rendered = DIGEST.render_card(item)
+        self.assertIn('data-photo-count="2"', rendered)
+        self.assertEqual(rendered.count('class="photo gallery-photo"'), 2)
+        self.assertIn(">1/2</span>", rendered)
+        self.assertIn(">2/2</span>", rendered)
+
+    def test_non_taoyuan_or_under_four_rooms_is_rejected(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "data": [
+                {
+                    "id": "180999999999",
+                    "media_type": "IMAGE",
+                    "media_url": "https://scontent.cdninstagram.com/three.jpg",
+                    "permalink": (
+                        "https://www.threads.com/@real.home/post/NOT_TAOYUAN"
+                    ),
+                    "username": "real.home",
+                    "text": "中壢區三房出租\n租金：20,000元\n3房2廳1衛",
+                }
+            ]
+        }
+        with (
+            patch.dict(
+                os.environ,
+                {DIGEST.THREADS_ACCESS_TOKEN_ENV: "test-token"},
+                clear=False,
+            ),
+            patch.object(DIGEST.requests, "get", return_value=response),
+            patch.object(DIGEST, "archive_threads_images") as archive,
+        ):
+            items = DIGEST.load_threads_listings(stats)
+
+        self.assertEqual(items, [])
+        self.assertEqual(stats["candidate_links"], 1)
+        self.assertEqual(stats["validated"], 0)
+        self.assertEqual(stats["rejects"]["not_taoyuan_district"], 1)
+        self.assertEqual(stats["rejects"]["not_four_rooms"], 1)
+        archive.assert_not_called()
+
+    def test_all_threads_images_are_archived(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        image_response = Mock(
+            status_code=200,
+            headers={"Content-Type": "image/jpeg"},
+            content=b"x" * 900,
+        )
+        with (
+            tempfile.TemporaryDirectory() as temp_dir,
+            patch.object(DIGEST, "THREADS_ASSET_DIR", Path(temp_dir)),
+            patch.object(
+                DIGEST,
+                "THREADS_ASSET_PUBLIC_BASE",
+                "https://example.test/assets/threads",
+            ),
+            patch.object(
+                DIGEST.requests,
+                "get",
+                side_effect=[image_response, image_response],
+            ),
+        ):
+            archived = DIGEST.archive_threads_images(
+                "180123456789",
+                [
+                    "https://scontent.cdninstagram.com/one.jpg",
+                    "https://scontent.cdninstagram.com/two.jpg",
+                ],
+                stats,
+            )
+
+            self.assertEqual(len(archived), 2)
+            self.assertTrue((Path(temp_dir) / "180123456789-01.jpg").exists())
+            self.assertTrue((Path(temp_dir) / "180123456789-02.jpg").exists())
+        self.assertEqual(stats["images_archived"], 2)
+
+
 class CurrentListingDisplayTests(unittest.TestCase):
     @staticmethod
     def listing(
@@ -1184,6 +1360,7 @@ class CurrentListingDisplayTests(unittest.TestCase):
                 "591": DIGEST.empty_source_stats(),
                 "FB": DIGEST.empty_source_stats(),
                 "樂屋網": DIGEST.empty_source_stats(),
+                "Threads": DIGEST.empty_source_stats(),
             },
             "candidates": 2,
             "validated": 2,
@@ -1224,16 +1401,20 @@ class CurrentListingDisplayTests(unittest.TestCase):
         self.assertIn("坪數大到小", rendered)
         self.assertIn("人氣高到低", rendered)
         self.assertIn("人氣低到高", rendered)
-        self.assertEqual(rendered.count('<select class="sort-select"'), 12)
+        self.assertEqual(rendered.count('<select class="sort-select"'), 16)
         self.assertNotIn('class="sort-button', rendered)
         self.assertIn("justify-content:flex-end", rendered)
-        self.assertEqual(rendered.count('class="status-primary"'), 3)
+        self.assertEqual(rendered.count('class="status-primary"'), 4)
         self.assertEqual(
             rendered.count('<div class="filter-group" data-filter-count="4"'),
             2,
         )
         self.assertEqual(
             rendered.count('<div class="filter-group" data-filter-count="3"'),
+            1,
+        )
+        self.assertEqual(
+            rendered.count('<div class="filter-group" data-filter-count="1"'),
             1,
         )
         self.assertIn(
@@ -1282,6 +1463,21 @@ class CurrentListingDisplayTests(unittest.TestCase):
         )
         self.assertIn(
             'href="https://rent.rakuya.com.tw/"',
+            rendered,
+        )
+        self.assertIn('<a href="#source-threads">Threads</a>', rendered)
+        self.assertIn('id="source-threads"', rendered)
+        self.assertIn(
+            'href="https://www.threads.com/"',
+            rendered,
+        )
+        self.assertIn("桃園區、", rendered)
+        self.assertIn("輪播全部照片都已完整保存", rendered)
+        self.assertIn(">Threads <b>0</b></button>", rendered)
+        self.assertNotIn(">優選好屋 <b>0</b></button>", rendered)
+        self.assertIn("Threads 官方 API 驗證通過", rendered)
+        self.assertIn(
+            "empty.textContent = cards.length",
             rendered,
         )
 
