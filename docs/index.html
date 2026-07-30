@@ -55,15 +55,15 @@ main{padding:22px 0 48px}
 .filter-button:hover{color:var(--orange)}
 .filter-button.active{color:var(--orange);border-bottom-color:var(--orange)}
 .filter-button.active b{color:var(--orange)}
-.sort-row{display:flex;align-items:center;justify-content:flex-start;gap:6px;min-height:56px;padding:7px 0}
+.sort-row{display:flex;align-items:center;flex-direction:row-reverse;justify-content:flex-start;gap:4px;min-height:52px;padding:6px 0}
 .sort-row>span{color:#8a929b;font-size:13px;font-weight:800}
-.sort-group{display:flex;align-items:center;justify-content:flex-start;gap:6px;flex-wrap:wrap}
-.sort-control{display:flex;align-items:center;gap:3px;padding:0;border:0;background:transparent;color:#555;font-size:13px;font-weight:850}
+.sort-group{display:flex;align-items:center;flex-direction:row-reverse;justify-content:flex-start;gap:4px;flex-wrap:wrap}
+.sort-control{display:flex;align-items:center;flex-direction:row-reverse;gap:2px;padding:0;border:0;background:transparent;color:#555;font-size:13px;font-weight:850}
 .sort-control.active{color:#b55a09}
 .sort-control.active .sort-select{border-color:#ffb879;background:var(--orange-soft)}
-.sort-select{max-width:128px;border:1px solid #d9dde3;border-radius:5px;background:#fff;color:#30343a;padding:6px 21px 6px 7px;font:inherit;cursor:pointer}
+.sort-select{max-width:118px;border:1px solid #d9dde3;border-radius:5px;background:#fff;color:#30343a;padding:5px 19px 5px 6px;font:inherit;font-size:12px;cursor:pointer}
 .sort-select:focus{outline:2px solid #ffb879;outline-offset:1px}
-.visible-count{color:#5a626d;white-space:nowrap;margin-left:2px}
+.visible-count{color:#5a626d;white-space:nowrap;margin-right:2px;direction:ltr}
 .listing-list{display:flex;flex-direction:column;gap:12px;margin-top:12px}
 .card{display:grid;grid-template-columns:minmax(260px,32%) minmax(0,1fr);min-height:245px;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff;box-shadow:0 2px 8px #0000000a}
 .card:hover{border-color:#ffc596;box-shadow:0 6px 22px #00000012}
@@ -95,6 +95,9 @@ h3 a{text-decoration:none}
 .social-links{display:flex;justify-content:flex-end;gap:7px;flex-wrap:wrap;margin-top:12px}
 .social-links a{background:var(--fb);color:#fff;text-decoration:none;padding:8px 10px;border-radius:6px;font-weight:800}
 .social-note{background:#fff8e9;border:1px solid #ffd7a6;padding:13px;border-radius:9px;margin-top:12px;line-height:1.7}
+.back-to-top{position:fixed;right:18px;bottom:18px;z-index:1200;width:48px;height:48px;border:0;border-radius:50%;background:var(--orange);color:#fff;font-size:25px;font-weight:950;line-height:1;cursor:pointer;box-shadow:0 5px 18px #0004}
+.back-to-top:hover{background:#d95d00;transform:translateY(-2px)}
+.back-to-top:focus-visible{outline:3px solid #ffbd87;outline-offset:3px}
 [hidden]{display:none!important}
 @media(max-width:820px){
   .status-primary,.filter-group{width:100%}
@@ -117,9 +120,10 @@ h3 a{text-decoration:none}
   .sort-row{align-items:flex-start;flex-wrap:wrap;padding:8px 0}
   .sort-row>span{padding-top:9px}
   .sort-group{width:100%}
-  .sort-control{flex:1 1 150px;justify-content:flex-start}
-  .sort-select{max-width:none;min-width:0}
-  .visible-count{width:100%;padding:0 8px 4px;text-align:right}
+  .sort-control{flex:0 1 auto;justify-content:flex-start}
+  .sort-select{max-width:118px;min-width:0}
+  .visible-count{width:100%;padding:0 8px 4px;text-align:left}
+  .back-to-top{right:12px;bottom:12px;width:44px;height:44px;font-size:23px}
   .card{grid-template-columns:minmax(130px,38%) minmax(0,1fr);min-height:220px}
   .photo{min-height:220px}
   .body{padding:12px;gap:10px}
@@ -146,9 +150,9 @@ h3 a{text-decoration:none}
 </header>
 
 <div class="statusbar"><div class="wrap">
-產生時間：2026/07/30 08:21｜候選 316 筆｜
-驗證通過 309 筆｜近48小時曾顯示／同輪重複 309 筆｜
-本次顯示 301 筆
+產生時間：2026/07/30 08:59｜候選 317 筆｜
+驗證通過 310 筆｜近48小時曾顯示／同輪重複 309 筆｜
+本次顯示 302 筆
 </div></div>
 
 <main class="wrap">
@@ -165,7 +169,7 @@ h3 a{text-decoration:none}
         <span>本頁顯示 249 筆</span>
       </div>
       <div class="status-secondary">
-        <strong class="fallback-warning">⚠ 本輪顯示上次成功快照：257 筆，9.79 小時前；未重新驗證</strong><span>列表快照 0 筆</span><details><summary>591排除診斷</summary><div>無</div></details>
+        <strong class="fallback-warning">⚠ 本輪顯示上次成功快照：257 筆，10.41 小時前；未重新驗證</strong><span>列表快照 0 筆</span><details><summary>591排除診斷</summary><div>無</div></details>
         
         <details><summary>查看來源訊息</summary><ul><li>591官方BFF與列表HTML連續回應403/429；Chromium也只取得受阻頁。這是GitHub Runner出口IP被591限制，不是Chromium未安裝或物件ID解析失敗。</li><li>本輪591新鮮候選為0筆，沿用2026-07-29T22:34:15.228234+08:00的257筆上次成功真實快照；這些物件本輪未重新驗證，請點開591確認仍在刊登。</li></ul></details>
       </div>
@@ -6923,14 +6927,14 @@ h3 a{text-decoration:none}
     <div class="source-status">
       <div class="status-primary">
         <b>本次紀錄</b>
-        <span>候選 0 筆</span>
-        <span>驗證通過 0 筆</span>
-        <span>本頁顯示 0 筆</span>
+        <span>候選 1 筆</span>
+        <span>驗證通過 1 筆</span>
+        <span>本頁顯示 1 筆</span>
       </div>
       <div class="status-secondary">
         
         
-        <details><summary>查看來源訊息</summary><ul><li>FB沒有資料來源：請建立 data/facebook_posts.json，或設定GitHub Actions secret FACEBOOK_POSTS_JSON／FACEBOOK_POSTS_JSON_URL。在不使用Facebook帳號、密碼、Cookie或Session的限制下，程式不會假裝能匿名抓取受登入保護的社團貼文。</li></ul></details>
+        
       </div>
     </div>
     
@@ -6947,19 +6951,46 @@ h3 a{text-decoration:none}
       <div class="filter-bar">
         <div class="filter-group" data-filter-count="3"
              role="group" aria-label="FB社團 分類">
-          <button type="button" class="filter-button active" data-filter="all">全部 <b>0</b></button><button type="button" class="filter-button" data-filter="priority">屋主自租／仲介勿擾／社宅勿擾 <b>0</b></button><button type="button" class="filter-button" data-filter="general">其他符合物件 <b>0</b></button>
+          <button type="button" class="filter-button active" data-filter="all">全部 <b>1</b></button><button type="button" class="filter-button" data-filter="priority">屋主自租／仲介勿擾／社宅勿擾 <b>0</b></button><button type="button" class="filter-button" data-filter="general">其他符合物件 <b>1</b></button>
         </div>
         <div class="sort-row">
           <span>排序：</span>
           <div class="sort-group" role="group" aria-label="FB社團 排序">
             <label class="sort-control active"><span>最新</span><select class="sort-select" data-sort="recency" data-default-direction="asc" aria-current="true" aria-label="FB社團 最新排序"><option value="asc" selected>由新到舊</option><option value="desc">由舊到新</option></select></label><label class="sort-control"><span>租金總費用</span><select class="sort-select" data-sort="total" data-default-direction="asc" aria-current="false" aria-label="FB社團 租金總費用排序"><option value="asc" selected>總費用低到高</option><option value="desc">總費用高到低</option></select></label><label class="sort-control"><span>租金</span><select class="sort-select" data-sort="rent" data-default-direction="asc" aria-current="false" aria-label="FB社團 租金排序"><option value="asc" selected>租金低到高</option><option value="desc">租金高到低</option></select></label><label class="sort-control"><span>坪數</span><select class="sort-select" data-sort="area" data-default-direction="asc" aria-current="false" aria-label="FB社團 坪數排序"><option value="asc" selected>坪數小到大</option><option value="desc">坪數大到小</option></select></label>
           </div>
-          <strong class="visible-count">0 筆</strong>
+          <strong class="visible-count">1 筆</strong>
         </div>
       </div>
       <div class="listing-list">
         
-        <div class="empty browser-empty">本次沒有取得符合條件的候選物件。</div>
+    <article class="card" data-categories="all general"
+             data-order="0" data-recency="1000000000"
+             data-total="28000" data-rent="23000"
+             data-area="46.0" data-popularity="0">
+      <a class="photo" href="https://www.facebook.com/groups/4091621327828556/permalink/4623380861319264/" target="_blank" rel="noopener noreferrer">
+        <img src="https://flyspacesky.github.io/taoyuan-rental-digest/assets/facebook/4623380861319264.jpg" alt="桃園區｜冠倫大國｜46坪大四房｜可租補・可入戶籍・可養寵" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">FB社團</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://www.facebook.com/groups/4091621327828556/permalink/4623380861319264/" target="_blank" rel="noopener noreferrer">桃園區｜冠倫大國｜46坪大四房｜可租補・可入戶籍・可養寵</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大樓</span><span>4房2廳2衛</span><span>46坪</span></p>
+          <p class="address">⌖ 桃園區大有路｜冠倫大國社區</p>
+          <div class="feature-row"><span>家具家電全配、電梯、可租補、可入戶籍、可養寵物、停車位</span></div>
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">23,000<small> 元／月</small></div>
+          <a class="button" href="https://www.facebook.com/groups/4091621327828556/permalink/4623380861319264/" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+        <div class="empty browser-empty" hidden>本次有驗證通過物件，但沒有物件符合此分類。</div>
       </div>
     </section>
     
@@ -7001,168 +7032,6 @@ h3 a{text-decoration:none}
         
     <article class="card" data-categories="rent"
              data-order="0" data-recency="1000000000"
-             data-total="46000" data-rent="46000"
-             data-area="75.0" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/7423/rent/0f04e934606779f" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n779/79/6f/34606779_1_b.jpeg?1783049366" alt="[樂屋網] 桃園市桃園區中正路-凰璽大4房/雙車位/雙陽台/頂樓戶/公園.學校" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/7423/rent/0f04e934606779f" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區中正路-凰璽大4房/雙車位/雙陽台/頂樓戶/公園.學校</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房</span><span>75坪</span><span>16/16樓</span></p>
-          <p class="address">⌖ 桃園區中正路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">46,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/7423/rent/0f04e934606779f" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent friendly discount"
-             data-order="1" data-recency="1000000000"
-             data-total="25000" data-rent="25000"
-             data-area="48.03" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/25940/rent/0391be346939461" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n946/77/98/34693946_1_b.jpeg?1783678657" alt="[樂屋網] 桃園市中壢區環北路-⭐可貓⭐2萬5含管⭐代收包裹" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"><span class="tag highlight">友善房源</span><span class="tag highlight">降價</span></div>
-          <h3><a href="https://community.rakuya.com.tw/25940/rent/0391be346939461" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區環北路-⭐可貓⭐2萬5含管⭐代收包裹</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>48.03坪</span><span>12/12樓</span></p>
-          <p class="address">⌖ 中壢區環北路</p>
-          <div class="feature-row"><span>可入籍</span></div>
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          <div class="old"><del>26,000 元／月</del></div>
-          <div class="rent">25,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/25940/rent/0391be346939461" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="2" data-recency="1000000000"
-             data-total="82000" data-rent="82000"
-             data-area="72.0" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/33104/rent/0874ef308629825" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n982/e6/6d/30862982_1_b.jpeg?1782389376" alt="[樂屋網] 桃園市桃園區三民路一段-中悅貝多芬✦正對三民運動公園高樓層頂配豪宅" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/33104/rent/0874ef308629825" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區三民路一段-中悅貝多芬✦正對三民運動公園高樓層頂配豪宅</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳4衛</span><span>72坪</span><span>14/15樓</span></p>
-          <p class="address">⌖ 桃園區三民路一段</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">82,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/33104/rent/0874ef308629825" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent discount"
-             data-order="3" data-recency="1000000000"
-             data-total="33000" data-rent="33000"
-             data-area="43.87" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/4436/rent/0b414733919136b" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n136/af/3f/33919136_1_b.jpeg?1783330147" alt="[樂屋網] 桃園市桃園區南平路-租藝文大四房車位 熱鬧優質住宅區" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"><span class="tag highlight">降價</span></div>
-          <h3><a href="https://community.rakuya.com.tw/4436/rent/0b414733919136b" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區南平路-租藝文大四房車位 熱鬧優質住宅區</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>43.87坪</span><span>7/14樓</span></p>
-          <p class="address">⌖ 桃園區南平路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          <div class="old"><del>40,000 元／月</del></div>
-          <div class="rent">33,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/4436/rent/0b414733919136b" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="4" data-recency="1000000000"
-             data-total="25000" data-rent="25000"
-             data-area="52.1" data-popularity="0">
-      <a class="photo" href="https://rent.rakuya.com.tw/item/039c92348009939" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n993/5d/0f/34800993_1_b.jpeg?1784644920" alt="[樂屋網] 桃園市八德區介壽路一段-介壽黃金辦公室" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://rent.rakuya.com.tw/item/039c92348009939" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市八德區介壽路一段-介壽黃金辦公室</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>52.1坪</span><span>10/12樓</span></p>
-          <p class="address">⌖ 八德區介壽路一段</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">25,000<small> 元／月</small></div>
-          <a class="button" href="https://rent.rakuya.com.tw/item/039c92348009939" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="5" data-recency="1000000000"
-             data-total="55000" data-rent="55000"
-             data-area="68.72" data-popularity="0">
-      <a class="photo" href="https://rent.rakuya.com.tw/item/05449c330626820" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n682/b0/bb/33062682_1_b.jpeg?1784378154" alt="[樂屋網] 桃園市桃園區民族路-民族路小資創業透天店面" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://rent.rakuya.com.tw/item/05449c330626820" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區民族路-民族路小資創業透天店面</a></h3>
-          <p class="facts"><span>整層住家</span><span>透天厝</span><span>4房1廳5衛</span><span>68.72坪</span><span>B1~5/5樓</span></p>
-          <p class="address">⌖ 桃園區民族路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">55,000<small> 元／月</small></div>
-          <a class="button" href="https://rent.rakuya.com.tw/item/05449c330626820" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="6" data-recency="1000000000"
              data-total="50000" data-rent="50000"
              data-area="55.02" data-popularity="0">
       <a class="photo" href="https://community.rakuya.com.tw/7851/rent/040f5d341439833" target="_blank" rel="noopener noreferrer">
@@ -7189,11 +7058,11 @@ h3 a{text-decoration:none}
     </article>
     
     <article class="card" data-categories="rent"
-             data-order="7" data-recency="1000000000"
-             data-total="200000" data-rent="200000"
-             data-area="190.0" data-popularity="0">
-      <a class="photo" href="https://rent.rakuya.com.tw/item/0371ed344294879" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n487/10/2c/34429487_1_b.jpeg?1782194584" alt="[樂屋網] 桃園市中壢區成功路-✨中壢成功路頂級透天｜大面寬店面｜190坪✨" referrerpolicy="no-referrer"
+             data-order="1" data-recency="1000000000"
+             data-total="25000" data-rent="25000"
+             data-area="52.1" data-popularity="0">
+      <a class="photo" href="https://rent.rakuya.com.tw/item/039c92348009939" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n993/5d/0f/34800993_1_b.jpeg?1784644920" alt="[樂屋網] 桃園市八德區介壽路一段-介壽黃金辦公室" referrerpolicy="no-referrer"
              onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
         <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
         <span class="source-badge">樂屋網</span>
@@ -7201,130 +7070,22 @@ h3 a{text-decoration:none}
       <div class="body">
         <div class="body-main">
           <div class="tag-row"></div>
-          <h3><a href="https://rent.rakuya.com.tw/item/0371ed344294879" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區成功路-✨中壢成功路頂級透天｜大面寬店面｜190坪✨</a></h3>
-          <p class="facts"><span>整層住家</span><span>透天厝</span><span>4房4廳4衛</span><span>190坪</span><span>1~4/4樓</span></p>
-          <p class="address">⌖ 中壢區成功路</p>
+          <h3><a href="https://rent.rakuya.com.tw/item/039c92348009939" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市八德區介壽路一段-介壽黃金辦公室</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>52.1坪</span><span>10/12樓</span></p>
+          <p class="address">⌖ 八德區介壽路一段</p>
           
           <div class="activity"></div>
         </div>
         <div class="price-column">
           
-          <div class="rent">200,000<small> 元／月</small></div>
-          <a class="button" href="https://rent.rakuya.com.tw/item/0371ed344294879" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+          <div class="rent">25,000<small> 元／月</small></div>
+          <a class="button" href="https://rent.rakuya.com.tw/item/039c92348009939" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
         </div>
       </div>
     </article>
     
     <article class="card" data-categories="rent"
-             data-order="8" data-recency="1000000000"
-             data-total="35000" data-rent="35000"
-             data-area="27.32" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/49559/rent/07a409344983558" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n355/af/9f/34498355_1_b.jpeg?1782117794" alt="[樂屋網] 桃園市桃園區文中東路-專任誠租｜禁寵｜昕中城高樓四房車位" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/49559/rent/07a409344983558" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區文中東路-專任誠租｜禁寵｜昕中城高樓四房車位</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>27.32坪</span><span>9/15樓</span></p>
-          <p class="address">⌖ 桃園區文中東路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">35,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/49559/rent/07a409344983558" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="9" data-recency="1000000000"
-             data-total="58000" data-rent="58000"
-             data-area="86.99" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/43107/rent/05dfe834637458c" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n458/89/f1/34637458_1_b.jpeg?1784860130" alt="[樂屋網] 桃園市桃園區中正路-【將相琚】G08站4房車,家具電全" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/43107/rent/05dfe834637458c" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區中正路-【將相琚】G08站4房車,家具電全</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房</span><span>86.99坪</span><span>9/18樓</span></p>
-          <p class="address">⌖ 桃園區中正路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">58,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/43107/rent/05dfe834637458c" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="10" data-recency="1000000000"
-             data-total="70000" data-rent="70000"
-             data-area="59.68" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/43015/rent/0f627c344986795" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n679/5a/1a/34498679_1_b.jpeg?1782118963" alt="[樂屋網] 桃園市桃園區經國路-春日路河景-阿波羅大辦公室+車位/大坪數商辦" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/43015/rent/0f627c344986795" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區經國路-春日路河景-阿波羅大辦公室+車位/大坪數商辦</a></h3>
-          <p class="facts"><span>電梯大廈</span><span>4房2廳</span><span>59.68坪</span><span>11/16樓</span></p>
-          <p class="address">⌖ 桃園區經國路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">70,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/43015/rent/0f627c344986795" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="11" data-recency="1000000000"
-             data-total="31000" data-rent="31000"
-             data-area="24.66" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/43524/rent/03bff4326917827" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n782/27/77/32691782_1_b.jpeg?1765102362" alt="[樂屋網] 桃園市八德區中正路-八德區優質學區三房樓中樓設計" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/43524/rent/03bff4326917827" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市八德區中正路-八德區優質學區三房樓中樓設計</a></h3>
-          <p class="facts"><span>整層住家</span><span>樓中樓</span><span>4房3廳3衛</span><span>24.66坪</span><span>1/15樓</span></p>
-          <p class="address">⌖ 八德區中正路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">31,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/43524/rent/03bff4326917827" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="12" data-recency="1000000000"
+             data-order="2" data-recency="1000000000"
              data-total="45000" data-rent="45000"
              data-area="86.99" data-popularity="0">
       <a class="photo" href="https://rent.rakuya.com.tw/item/0c4220345859510" target="_blank" rel="noopener noreferrer">
@@ -7350,89 +7111,35 @@ h3 a{text-decoration:none}
       </div>
     </article>
     
-    <article class="card" data-categories="rent"
-             data-order="13" data-recency="1000000000"
-             data-total="58000" data-rent="58000"
-             data-area="46.18" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/52931/rent/0b179e33677825d" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n825/0a/22/33677825_1_b.jpeg?1775726363" alt="[樂屋網] 桃園市桃園區中央街-出租昭揚天滙景觀4房車" referrerpolicy="no-referrer"
+    <article class="card" data-categories="rent discount"
+             data-order="3" data-recency="1000000000"
+             data-total="25000" data-rent="25000"
+             data-area="31.79" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/87701/rent/04c1df341017436" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n743/28/66/34101743_1_b.jpeg?1780974157" alt="[樂屋網] 桃園市桃園區同安街-藝文特區、近同安國小＃新裝潢大4房" referrerpolicy="no-referrer"
              onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
         <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
         <span class="source-badge">樂屋網</span>
       </a>
       <div class="body">
         <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/52931/rent/0b179e33677825d" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區中央街-出租昭揚天滙景觀4房車</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房</span><span>46.18坪</span><span>15/15樓</span></p>
-          <p class="address">⌖ 桃園區中央街</p>
+          <div class="tag-row"><span class="tag highlight">降價</span></div>
+          <h3><a href="https://community.rakuya.com.tw/87701/rent/04c1df341017436" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區同安街-藝文特區、近同安國小＃新裝潢大4房</a></h3>
+          <p class="facts"><span>整層住家</span><span>公寓</span><span>4房</span><span>31.79坪</span><span>4/5樓</span></p>
+          <p class="address">⌖ 桃園區同安街</p>
           
           <div class="activity"></div>
         </div>
         <div class="price-column">
-          
-          <div class="rent">58,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/52931/rent/0b179e33677825d" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+          <div class="old"><del>28,000 元／月</del></div>
+          <div class="rent">25,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/87701/rent/04c1df341017436" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
         </div>
       </div>
     </article>
     
     <article class="card" data-categories="rent"
-             data-order="14" data-recency="1000000000"
-             data-total="30000" data-rent="30000"
-             data-area="40.0" data-popularity="0">
-      <a class="photo" href="https://rent.rakuya.com.tw/item/06ebc1342972629" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n262/11/fc/34297262_1_b.jpeg?1780371334" alt="[樂屋網] 桃園市桃園區永安路-正永安路透天" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://rent.rakuya.com.tw/item/06ebc1342972629" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區永安路-正永安路透天</a></h3>
-          <p class="facts"><span>整層住家</span><span>透天厝</span><span>4房2廳2衛</span><span>40坪</span><span>1~2/2樓</span></p>
-          <p class="address">⌖ 桃園區永安路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">30,000<small> 元／月</small></div>
-          <a class="button" href="https://rent.rakuya.com.tw/item/06ebc1342972629" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="15" data-recency="1000000000"
-             data-total="55000" data-rent="55000"
-             data-area="41.5" data-popularity="0">
-      <a class="photo" href="https://rent.rakuya.com.tw/item/0b48d3347203217" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n321/a8/5e/34720321_1_b.jpeg?1784011330" alt="[樂屋網] 桃園市桃園區溫州街-藝文中路★ღ6米大面寬=黃金比列透天店住辦可停雙車" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://rent.rakuya.com.tw/item/0b48d3347203217" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區溫州街-藝文中路★ღ6米大面寬=黃金比列透天店住辦可停雙車</a></h3>
-          <p class="facts"><span>整層住家</span><span>透天厝</span><span>5房2廳3衛</span><span>41.5坪</span><span>整棟/2樓</span></p>
-          <p class="address">⌖ 桃園區溫州街</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">55,000<small> 元／月</small></div>
-          <a class="button" href="https://rent.rakuya.com.tw/item/0b48d3347203217" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="16" data-recency="1000000000"
+             data-order="4" data-recency="1000000000"
              data-total="25000" data-rent="25000"
              data-area="41.38" data-popularity="0">
       <a class="photo" href="https://rent.rakuya.com.tw/item/036f31345792889" target="_blank" rel="noopener noreferrer">
@@ -7459,547 +7166,7 @@ h3 a{text-decoration:none}
     </article>
     
     <article class="card" data-categories="rent"
-             data-order="17" data-recency="1000000000"
-             data-total="30000" data-rent="30000"
-             data-area="40.0" data-popularity="0">
-      <a class="photo" href="https://rent.rakuya.com.tw/item/095c39343010515" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n051/77/15/34301051_1_b.jpeg?1780386115" alt="[樂屋網] 桃園市桃園區永安路-永安路透天" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://rent.rakuya.com.tw/item/095c39343010515" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區永安路-永安路透天</a></h3>
-          <p class="facts"><span>整層住家</span><span>透天厝</span><span>4房2廳2衛</span><span>40坪</span><span>1~2/2樓</span></p>
-          <p class="address">⌖ 桃園區永安路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">30,000<small> 元／月</small></div>
-          <a class="button" href="https://rent.rakuya.com.tw/item/095c39343010515" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="18" data-recency="1000000000"
-             data-total="35000" data-rent="35000"
-             data-area="80.0" data-popularity="0">
-      <a class="photo" href="https://rent.rakuya.com.tw/item/01677434290911a" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n911/16/32/34290911_1_b.jpeg?1782191595" alt="[樂屋網] 桃園市中壢區福嶺路一段-出租中壢福嶺路一段兩層樓大農舍{未保存登記}" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://rent.rakuya.com.tw/item/01677434290911a" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區福嶺路一段-出租中壢福嶺路一段兩層樓大農舍{未保存登記}</a></h3>
-          <p class="facts"><span>整層住家</span><span>透天厝</span><span>5房2廳2衛</span><span>80坪</span><span>整棟/2樓</span></p>
-          <p class="address">⌖ 中壢區福嶺路一段</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">35,000<small> 元／月</small></div>
-          <a class="button" href="https://rent.rakuya.com.tw/item/01677434290911a" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="19" data-recency="1000000000"
-             data-total="30000" data-rent="30000"
-             data-area="53.37" data-popularity="0">
-      <a class="photo" href="https://rent.rakuya.com.tw/item/0f57e0338716837" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n683/1f/4d/33871683_1_b.jpeg?1776502410" alt="[樂屋網] 桃園市桃園區中正路-展演中心旁,4房門前停車,生活機能超讚" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://rent.rakuya.com.tw/item/0f57e0338716837" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區中正路-展演中心旁,4房門前停車,生活機能超讚</a></h3>
-          <p class="facts"><span>整層住家</span><span>別墅</span><span>4房</span><span>53.37坪</span><span>1~4/4樓</span></p>
-          <p class="address">⌖ 桃園區中正路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">30,000<small> 元／月</small></div>
-          <a class="button" href="https://rent.rakuya.com.tw/item/0f57e0338716837" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="20" data-recency="1000000000"
-             data-total="38000" data-rent="38000"
-             data-area="26.02" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/49491/rent/071de232122000f" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n000/25/c6/32122000_1_b.jpeg?1774510329" alt="[樂屋網] 桃園市中壢區青境路-A18高鐵站前景觀3＋1房雙車" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/49491/rent/071de232122000f" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區青境路-A18高鐵站前景觀3＋1房雙車</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>1房</span><span>26.02坪</span><span>18/21樓</span></p>
-          <p class="address">⌖ 中壢區青境路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">38,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/49491/rent/071de232122000f" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="21" data-recency="1000000000"
-             data-total="47000" data-rent="47000"
-             data-area="64.39" data-popularity="0">
-      <a class="photo" href="https://rent.rakuya.com.tw/item/0d9aa534134969e" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n969/a5/0f/34134969_18_b.jpeg?1784209779" alt="[樂屋網] 桃園市桃園區同德二街-諾貝爾庭院透天" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://rent.rakuya.com.tw/item/0d9aa534134969e" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區同德二街-諾貝爾庭院透天</a></h3>
-          <p class="facts"><span>整層住家</span><span>透天厝</span><span>4房2廳3衛</span><span>64.39坪</span><span>1~4/4樓</span></p>
-          <p class="address">⌖ 桃園區同德二街</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">47,000<small> 元／月</small></div>
-          <a class="button" href="https://rent.rakuya.com.tw/item/0d9aa534134969e" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent discount"
-             data-order="22" data-recency="1000000000"
-             data-total="33800" data-rent="33800"
-             data-area="63.0" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/5868/rent/0b712133849019a" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n019/c6/a0/33849019_1_b.jpeg?1777885735" alt="[樂屋網] 桃園市中壢區領航北路二段-青埔國中A19 四房雙車位" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"><span class="tag highlight">降價</span></div>
-          <h3><a href="https://community.rakuya.com.tw/5868/rent/0b712133849019a" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區領航北路二段-青埔國中A19 四房雙車位</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>63坪</span><span>11/12樓</span></p>
-          <p class="address">⌖ 中壢區領航北路二段</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          <div class="old"><del>35,000 元／月</del></div>
-          <div class="rent">33,800<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/5868/rent/0b712133849019a" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="23" data-recency="1000000000"
-             data-total="35000" data-rent="35000"
-             data-area="24.62" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/82454/rent/0065bf345094347" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n434/01/1e/34509434_1_b.jpeg?1782207406" alt="[樂屋網] 桃園市中壢區青埔八街-青埔A18菁美學4房車" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/82454/rent/0065bf345094347" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區青埔八街-青埔A18菁美學4房車</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房</span><span>24.62坪</span><span>3/12樓</span></p>
-          <p class="address">⌖ 中壢區青埔八街</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">35,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/82454/rent/0065bf345094347" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent friendly"
-             data-order="24" data-recency="1000000000"
-             data-total="45000" data-rent="45000"
-             data-area="55.96" data-popularity="0">
-      <a class="photo" href="https://rent.rakuya.com.tw/item/0045a6348051871" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n187/00/a0/34805187_1_b.jpeg?1784697507" alt="[樂屋網] 桃園市平鎮區南華街-近平鎮大全聯4房全配前院停車別墅(濬)" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"><span class="tag highlight">友善房源</span></div>
-          <h3><a href="https://rent.rakuya.com.tw/item/0045a6348051871" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市平鎮區南華街-近平鎮大全聯4房全配前院停車別墅(濬)</a></h3>
-          <p class="facts"><span>整層住家</span><span>別墅</span><span>4房</span><span>55.96坪</span><span>1~4/4樓</span></p>
-          <p class="address">⌖ 平鎮區南華街</p>
-          <div class="feature-row"><span>可入籍</span></div>
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">45,000<small> 元／月</small></div>
-          <a class="button" href="https://rent.rakuya.com.tw/item/0045a6348051871" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="25" data-recency="1000000000"
-             data-total="30000" data-rent="30000"
-             data-area="61.5" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/55959/rent/023a5434621102e" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n102/05/f2/34621102_1_b.jpeg?1783129359" alt="[樂屋網] 桃園市八德區興隆街-桃鶯商圈龍大莊興隆街優質透天" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/55959/rent/023a5434621102e" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市八德區興隆街-桃鶯商圈龍大莊興隆街優質透天</a></h3>
-          <p class="facts"><span>整層住家</span><span>透天厝</span><span>4房2廳3衛</span><span>61.5坪</span><span>1~4/4樓</span></p>
-          <p class="address">⌖ 八德區興隆街</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">30,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/55959/rent/023a5434621102e" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent discount"
-             data-order="26" data-recency="1000000000"
-             data-total="55000" data-rent="55000"
-             data-area="28.0" data-popularity="0">
-      <a class="photo" href="https://rent.rakuya.com.tw/item/0a7b7934505356c" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n356/7c/f1/34505356_1_b.jpeg?1782526590" alt="[樂屋網] 桃園市桃園區溫州街-藝文中路6米大面寬透天-店住辦可停雙車-地坪28坪" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"><span class="tag highlight">降價</span></div>
-          <h3><a href="https://rent.rakuya.com.tw/item/0a7b7934505356c" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區溫州街-藝文中路6米大面寬透天-店住辦可停雙車-地坪28坪</a></h3>
-          <p class="facts"><span>透天厝</span><span>5房2廳3衛</span><span>28坪</span><span>1~2/2樓</span></p>
-          <p class="address">⌖ 桃園區溫州街</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          <div class="old"><del>58,000 元／月</del></div>
-          <div class="rent">55,000<small> 元／月</small></div>
-          <a class="button" href="https://rent.rakuya.com.tw/item/0a7b7934505356c" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent friendly"
-             data-order="27" data-recency="1000000000"
-             data-total="28000" data-rent="28000"
-             data-area="48.0" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/7342/rent/0c7d29348225890" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n589/b8/5f/34822589_14_b.jpeg?1785120870" alt="[樂屋網] 桃園市桃園區三民路三段-可租補入籍．富甲天下優質家庭大四房．含機械雙車位" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"><span class="tag highlight">友善房源</span></div>
-          <h3><a href="https://community.rakuya.com.tw/7342/rent/0c7d29348225890" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區三民路三段-可租補入籍．富甲天下優質家庭大四房．含機械雙車位</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>48坪</span><span>9/20樓</span></p>
-          <p class="address">⌖ 桃園區三民路三段</p>
-          <div class="feature-row"><span>可入籍、租補</span></div>
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">28,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/7342/rent/0c7d29348225890" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent discount"
-             data-order="28" data-recency="1000000000"
-             data-total="35000" data-rent="35000"
-             data-area="87.53" data-popularity="0">
-      <a class="photo" href="https://rent.rakuya.com.tw/item/0d010732611085f" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n085/b1/27/32611085_1_b.jpeg?1780501675" alt="[樂屋網] 桃園市八德區豐田二路-溫馨巷弄透天" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"><span class="tag highlight">降價</span></div>
-          <h3><a href="https://rent.rakuya.com.tw/item/0d010732611085f" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市八德區豐田二路-溫馨巷弄透天</a></h3>
-          <p class="facts"><span>整層住家</span><span>透天厝</span><span>4房3廳3衛</span><span>87.53坪</span><span>1~5/5樓</span></p>
-          <p class="address">⌖ 八德區豐田二路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          <div class="old"><del>40,000 元／月</del></div>
-          <div class="rent">35,000<small> 元／月</small></div>
-          <a class="button" href="https://rent.rakuya.com.tw/item/0d010732611085f" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="29" data-recency="1000000000"
-             data-total="150000" data-rent="150000"
-             data-area="102.93" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/16754/rent/0feab6321284303" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n430/8f/76/32128430_1_b.jpeg?1771006423" alt="[樂屋網] 桃園市桃園區藝文一街-租昭揚乾坤高樓層" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/16754/rent/0feab6321284303" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區藝文一街-租昭揚乾坤高樓層</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳4衛</span><span>102.93坪</span><span>19/27樓</span></p>
-          <p class="address">⌖ 桃園區藝文一街</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">150,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/16754/rent/0feab6321284303" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="30" data-recency="1000000000"
-             data-total="30000" data-rent="30000"
-             data-area="30.64" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/4298/rent/0a470f343292662" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n266/86/dc/34329266_1_b.jpeg?1780634297" alt="[樂屋網] 桃園市桃園區寶慶路-【藝文特區捷運宅｜高樓層雙陽台大四房車位｜可租補】" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/4298/rent/0a470f343292662" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區寶慶路-【藝文特區捷運宅｜高樓層雙陽台大四房車位｜可租補】</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>30.64坪</span><span>11/13樓</span></p>
-          <p class="address">⌖ 桃園區寶慶路</p>
-          <div class="feature-row"><span>租補</span></div>
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">30,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/4298/rent/0a470f343292662" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="31" data-recency="1000000000"
-             data-total="45000" data-rent="45000"
-             data-area="58.0" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/79521/rent/008606343735093" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n509/86/4a/34373509_1_b.jpeg?1780987731" alt="[樂屋網] 桃園市桃園區朝陽街-小檜溪全新建案．昭揚建設優質景觀四房車" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/79521/rent/008606343735093" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區朝陽街-小檜溪全新建案．昭揚建設優質景觀四房車</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>58坪</span><span>5/15樓</span></p>
-          <p class="address">⌖ 桃園區朝陽街</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">45,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/79521/rent/008606343735093" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="32" data-recency="1000000000"
-             data-total="39888" data-rent="39888"
-             data-area="64.22" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/4133/rent/0c7a0233460944c" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n944/6b/c2/33460944_1_b.jpeg?1772779921" alt="[樂屋網] 桃園市桃園區大興西路一段-藝文特區~慈文國中G~天下大觀~舒適5房車" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/4133/rent/0c7a0233460944c" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區大興西路一段-藝文特區~慈文國中G~天下大觀~舒適5房車</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>5房</span><span>64.22坪</span><span>3/17樓</span></p>
-          <p class="address">⌖ 桃園區大興西路一段</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">39,888<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/4133/rent/0c7a0233460944c" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="33" data-recency="1000000000"
-             data-total="39800" data-rent="39800"
-             data-area="57.03" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/60083/rent/0ae95934311075e" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n075/2e/cc/34311075_1_b.jpeg?1780477322" alt="[樂屋網] 桃園市中壢區高鐵站前路-亞昕喜徠登景觀全新四房車" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/60083/rent/0ae95934311075e" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區高鐵站前路-亞昕喜徠登景觀全新四房車</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>57.03坪</span><span>10/17樓</span></p>
-          <p class="address">⌖ 中壢區高鐵站前路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">39,800<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/60083/rent/0ae95934311075e" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="34" data-recency="1000000000"
-             data-total="50000" data-rent="50000"
-             data-area="40.17" data-popularity="0">
-      <a class="photo" href="https://rent.rakuya.com.tw/item/01560e316819630" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n963/16/7f/31681963_1_b.jpeg?1756374289" alt="[樂屋網] 桃園市中壢區環西路二段-(超棒地點)中壢市環西路2樓辦公室出租" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://rent.rakuya.com.tw/item/01560e316819630" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區環西路二段-(超棒地點)中壢市環西路2樓辦公室出租</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>5房1廳1衛</span><span>40.17坪</span><span>2/5樓</span></p>
-          <p class="address">⌖ 中壢區環西路二段</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">50,000<small> 元／月</small></div>
-          <a class="button" href="https://rent.rakuya.com.tw/item/01560e316819630" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="35" data-recency="1000000000"
-             data-total="30000" data-rent="30000"
-             data-area="30.64" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/4298/rent/05b7e8343241463" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n146/e5/bc/34324146_1_b.jpeg?1780565797" alt="[樂屋網] 桃園市桃園區寶慶路-☆可租補★藝文特區捷運★高樓層雙陽台超大四房" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/4298/rent/05b7e8343241463" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區寶慶路-☆可租補★藝文特區捷運★高樓層雙陽台超大四房</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>30.64坪</span><span>11/13樓</span></p>
-          <p class="address">⌖ 桃園區寶慶路</p>
-          <div class="feature-row"><span>租補</span></div>
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">30,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/4298/rent/05b7e8343241463" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="36" data-recency="1000000000"
-             data-total="15000" data-rent="15000"
-             data-area="25.8" data-popularity="0">
-      <a class="photo" href="https://rent.rakuya.com.tw/item/08e17734014403d" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n403/98/61/34014403_1_b.jpeg?1785297224" alt="[樂屋網] 桃園市平鎮區新華路-平鎮東安立體我家Ａ棟" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://rent.rakuya.com.tw/item/08e17734014403d" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市平鎮區新華路-平鎮東安立體我家Ａ棟</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>25.8坪</span><span>7/12樓</span></p>
-          <p class="address">⌖ 平鎮區新華路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">15,000<small> 元／月</small></div>
-          <a class="button" href="https://rent.rakuya.com.tw/item/08e17734014403d" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="37" data-recency="1000000000"
+             data-order="5" data-recency="1000000000"
              data-total="35000" data-rent="35000"
              data-area="28.2" data-popularity="0">
       <a class="photo" href="https://rent.rakuya.com.tw/item/0bfaad315001149" target="_blank" rel="noopener noreferrer">
@@ -8025,305 +7192,8 @@ h3 a{text-decoration:none}
       </div>
     </article>
     
-    <article class="card" data-categories="rent"
-             data-order="38" data-recency="1000000000"
-             data-total="35000" data-rent="35000"
-             data-area="85.06" data-popularity="0">
-      <a class="photo" href="https://rent.rakuya.com.tw/item/0576fe337816996" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n699/3d/38/33781699_1_b.jpeg?1781100968" alt="[樂屋網] 桃園市中壢區慈惠三街-世紀宮廷四房平面車位" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://rent.rakuya.com.tw/item/0576fe337816996" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區慈惠三街-世紀宮廷四房平面車位</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>85.06坪</span><span>8/21樓</span></p>
-          <p class="address">⌖ 中壢區慈惠三街</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">35,000<small> 元／月</small></div>
-          <a class="button" href="https://rent.rakuya.com.tw/item/0576fe337816996" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="39" data-recency="1000000000"
-             data-total="35000" data-rent="35000"
-             data-area="29.9" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/25845/rent/0a43b8338621150" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n115/b9/16/33862115_8_b.jpeg?1777174372" alt="[樂屋網] 桃園市中壢區松仁路-過嶺大清劍橋稀有露臺4房車" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/25845/rent/0a43b8338621150" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區松仁路-過嶺大清劍橋稀有露臺4房車</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房</span><span>29.9坪</span><span>2/13樓</span></p>
-          <p class="address">⌖ 中壢區松仁路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">35,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/25845/rent/0a43b8338621150" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="40" data-recency="1000000000"
-             data-total="33000" data-rent="33000"
-             data-area="25.64" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/42324/rent/0d3d2e343201033" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n103/88/39/34320103_1_b.jpeg?1780548002" alt="[樂屋網] 桃園市中壢區永裕路-真心推薦❤️ 青埔A19｜可寵物 3+1房雙車" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/42324/rent/0d3d2e343201033" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區永裕路-真心推薦❤️ 青埔A19｜可寵物 3+1房雙車</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>1房</span><span>25.64坪</span><span>14/22樓</span></p>
-          <p class="address">⌖ 中壢區永裕路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">33,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/42324/rent/0d3d2e343201033" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
     <article class="card" data-categories="rent discount"
-             data-order="41" data-recency="1000000000"
-             data-total="25000" data-rent="25000"
-             data-area="31.79" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/87701/rent/04c1df341017436" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n743/28/66/34101743_1_b.jpeg?1780974157" alt="[樂屋網] 桃園市桃園區同安街-藝文特區、近同安國小＃新裝潢大4房" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"><span class="tag highlight">降價</span></div>
-          <h3><a href="https://community.rakuya.com.tw/87701/rent/04c1df341017436" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區同安街-藝文特區、近同安國小＃新裝潢大4房</a></h3>
-          <p class="facts"><span>整層住家</span><span>公寓</span><span>4房</span><span>31.79坪</span><span>4/5樓</span></p>
-          <p class="address">⌖ 桃園區同安街</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          <div class="old"><del>28,000 元／月</del></div>
-          <div class="rent">25,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/87701/rent/04c1df341017436" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent discount"
-             data-order="42" data-recency="1000000000"
-             data-total="36000" data-rent="36000"
-             data-area="36.0" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/5403/rent/0d91da329739624" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n962/cc/af/32973962_1_b.jpeg?1770790009" alt="[樂屋網] 桃園市中壢區永泰路-ALIN推薦-青埔-城市之星-學區宅優質四房車" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"><span class="tag highlight">降價</span></div>
-          <h3><a href="https://community.rakuya.com.tw/5403/rent/0d91da329739624" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區永泰路-ALIN推薦-青埔-城市之星-學區宅優質四房車</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>36坪</span><span>5/12樓</span></p>
-          <p class="address">⌖ 中壢區永泰路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          <div class="old"><del>40,000 元／月</del></div>
-          <div class="rent">36,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/5403/rent/0d91da329739624" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="43" data-recency="1000000000"
-             data-total="50000" data-rent="50000"
-             data-area="33.72" data-popularity="0">
-      <a class="photo" href="https://rent.rakuya.com.tw/item/029d6f341742600" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n260/a9/3a/34174260_16_b.jpeg?1779347023" alt="[樂屋網] 桃園市中壢區正明街-出租文化國小庭院車庫透天5套房{適合員工宿舍入住}" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://rent.rakuya.com.tw/item/029d6f341742600" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區正明街-出租文化國小庭院車庫透天5套房{適合員工宿舍入住}</a></h3>
-          <p class="facts"><span>透天厝</span><span>5房2廳5衛</span><span>33.72坪</span><span>整棟/3樓</span></p>
-          <p class="address">⌖ 中壢區正明街</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">50,000<small> 元／月</small></div>
-          <a class="button" href="https://rent.rakuya.com.tw/item/029d6f341742600" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent discount"
-             data-order="44" data-recency="1000000000"
-             data-total="36000" data-rent="36000"
-             data-area="46.0" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/3324/rent/05db7a347710524" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n052/48/03/34771052_1_b.jpeg?1784365604" alt="[樂屋網] 桃園市中壢區民權路-⭐近A21、A22⭐民權極景⭐拎包入住" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"><span class="tag highlight">降價</span></div>
-          <h3><a href="https://community.rakuya.com.tw/3324/rent/05db7a347710524" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區民權路-⭐近A21、A22⭐民權極景⭐拎包入住</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>46坪</span><span>13/15樓</span></p>
-          <p class="address">⌖ 中壢區民權路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          <div class="old"><del>42,800 元／月</del></div>
-          <div class="rent">36,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/3324/rent/05db7a347710524" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="45" data-recency="1000000000"
-             data-total="20000" data-rent="20000"
-             data-area="38.73" data-popularity="0">
-      <a class="photo" href="https://rent.rakuya.com.tw/item/02a682336174501" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n450/50/14/33617450_1_b.jpeg?1774262012" alt="[樂屋網] 桃園市桃園區延壽街-延壽街公寓" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://rent.rakuya.com.tw/item/02a682336174501" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區延壽街-延壽街公寓</a></h3>
-          <p class="facts"><span>整層住家</span><span>公寓</span><span>4房2廳1衛</span><span>38.73坪</span><span>5/5樓</span></p>
-          <p class="address">⌖ 桃園區延壽街</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">20,000<small> 元／月</small></div>
-          <a class="button" href="https://rent.rakuya.com.tw/item/02a682336174501" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="46" data-recency="1000000000"
-             data-total="28000" data-rent="28000"
-             data-area="31.0" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/87701/rent/0406b734024158d" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r1/n158/f8/65/34024158_1_b.jpeg?1777969371" alt="[樂屋網] 桃園市桃園區同安街- ◤出租◢【同安街公寓｜可租補】✨" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/87701/rent/0406b734024158d" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區同安街- ◤出租◢【同安街公寓｜可租補】✨</a></h3>
-          <p class="facts"><span>整層住家</span><span>公寓</span><span>4房1廳3衛</span><span>31坪</span><span>4/5樓</span></p>
-          <p class="address">⌖ 桃園區同安街</p>
-          <div class="feature-row"><span>租補</span></div>
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">28,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/87701/rent/0406b734024158d" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="47" data-recency="1000000000"
-             data-total="128000" data-rent="128000"
-             data-area="128.0" data-popularity="0">
-      <a class="photo" href="https://community.rakuya.com.tw/2532/rent/0c5bba31890728d" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n728/21/94/31890728_3_b.jpeg?1782391535" alt="[樂屋網] 桃園市桃園區中正路-葛里芬✦正藝文中正公園旁單層獨戶豪宅雙車位多套房" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://community.rakuya.com.tw/2532/rent/0c5bba31890728d" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區中正路-葛里芬✦正藝文中正公園旁單層獨戶豪宅雙車位多套房</a></h3>
-          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳4衛</span><span>128坪</span><span>16/23樓</span></p>
-          <p class="address">⌖ 桃園區中正路</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">128,000<small> 元／月</small></div>
-          <a class="button" href="https://community.rakuya.com.tw/2532/rent/0c5bba31890728d" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent"
-             data-order="48" data-recency="1000000000"
-             data-total="32000" data-rent="32000"
-             data-area="39.0" data-popularity="0">
-      <a class="photo" href="https://rent.rakuya.com.tw/item/0b4e0f34059851e" target="_blank" rel="noopener noreferrer">
-        <img src="https://static.rakuya.com.tw/r2/n851/57/d7/34059851_1_b.jpeg?1778240367" alt="[樂屋網] 桃園市八德區永興街-高城社區生活機能佳1樓可停車" referrerpolicy="no-referrer"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
-        <span class="source-badge">樂屋網</span>
-      </a>
-      <div class="body">
-        <div class="body-main">
-          <div class="tag-row"></div>
-          <h3><a href="https://rent.rakuya.com.tw/item/0b4e0f34059851e" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市八德區永興街-高城社區生活機能佳1樓可停車</a></h3>
-          <p class="facts"><span>整層住家</span><span>透天厝</span><span>5房2廳3衛</span><span>39坪</span><span>整棟/3樓</span></p>
-          <p class="address">⌖ 八德區永興街</p>
-          
-          <div class="activity"></div>
-        </div>
-        <div class="price-column">
-          
-          <div class="rent">32,000<small> 元／月</small></div>
-          <a class="button" href="https://rent.rakuya.com.tw/item/0b4e0f34059851e" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
-        </div>
-      </div>
-    </article>
-    
-    <article class="card" data-categories="rent discount"
-             data-order="49" data-recency="1000000000"
+             data-order="6" data-recency="1000000000"
              data-total="33000" data-rent="33000"
              data-area="43.0" data-popularity="0">
       <a class="photo" href="https://community.rakuya.com.tw/4436/rent/0ad54733942168b" target="_blank" rel="noopener noreferrer">
@@ -8350,7 +7220,925 @@ h3 a{text-decoration:none}
     </article>
     
     <article class="card" data-categories="rent"
-             data-order="50" data-recency="1000000000"
+             data-order="7" data-recency="1000000000"
+             data-total="35000" data-rent="35000"
+             data-area="27.32" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/49559/rent/07a409344983558" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n355/af/9f/34498355_1_b.jpeg?1782117794" alt="[樂屋網] 桃園市桃園區文中東路-專任誠租｜禁寵｜昕中城高樓四房車位" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/49559/rent/07a409344983558" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區文中東路-專任誠租｜禁寵｜昕中城高樓四房車位</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>27.32坪</span><span>9/15樓</span></p>
+          <p class="address">⌖ 桃園區文中東路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">35,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/49559/rent/07a409344983558" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="8" data-recency="1000000000"
+             data-total="35000" data-rent="35000"
+             data-area="85.06" data-popularity="0">
+      <a class="photo" href="https://rent.rakuya.com.tw/item/0576fe337816996" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n699/3d/38/33781699_1_b.jpeg?1781100968" alt="[樂屋網] 桃園市中壢區慈惠三街-世紀宮廷四房平面車位" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://rent.rakuya.com.tw/item/0576fe337816996" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區慈惠三街-世紀宮廷四房平面車位</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>85.06坪</span><span>8/21樓</span></p>
+          <p class="address">⌖ 中壢區慈惠三街</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">35,000<small> 元／月</small></div>
+          <a class="button" href="https://rent.rakuya.com.tw/item/0576fe337816996" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="9" data-recency="1000000000"
+             data-total="50000" data-rent="50000"
+             data-area="33.72" data-popularity="0">
+      <a class="photo" href="https://rent.rakuya.com.tw/item/029d6f341742600" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n260/a9/3a/34174260_16_b.jpeg?1779347023" alt="[樂屋網] 桃園市中壢區正明街-出租文化國小庭院車庫透天5套房{適合員工宿舍入住}" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://rent.rakuya.com.tw/item/029d6f341742600" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區正明街-出租文化國小庭院車庫透天5套房{適合員工宿舍入住}</a></h3>
+          <p class="facts"><span>透天厝</span><span>5房2廳5衛</span><span>33.72坪</span><span>整棟/3樓</span></p>
+          <p class="address">⌖ 中壢區正明街</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">50,000<small> 元／月</small></div>
+          <a class="button" href="https://rent.rakuya.com.tw/item/029d6f341742600" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="10" data-recency="1000000000"
+             data-total="47000" data-rent="47000"
+             data-area="64.39" data-popularity="0">
+      <a class="photo" href="https://rent.rakuya.com.tw/item/0d9aa534134969e" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n969/a5/0f/34134969_18_b.jpeg?1784209779" alt="[樂屋網] 桃園市桃園區同德二街-諾貝爾庭院透天" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://rent.rakuya.com.tw/item/0d9aa534134969e" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區同德二街-諾貝爾庭院透天</a></h3>
+          <p class="facts"><span>整層住家</span><span>透天厝</span><span>4房2廳3衛</span><span>64.39坪</span><span>1~4/4樓</span></p>
+          <p class="address">⌖ 桃園區同德二街</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">47,000<small> 元／月</small></div>
+          <a class="button" href="https://rent.rakuya.com.tw/item/0d9aa534134969e" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="11" data-recency="1000000000"
+             data-total="15000" data-rent="15000"
+             data-area="25.8" data-popularity="0">
+      <a class="photo" href="https://rent.rakuya.com.tw/item/08e17734014403d" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n403/98/61/34014403_1_b.jpeg?1785297224" alt="[樂屋網] 桃園市平鎮區新華路-平鎮東安立體我家Ａ棟" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://rent.rakuya.com.tw/item/08e17734014403d" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市平鎮區新華路-平鎮東安立體我家Ａ棟</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>25.8坪</span><span>7/12樓</span></p>
+          <p class="address">⌖ 平鎮區新華路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">15,000<small> 元／月</small></div>
+          <a class="button" href="https://rent.rakuya.com.tw/item/08e17734014403d" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent discount"
+             data-order="12" data-recency="1000000000"
+             data-total="36000" data-rent="36000"
+             data-area="46.0" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/3324/rent/05db7a347710524" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n052/48/03/34771052_1_b.jpeg?1784365604" alt="[樂屋網] 桃園市中壢區民權路-⭐近A21、A22⭐民權極景⭐拎包入住" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"><span class="tag highlight">降價</span></div>
+          <h3><a href="https://community.rakuya.com.tw/3324/rent/05db7a347710524" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區民權路-⭐近A21、A22⭐民權極景⭐拎包入住</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>46坪</span><span>13/15樓</span></p>
+          <p class="address">⌖ 中壢區民權路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          <div class="old"><del>42,800 元／月</del></div>
+          <div class="rent">36,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/3324/rent/05db7a347710524" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent friendly"
+             data-order="13" data-recency="1000000000"
+             data-total="45000" data-rent="45000"
+             data-area="55.96" data-popularity="0">
+      <a class="photo" href="https://rent.rakuya.com.tw/item/0045a6348051871" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n187/00/a0/34805187_1_b.jpeg?1784697507" alt="[樂屋網] 桃園市平鎮區南華街-近平鎮大全聯4房全配前院停車別墅(濬)" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"><span class="tag highlight">友善房源</span></div>
+          <h3><a href="https://rent.rakuya.com.tw/item/0045a6348051871" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市平鎮區南華街-近平鎮大全聯4房全配前院停車別墅(濬)</a></h3>
+          <p class="facts"><span>整層住家</span><span>別墅</span><span>4房</span><span>55.96坪</span><span>1~4/4樓</span></p>
+          <p class="address">⌖ 平鎮區南華街</p>
+          <div class="feature-row"><span>可入籍</span></div>
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">45,000<small> 元／月</small></div>
+          <a class="button" href="https://rent.rakuya.com.tw/item/0045a6348051871" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="14" data-recency="1000000000"
+             data-total="32000" data-rent="32000"
+             data-area="39.0" data-popularity="0">
+      <a class="photo" href="https://rent.rakuya.com.tw/item/0b4e0f34059851e" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n851/57/d7/34059851_1_b.jpeg?1778240367" alt="[樂屋網] 桃園市八德區永興街-高城社區生活機能佳1樓可停車" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://rent.rakuya.com.tw/item/0b4e0f34059851e" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市八德區永興街-高城社區生活機能佳1樓可停車</a></h3>
+          <p class="facts"><span>整層住家</span><span>透天厝</span><span>5房2廳3衛</span><span>39坪</span><span>整棟/3樓</span></p>
+          <p class="address">⌖ 八德區永興街</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">32,000<small> 元／月</small></div>
+          <a class="button" href="https://rent.rakuya.com.tw/item/0b4e0f34059851e" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="15" data-recency="1000000000"
+             data-total="45000" data-rent="45000"
+             data-area="58.0" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/79521/rent/008606343735093" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n509/86/4a/34373509_1_b.jpeg?1780987731" alt="[樂屋網] 桃園市桃園區朝陽街-小檜溪全新建案．昭揚建設優質景觀四房車" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/79521/rent/008606343735093" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區朝陽街-小檜溪全新建案．昭揚建設優質景觀四房車</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>58坪</span><span>5/15樓</span></p>
+          <p class="address">⌖ 桃園區朝陽街</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">45,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/79521/rent/008606343735093" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="16" data-recency="1000000000"
+             data-total="30000" data-rent="30000"
+             data-area="40.0" data-popularity="0">
+      <a class="photo" href="https://rent.rakuya.com.tw/item/06ebc1342972629" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n262/11/fc/34297262_1_b.jpeg?1780371334" alt="[樂屋網] 桃園市桃園區永安路-正永安路透天" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://rent.rakuya.com.tw/item/06ebc1342972629" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區永安路-正永安路透天</a></h3>
+          <p class="facts"><span>整層住家</span><span>透天厝</span><span>4房2廳2衛</span><span>40坪</span><span>1~2/2樓</span></p>
+          <p class="address">⌖ 桃園區永安路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">30,000<small> 元／月</small></div>
+          <a class="button" href="https://rent.rakuya.com.tw/item/06ebc1342972629" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="17" data-recency="1000000000"
+             data-total="128000" data-rent="128000"
+             data-area="128.0" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/2532/rent/0c5bba31890728d" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n728/21/94/31890728_3_b.jpeg?1782391535" alt="[樂屋網] 桃園市桃園區中正路-葛里芬✦正藝文中正公園旁單層獨戶豪宅雙車位多套房" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/2532/rent/0c5bba31890728d" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區中正路-葛里芬✦正藝文中正公園旁單層獨戶豪宅雙車位多套房</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳4衛</span><span>128坪</span><span>16/23樓</span></p>
+          <p class="address">⌖ 桃園區中正路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">128,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/2532/rent/0c5bba31890728d" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent discount"
+             data-order="18" data-recency="1000000000"
+             data-total="33000" data-rent="33000"
+             data-area="43.87" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/4436/rent/0b414733919136b" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n136/af/3f/33919136_1_b.jpeg?1783330147" alt="[樂屋網] 桃園市桃園區南平路-租藝文大四房車位 熱鬧優質住宅區" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"><span class="tag highlight">降價</span></div>
+          <h3><a href="https://community.rakuya.com.tw/4436/rent/0b414733919136b" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區南平路-租藝文大四房車位 熱鬧優質住宅區</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>43.87坪</span><span>7/14樓</span></p>
+          <p class="address">⌖ 桃園區南平路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          <div class="old"><del>40,000 元／月</del></div>
+          <div class="rent">33,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/4436/rent/0b414733919136b" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="19" data-recency="1000000000"
+             data-total="39888" data-rent="39888"
+             data-area="64.22" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/4133/rent/0c7a0233460944c" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n944/6b/c2/33460944_1_b.jpeg?1772779921" alt="[樂屋網] 桃園市桃園區大興西路一段-藝文特區~慈文國中G~天下大觀~舒適5房車" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/4133/rent/0c7a0233460944c" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區大興西路一段-藝文特區~慈文國中G~天下大觀~舒適5房車</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>5房</span><span>64.22坪</span><span>3/17樓</span></p>
+          <p class="address">⌖ 桃園區大興西路一段</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">39,888<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/4133/rent/0c7a0233460944c" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent friendly discount"
+             data-order="20" data-recency="1000000000"
+             data-total="25000" data-rent="25000"
+             data-area="48.03" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/25940/rent/0391be346939461" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n946/77/98/34693946_1_b.jpeg?1783678657" alt="[樂屋網] 桃園市中壢區環北路-⭐可貓⭐2萬5含管⭐代收包裹" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"><span class="tag highlight">友善房源</span><span class="tag highlight">降價</span></div>
+          <h3><a href="https://community.rakuya.com.tw/25940/rent/0391be346939461" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區環北路-⭐可貓⭐2萬5含管⭐代收包裹</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>48.03坪</span><span>12/12樓</span></p>
+          <p class="address">⌖ 中壢區環北路</p>
+          <div class="feature-row"><span>可入籍</span></div>
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          <div class="old"><del>26,000 元／月</del></div>
+          <div class="rent">25,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/25940/rent/0391be346939461" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="21" data-recency="1000000000"
+             data-total="50000" data-rent="50000"
+             data-area="40.17" data-popularity="0">
+      <a class="photo" href="https://rent.rakuya.com.tw/item/01560e316819630" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n963/16/7f/31681963_1_b.jpeg?1756374289" alt="[樂屋網] 桃園市中壢區環西路二段-(超棒地點)中壢市環西路2樓辦公室出租" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://rent.rakuya.com.tw/item/01560e316819630" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區環西路二段-(超棒地點)中壢市環西路2樓辦公室出租</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>5房1廳1衛</span><span>40.17坪</span><span>2/5樓</span></p>
+          <p class="address">⌖ 中壢區環西路二段</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">50,000<small> 元／月</small></div>
+          <a class="button" href="https://rent.rakuya.com.tw/item/01560e316819630" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="22" data-recency="1000000000"
+             data-total="55000" data-rent="55000"
+             data-area="68.72" data-popularity="0">
+      <a class="photo" href="https://rent.rakuya.com.tw/item/05449c330626820" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n682/b0/bb/33062682_1_b.jpeg?1784378154" alt="[樂屋網] 桃園市桃園區民族路-民族路小資創業透天店面" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://rent.rakuya.com.tw/item/05449c330626820" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區民族路-民族路小資創業透天店面</a></h3>
+          <p class="facts"><span>整層住家</span><span>透天厝</span><span>4房1廳5衛</span><span>68.72坪</span><span>B1~5/5樓</span></p>
+          <p class="address">⌖ 桃園區民族路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">55,000<small> 元／月</small></div>
+          <a class="button" href="https://rent.rakuya.com.tw/item/05449c330626820" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="23" data-recency="1000000000"
+             data-total="30000" data-rent="30000"
+             data-area="40.0" data-popularity="0">
+      <a class="photo" href="https://rent.rakuya.com.tw/item/095c39343010515" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n051/77/15/34301051_1_b.jpeg?1780386115" alt="[樂屋網] 桃園市桃園區永安路-永安路透天" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://rent.rakuya.com.tw/item/095c39343010515" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區永安路-永安路透天</a></h3>
+          <p class="facts"><span>整層住家</span><span>透天厝</span><span>4房2廳2衛</span><span>40坪</span><span>1~2/2樓</span></p>
+          <p class="address">⌖ 桃園區永安路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">30,000<small> 元／月</small></div>
+          <a class="button" href="https://rent.rakuya.com.tw/item/095c39343010515" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent discount"
+             data-order="24" data-recency="1000000000"
+             data-total="33800" data-rent="33800"
+             data-area="63.0" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/5868/rent/0b712133849019a" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n019/c6/a0/33849019_1_b.jpeg?1777885735" alt="[樂屋網] 桃園市中壢區領航北路二段-青埔國中A19 四房雙車位" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"><span class="tag highlight">降價</span></div>
+          <h3><a href="https://community.rakuya.com.tw/5868/rent/0b712133849019a" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區領航北路二段-青埔國中A19 四房雙車位</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>63坪</span><span>11/12樓</span></p>
+          <p class="address">⌖ 中壢區領航北路二段</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          <div class="old"><del>35,000 元／月</del></div>
+          <div class="rent">33,800<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/5868/rent/0b712133849019a" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="25" data-recency="1000000000"
+             data-total="38000" data-rent="38000"
+             data-area="26.02" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/49491/rent/071de232122000f" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n000/25/c6/32122000_1_b.jpeg?1774510329" alt="[樂屋網] 桃園市中壢區青境路-A18高鐵站前景觀3＋1房雙車" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/49491/rent/071de232122000f" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區青境路-A18高鐵站前景觀3＋1房雙車</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>1房</span><span>26.02坪</span><span>18/21樓</span></p>
+          <p class="address">⌖ 中壢區青境路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">38,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/49491/rent/071de232122000f" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="26" data-recency="1000000000"
+             data-total="35000" data-rent="35000"
+             data-area="29.9" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/25845/rent/0a43b8338621150" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n115/b9/16/33862115_8_b.jpeg?1777174372" alt="[樂屋網] 桃園市中壢區松仁路-過嶺大清劍橋稀有露臺4房車" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/25845/rent/0a43b8338621150" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區松仁路-過嶺大清劍橋稀有露臺4房車</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房</span><span>29.9坪</span><span>2/13樓</span></p>
+          <p class="address">⌖ 中壢區松仁路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">35,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/25845/rent/0a43b8338621150" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="27" data-recency="1000000000"
+             data-total="30000" data-rent="30000"
+             data-area="30.64" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/4298/rent/05b7e8343241463" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n146/e5/bc/34324146_1_b.jpeg?1780565797" alt="[樂屋網] 桃園市桃園區寶慶路-☆可租補★藝文特區捷運★高樓層雙陽台超大四房" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/4298/rent/05b7e8343241463" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區寶慶路-☆可租補★藝文特區捷運★高樓層雙陽台超大四房</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>30.64坪</span><span>11/13樓</span></p>
+          <p class="address">⌖ 桃園區寶慶路</p>
+          <div class="feature-row"><span>租補</span></div>
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">30,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/4298/rent/05b7e8343241463" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent discount"
+             data-order="28" data-recency="1000000000"
+             data-total="55000" data-rent="55000"
+             data-area="28.0" data-popularity="0">
+      <a class="photo" href="https://rent.rakuya.com.tw/item/0a7b7934505356c" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n356/7c/f1/34505356_1_b.jpeg?1782526590" alt="[樂屋網] 桃園市桃園區溫州街-藝文中路6米大面寬透天-店住辦可停雙車-地坪28坪" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"><span class="tag highlight">降價</span></div>
+          <h3><a href="https://rent.rakuya.com.tw/item/0a7b7934505356c" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區溫州街-藝文中路6米大面寬透天-店住辦可停雙車-地坪28坪</a></h3>
+          <p class="facts"><span>透天厝</span><span>5房2廳3衛</span><span>28坪</span><span>1~2/2樓</span></p>
+          <p class="address">⌖ 桃園區溫州街</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          <div class="old"><del>58,000 元／月</del></div>
+          <div class="rent">55,000<small> 元／月</small></div>
+          <a class="button" href="https://rent.rakuya.com.tw/item/0a7b7934505356c" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="29" data-recency="1000000000"
+             data-total="70000" data-rent="70000"
+             data-area="59.68" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/43015/rent/0f627c344986795" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n679/5a/1a/34498679_1_b.jpeg?1782118963" alt="[樂屋網] 桃園市桃園區經國路-春日路河景-阿波羅大辦公室+車位/大坪數商辦" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/43015/rent/0f627c344986795" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區經國路-春日路河景-阿波羅大辦公室+車位/大坪數商辦</a></h3>
+          <p class="facts"><span>電梯大廈</span><span>4房2廳</span><span>59.68坪</span><span>11/16樓</span></p>
+          <p class="address">⌖ 桃園區經國路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">70,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/43015/rent/0f627c344986795" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent discount"
+             data-order="30" data-recency="1000000000"
+             data-total="35000" data-rent="35000"
+             data-area="87.53" data-popularity="0">
+      <a class="photo" href="https://rent.rakuya.com.tw/item/0d010732611085f" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n085/b1/27/32611085_1_b.jpeg?1780501675" alt="[樂屋網] 桃園市八德區豐田二路-溫馨巷弄透天" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"><span class="tag highlight">降價</span></div>
+          <h3><a href="https://rent.rakuya.com.tw/item/0d010732611085f" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市八德區豐田二路-溫馨巷弄透天</a></h3>
+          <p class="facts"><span>整層住家</span><span>透天厝</span><span>4房3廳3衛</span><span>87.53坪</span><span>1~5/5樓</span></p>
+          <p class="address">⌖ 八德區豐田二路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          <div class="old"><del>40,000 元／月</del></div>
+          <div class="rent">35,000<small> 元／月</small></div>
+          <a class="button" href="https://rent.rakuya.com.tw/item/0d010732611085f" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="31" data-recency="1000000000"
+             data-total="28000" data-rent="28000"
+             data-area="31.0" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/87701/rent/0406b734024158d" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n158/f8/65/34024158_1_b.jpeg?1777969371" alt="[樂屋網] 桃園市桃園區同安街- ◤出租◢【同安街公寓｜可租補】✨" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/87701/rent/0406b734024158d" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區同安街- ◤出租◢【同安街公寓｜可租補】✨</a></h3>
+          <p class="facts"><span>整層住家</span><span>公寓</span><span>4房1廳3衛</span><span>31坪</span><span>4/5樓</span></p>
+          <p class="address">⌖ 桃園區同安街</p>
+          <div class="feature-row"><span>租補</span></div>
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">28,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/87701/rent/0406b734024158d" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="32" data-recency="1000000000"
+             data-total="55000" data-rent="55000"
+             data-area="41.5" data-popularity="0">
+      <a class="photo" href="https://rent.rakuya.com.tw/item/0b48d3347203217" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n321/a8/5e/34720321_1_b.jpeg?1784011330" alt="[樂屋網] 桃園市桃園區溫州街-藝文中路★ღ6米大面寬=黃金比列透天店住辦可停雙車" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://rent.rakuya.com.tw/item/0b48d3347203217" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區溫州街-藝文中路★ღ6米大面寬=黃金比列透天店住辦可停雙車</a></h3>
+          <p class="facts"><span>整層住家</span><span>透天厝</span><span>5房2廳3衛</span><span>41.5坪</span><span>整棟/2樓</span></p>
+          <p class="address">⌖ 桃園區溫州街</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">55,000<small> 元／月</small></div>
+          <a class="button" href="https://rent.rakuya.com.tw/item/0b48d3347203217" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent friendly"
+             data-order="33" data-recency="1000000000"
+             data-total="28000" data-rent="28000"
+             data-area="48.0" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/7342/rent/0c7d29348225890" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n589/b8/5f/34822589_14_b.jpeg?1785120870" alt="[樂屋網] 桃園市桃園區三民路三段-可租補入籍．富甲天下優質家庭大四房．含機械雙車位" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"><span class="tag highlight">友善房源</span></div>
+          <h3><a href="https://community.rakuya.com.tw/7342/rent/0c7d29348225890" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區三民路三段-可租補入籍．富甲天下優質家庭大四房．含機械雙車位</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>48坪</span><span>9/20樓</span></p>
+          <p class="address">⌖ 桃園區三民路三段</p>
+          <div class="feature-row"><span>可入籍、租補</span></div>
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">28,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/7342/rent/0c7d29348225890" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="34" data-recency="1000000000"
+             data-total="46000" data-rent="46000"
+             data-area="75.0" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/7423/rent/0f04e934606779f" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n779/79/6f/34606779_1_b.jpeg?1783049366" alt="[樂屋網] 桃園市桃園區中正路-凰璽大4房/雙車位/雙陽台/頂樓戶/公園.學校" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/7423/rent/0f04e934606779f" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區中正路-凰璽大4房/雙車位/雙陽台/頂樓戶/公園.學校</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房</span><span>75坪</span><span>16/16樓</span></p>
+          <p class="address">⌖ 桃園區中正路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">46,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/7423/rent/0f04e934606779f" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="35" data-recency="1000000000"
+             data-total="30000" data-rent="30000"
+             data-area="53.37" data-popularity="0">
+      <a class="photo" href="https://rent.rakuya.com.tw/item/0f57e0338716837" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n683/1f/4d/33871683_1_b.jpeg?1776502410" alt="[樂屋網] 桃園市桃園區中正路-展演中心旁,4房門前停車,生活機能超讚" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://rent.rakuya.com.tw/item/0f57e0338716837" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區中正路-展演中心旁,4房門前停車,生活機能超讚</a></h3>
+          <p class="facts"><span>整層住家</span><span>別墅</span><span>4房</span><span>53.37坪</span><span>1~4/4樓</span></p>
+          <p class="address">⌖ 桃園區中正路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">30,000<small> 元／月</small></div>
+          <a class="button" href="https://rent.rakuya.com.tw/item/0f57e0338716837" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="36" data-recency="1000000000"
+             data-total="35000" data-rent="35000"
+             data-area="24.62" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/82454/rent/0065bf345094347" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n434/01/1e/34509434_1_b.jpeg?1782207406" alt="[樂屋網] 桃園市中壢區青埔八街-青埔A18菁美學4房車" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/82454/rent/0065bf345094347" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區青埔八街-青埔A18菁美學4房車</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房</span><span>24.62坪</span><span>3/12樓</span></p>
+          <p class="address">⌖ 中壢區青埔八街</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">35,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/82454/rent/0065bf345094347" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="37" data-recency="1000000000"
+             data-total="35000" data-rent="35000"
+             data-area="80.0" data-popularity="0">
+      <a class="photo" href="https://rent.rakuya.com.tw/item/01677434290911a" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n911/16/32/34290911_1_b.jpeg?1782191595" alt="[樂屋網] 桃園市中壢區福嶺路一段-出租中壢福嶺路一段兩層樓大農舍{未保存登記}" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://rent.rakuya.com.tw/item/01677434290911a" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區福嶺路一段-出租中壢福嶺路一段兩層樓大農舍{未保存登記}</a></h3>
+          <p class="facts"><span>整層住家</span><span>透天厝</span><span>5房2廳2衛</span><span>80坪</span><span>整棟/2樓</span></p>
+          <p class="address">⌖ 中壢區福嶺路一段</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">35,000<small> 元／月</small></div>
+          <a class="button" href="https://rent.rakuya.com.tw/item/01677434290911a" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="38" data-recency="1000000000"
+             data-total="30000" data-rent="30000"
+             data-area="30.64" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/4298/rent/0a470f343292662" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n266/86/dc/34329266_1_b.jpeg?1780634297" alt="[樂屋網] 桃園市桃園區寶慶路-【藝文特區捷運宅｜高樓層雙陽台大四房車位｜可租補】" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/4298/rent/0a470f343292662" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區寶慶路-【藝文特區捷運宅｜高樓層雙陽台大四房車位｜可租補】</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>30.64坪</span><span>11/13樓</span></p>
+          <p class="address">⌖ 桃園區寶慶路</p>
+          <div class="feature-row"><span>租補</span></div>
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">30,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/4298/rent/0a470f343292662" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="39" data-recency="1000000000"
+             data-total="31000" data-rent="31000"
+             data-area="24.66" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/43524/rent/03bff4326917827" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n782/27/77/32691782_1_b.jpeg?1765102362" alt="[樂屋網] 桃園市八德區中正路-八德區優質學區三房樓中樓設計" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/43524/rent/03bff4326917827" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市八德區中正路-八德區優質學區三房樓中樓設計</a></h3>
+          <p class="facts"><span>整層住家</span><span>樓中樓</span><span>4房3廳3衛</span><span>24.66坪</span><span>1/15樓</span></p>
+          <p class="address">⌖ 八德區中正路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">31,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/43524/rent/03bff4326917827" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent discount"
+             data-order="40" data-recency="1000000000"
+             data-total="36000" data-rent="36000"
+             data-area="36.0" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/5403/rent/0d91da329739624" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n962/cc/af/32973962_1_b.jpeg?1770790009" alt="[樂屋網] 桃園市中壢區永泰路-ALIN推薦-青埔-城市之星-學區宅優質四房車" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"><span class="tag highlight">降價</span></div>
+          <h3><a href="https://community.rakuya.com.tw/5403/rent/0d91da329739624" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區永泰路-ALIN推薦-青埔-城市之星-學區宅優質四房車</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>36坪</span><span>5/12樓</span></p>
+          <p class="address">⌖ 中壢區永泰路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          <div class="old"><del>40,000 元／月</del></div>
+          <div class="rent">36,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/5403/rent/0d91da329739624" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="41" data-recency="1000000000"
              data-total="58000" data-rent="58000"
              data-area="41.68" data-popularity="0">
       <a class="photo" href="https://community.rakuya.com.tw/52931/rent/00aedf344100662" target="_blank" rel="noopener noreferrer">
@@ -8377,7 +8165,7 @@ h3 a{text-decoration:none}
     </article>
     
     <article class="card" data-categories="rent"
-             data-order="51" data-recency="1000000000"
+             data-order="42" data-recency="1000000000"
              data-total="28000" data-rent="28000"
              data-area="27.61" data-popularity="0">
       <a class="photo" href="https://community.rakuya.com.tw/6962/rent/0e2fef343452529" target="_blank" rel="noopener noreferrer">
@@ -8403,13 +8191,270 @@ h3 a{text-decoration:none}
       </div>
     </article>
     
+    <article class="card" data-categories="rent"
+             data-order="43" data-recency="1000000000"
+             data-total="58000" data-rent="58000"
+             data-area="46.18" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/52931/rent/0b179e33677825d" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n825/0a/22/33677825_1_b.jpeg?1775726363" alt="[樂屋網] 桃園市桃園區中央街-出租昭揚天滙景觀4房車" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/52931/rent/0b179e33677825d" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區中央街-出租昭揚天滙景觀4房車</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房</span><span>46.18坪</span><span>15/15樓</span></p>
+          <p class="address">⌖ 桃園區中央街</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">58,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/52931/rent/0b179e33677825d" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="44" data-recency="1000000000"
+             data-total="30000" data-rent="30000"
+             data-area="61.5" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/55959/rent/023a5434621102e" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n102/05/f2/34621102_1_b.jpeg?1783129359" alt="[樂屋網] 桃園市八德區興隆街-桃鶯商圈龍大莊興隆街優質透天" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/55959/rent/023a5434621102e" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市八德區興隆街-桃鶯商圈龍大莊興隆街優質透天</a></h3>
+          <p class="facts"><span>整層住家</span><span>透天厝</span><span>4房2廳3衛</span><span>61.5坪</span><span>1~4/4樓</span></p>
+          <p class="address">⌖ 八德區興隆街</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">30,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/55959/rent/023a5434621102e" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="45" data-recency="1000000000"
+             data-total="150000" data-rent="150000"
+             data-area="102.93" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/16754/rent/0feab6321284303" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n430/8f/76/32128430_1_b.jpeg?1771006423" alt="[樂屋網] 桃園市桃園區藝文一街-租昭揚乾坤高樓層" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/16754/rent/0feab6321284303" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區藝文一街-租昭揚乾坤高樓層</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳4衛</span><span>102.93坪</span><span>19/27樓</span></p>
+          <p class="address">⌖ 桃園區藝文一街</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">150,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/16754/rent/0feab6321284303" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="46" data-recency="1000000000"
+             data-total="82000" data-rent="82000"
+             data-area="72.0" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/33104/rent/0874ef308629825" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r2/n982/e6/6d/30862982_1_b.jpeg?1782389376" alt="[樂屋網] 桃園市桃園區三民路一段-中悅貝多芬✦正對三民運動公園高樓層頂配豪宅" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/33104/rent/0874ef308629825" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區三民路一段-中悅貝多芬✦正對三民運動公園高樓層頂配豪宅</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳4衛</span><span>72坪</span><span>14/15樓</span></p>
+          <p class="address">⌖ 桃園區三民路一段</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">82,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/33104/rent/0874ef308629825" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="47" data-recency="1000000000"
+             data-total="58000" data-rent="58000"
+             data-area="86.99" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/43107/rent/05dfe834637458c" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n458/89/f1/34637458_1_b.jpeg?1784860130" alt="[樂屋網] 桃園市桃園區中正路-【將相琚】G08站4房車,家具電全" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/43107/rent/05dfe834637458c" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區中正路-【將相琚】G08站4房車,家具電全</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房</span><span>86.99坪</span><span>9/18樓</span></p>
+          <p class="address">⌖ 桃園區中正路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">58,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/43107/rent/05dfe834637458c" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="48" data-recency="1000000000"
+             data-total="20000" data-rent="20000"
+             data-area="38.73" data-popularity="0">
+      <a class="photo" href="https://rent.rakuya.com.tw/item/02a682336174501" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n450/50/14/33617450_1_b.jpeg?1774262012" alt="[樂屋網] 桃園市桃園區延壽街-延壽街公寓" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://rent.rakuya.com.tw/item/02a682336174501" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市桃園區延壽街-延壽街公寓</a></h3>
+          <p class="facts"><span>整層住家</span><span>公寓</span><span>4房2廳1衛</span><span>38.73坪</span><span>5/5樓</span></p>
+          <p class="address">⌖ 桃園區延壽街</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">20,000<small> 元／月</small></div>
+          <a class="button" href="https://rent.rakuya.com.tw/item/02a682336174501" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="49" data-recency="1000000000"
+             data-total="39800" data-rent="39800"
+             data-area="57.03" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/60083/rent/0ae95934311075e" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n075/2e/cc/34311075_1_b.jpeg?1780477322" alt="[樂屋網] 桃園市中壢區高鐵站前路-亞昕喜徠登景觀全新四房車" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/60083/rent/0ae95934311075e" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區高鐵站前路-亞昕喜徠登景觀全新四房車</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>4房2廳2衛</span><span>57.03坪</span><span>10/17樓</span></p>
+          <p class="address">⌖ 中壢區高鐵站前路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">39,800<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/60083/rent/0ae95934311075e" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="50" data-recency="1000000000"
+             data-total="33000" data-rent="33000"
+             data-area="25.64" data-popularity="0">
+      <a class="photo" href="https://community.rakuya.com.tw/42324/rent/0d3d2e343201033" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n103/88/39/34320103_1_b.jpeg?1780548002" alt="[樂屋網] 桃園市中壢區永裕路-真心推薦❤️ 青埔A19｜可寵物 3+1房雙車" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://community.rakuya.com.tw/42324/rent/0d3d2e343201033" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區永裕路-真心推薦❤️ 青埔A19｜可寵物 3+1房雙車</a></h3>
+          <p class="facts"><span>整層住家</span><span>電梯大廈</span><span>1房</span><span>25.64坪</span><span>14/22樓</span></p>
+          <p class="address">⌖ 中壢區永裕路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">33,000<small> 元／月</small></div>
+          <a class="button" href="https://community.rakuya.com.tw/42324/rent/0d3d2e343201033" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
+    <article class="card" data-categories="rent"
+             data-order="51" data-recency="1000000000"
+             data-total="200000" data-rent="200000"
+             data-area="190.0" data-popularity="0">
+      <a class="photo" href="https://rent.rakuya.com.tw/item/0371ed344294879" target="_blank" rel="noopener noreferrer">
+        <img src="https://static.rakuya.com.tw/r1/n487/10/2c/34429487_1_b.jpeg?1782194584" alt="[樂屋網] 桃園市中壢區成功路-✨中壢成功路頂級透天｜大面寬店面｜190坪✨" referrerpolicy="no-referrer"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
+        <span class="source-badge">樂屋網</span>
+      </a>
+      <div class="body">
+        <div class="body-main">
+          <div class="tag-row"></div>
+          <h3><a href="https://rent.rakuya.com.tw/item/0371ed344294879" target="_blank" rel="noopener noreferrer">[樂屋網] 桃園市中壢區成功路-✨中壢成功路頂級透天｜大面寬店面｜190坪✨</a></h3>
+          <p class="facts"><span>整層住家</span><span>透天厝</span><span>4房4廳4衛</span><span>190坪</span><span>1~4/4樓</span></p>
+          <p class="address">⌖ 中壢區成功路</p>
+          
+          <div class="activity"></div>
+        </div>
+        <div class="price-column">
+          
+          <div class="rent">200,000<small> 元／月</small></div>
+          <a class="button" href="https://rent.rakuya.com.tw/item/0371ed344294879" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
+        </div>
+      </div>
+    </article>
+    
         <div class="empty browser-empty" hidden>本次有驗證通過物件，但沒有物件符合此分類。</div>
       </div>
     </section>
     
 </div>
 </main>
+<button id="back-to-top" class="back-to-top" type="button"
+        aria-label="回到頁面頂端" title="回到頁面頂端" hidden>↑</button>
 <script>
+const backToTop = document.querySelector('#back-to-top');
+if (backToTop) {
+  const updateBackToTop = () => {
+    backToTop.hidden = window.scrollY < 480;
+  };
+  backToTop.addEventListener('click', () => {
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  });
+  window.addEventListener('scroll', updateBackToTop, {passive: true});
+  updateBackToTop();
+}
+
 document.querySelectorAll('[data-listing-browser]').forEach((panel) => {
   const list = panel.querySelector('.listing-list');
   const cards = Array.from(panel.querySelectorAll('.card'));
