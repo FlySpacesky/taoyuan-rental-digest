@@ -633,6 +633,31 @@ class FacebookImportTests(unittest.TestCase):
             "permalink/4623380861319264/",
         )
 
+    def test_supplied_taoyuan_four_room_post_only_lacks_public_image(self) -> None:
+        row = {
+            "url": (
+                "https://www.facebook.com/groups/4091621327828556/"
+                "permalink/4623380861319264/"
+            ),
+            "title": "桃園區冠倫大國46坪大四房",
+            "district": "桃園區",
+            "address": "桃園區大有路｜冠倫大國社區",
+            "house_type": "整層住家",
+            "layout": "4房2廳2衛",
+            "size": "46坪",
+            "equipment": "家具家電全配、可養寵物",
+            "rent": "23000",
+            "total_cost": "28000",
+            "image": "",
+            "summary": "可租補、可入戶籍，管理費2000元，停車位3000元。",
+        }
+
+        self.assertEqual(
+            DIGEST.facebook_row_reject_reasons(row),
+            ["image_not_direct_public"],
+        )
+        self.assertIsNone(DIGEST.parse_social_row(row, "FB"))
+
     def test_real_row_supports_listing_sort_fields(self) -> None:
         row = {
             "url": f"{DIGEST.FB_GROUPS[0]}/posts/1234567890/",
@@ -947,6 +972,22 @@ class CurrentListingDisplayTests(unittest.TestCase):
         )
         self.assertIn("align-items:stretch;direction:ltr", rendered)
         self.assertIn(".status-primary,.filter-group{width:100%}", rendered)
+        self.assertIn(
+            ".sort-row{display:flex;align-items:center;"
+            "justify-content:flex-start;gap:6px;min-height:56px;",
+            rendered,
+        )
+        self.assertIn(
+            ".sort-group{display:flex;align-items:center;"
+            "justify-content:flex-start;gap:6px;",
+            rendered,
+        )
+        self.assertIn(
+            ".sort-control{display:flex;align-items:center;gap:3px;"
+            "padding:0;border:0;background:transparent;",
+            rendered,
+        )
+        self.assertIn(".sort-select{max-width:128px;", rendered)
         self.assertIn("grid-template-columns:minmax(260px,32%)", rendered)
         self.assertNotIn("repeat(2,minmax(0,1fr))", rendered)
         self.assertEqual(rendered.count('<article class="card"'), 2)

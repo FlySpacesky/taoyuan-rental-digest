@@ -2425,14 +2425,15 @@ main{{padding:22px 0 48px}}
 .filter-button:hover{{color:var(--orange)}}
 .filter-button.active{{color:var(--orange);border-bottom-color:var(--orange)}}
 .filter-button.active b{{color:var(--orange)}}
-.sort-row{{display:flex;align-items:center;justify-content:flex-end;gap:10px;min-height:68px;padding:8px 0}}
+.sort-row{{display:flex;align-items:center;justify-content:flex-start;gap:6px;min-height:56px;padding:7px 0}}
 .sort-row>span{{color:#8a929b;font-size:13px;font-weight:800}}
-.sort-group{{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}}
-.sort-control{{display:flex;align-items:center;gap:6px;padding:6px 7px;border:1px solid var(--line);border-radius:7px;background:#fafbfc;color:#555;font-size:13px;font-weight:850}}
-.sort-control.active{{border-color:#ffb879;background:var(--orange-soft);color:#b55a09}}
-.sort-select{{max-width:145px;border:1px solid #d9dde3;border-radius:5px;background:#fff;color:#30343a;padding:7px 25px 7px 8px;font:inherit;cursor:pointer}}
+.sort-group{{display:flex;align-items:center;justify-content:flex-start;gap:6px;flex-wrap:wrap}}
+.sort-control{{display:flex;align-items:center;gap:3px;padding:0;border:0;background:transparent;color:#555;font-size:13px;font-weight:850}}
+.sort-control.active{{color:#b55a09}}
+.sort-control.active .sort-select{{border-color:#ffb879;background:var(--orange-soft)}}
+.sort-select{{max-width:128px;border:1px solid #d9dde3;border-radius:5px;background:#fff;color:#30343a;padding:6px 21px 6px 7px;font:inherit;cursor:pointer}}
 .sort-select:focus{{outline:2px solid #ffb879;outline-offset:1px}}
-.visible-count{{color:#5a626d;white-space:nowrap}}
+.visible-count{{color:#5a626d;white-space:nowrap;margin-left:2px}}
 .listing-list{{display:flex;flex-direction:column;gap:12px;margin-top:12px}}
 .card{{display:grid;grid-template-columns:minmax(260px,32%) minmax(0,1fr);min-height:245px;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff;box-shadow:0 2px 8px #0000000a}}
 .card:hover{{border-color:#ffc596;box-shadow:0 6px 22px #00000012}}
@@ -2486,7 +2487,7 @@ h3 a{{text-decoration:none}}
   .sort-row{{align-items:flex-start;flex-wrap:wrap;padding:8px 0}}
   .sort-row>span{{padding-top:9px}}
   .sort-group{{width:100%}}
-  .sort-control{{flex:1 1 160px;justify-content:flex-end}}
+  .sort-control{{flex:1 1 150px;justify-content:flex-start}}
   .sort-select{{max-width:none;min-width:0}}
   .visible-count{{width:100%;padding:0 8px 4px;text-align:right}}
   .card{{grid-template-columns:minmax(130px,38%) minmax(0,1fr);min-height:220px}}
