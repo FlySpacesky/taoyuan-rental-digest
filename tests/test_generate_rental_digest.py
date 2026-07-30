@@ -4,10 +4,11 @@ import importlib.util
 import json
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -633,6 +634,190 @@ class FacebookImportTests(unittest.TestCase):
             "permalink/4623380861319264/",
         )
 
+    def test_mobile_posts_and_permalink_share_one_stable_key(self) -> None:
+        mobile = (
+            "https://m.facebook.com/groups/4091621327828556/"
+            "posts/4623380861319264/?tracking=1"
+        )
+        permalink = (
+            "https://www.facebook.com/groups/4091621327828556/"
+            "permalink/4623380861319264/"
+        )
+
+        self.assertEqual(
+            DIGEST.normalize_facebook_post_url(mobile),
+            "https://www.facebook.com/groups/4091621327828556/"
+            "posts/4623380861319264/",
+        )
+        self.assertEqual(
+            DIGEST.facebook_post_key(mobile),
+            DIGEST.facebook_post_key(permalink),
+        )
+        self.assertFalse(
+            DIGEST.is_safe_facebook_image_download(
+                "http://127.0.0.1/internal.jpg"
+            )
+        )
+        self.assertFalse(
+            DIGEST.is_safe_facebook_image_download(
+                "https://images.example.test/untrusted.jpg"
+            )
+        )
+        self.assertTrue(
+            DIGEST.is_safe_facebook_image_download(
+                "https://scontent.ftpe8-1.fna.fbcdn.net/real.jpg"
+            )
+        )
+
+    def test_github_issue_form_body_becomes_a_sparse_verified_candidate(self) -> None:
+        issue = {
+            "number": 12,
+            "title": "[FB房源] 桃園區四房",
+            "body": """
+### Facebook 永久貼文網址
+
+https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
+
+### 完整貼文文字
+
+桃園區大有路，4房2廳2衛，租金23,000元。
+
+### 公開照片網址
+
+https://www.facebook.com/photo?fbid=27910753271851144
+""",
+        }
+
+        row = DIGEST.parse_facebook_issue_body(issue)
+
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(
+            row["url"],
+            "https://www.facebook.com/groups/4091621327828556/"
+            "posts/4623380861319264/",
+        )
+        self.assertIn("4房2廳2衛", row["post_text"])
+        self.assertIn("facebook.com/photo", row["image"])
+        self.assertEqual(row["_submission_source"], "GitHub issue #12")
+
+    def test_anonymous_public_metadata_fills_fields_and_archives_real_image(
+        self,
+    ) -> None:
+        post_url = (
+            "https://www.facebook.com/groups/4091621327828556/"
+            "posts/4623380861319264/"
+        )
+        public_html = """
+<html><head>
+<meta property="og:url" content="https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/">
+<meta property="og:image" content="https://scontent.ftpe8-1.fna.fbcdn.net/real.jpg">
+<meta property="og:description" content="🏡【桃園區｜冠倫大國｜46坪大四房】
+📍地點：桃園區大有路｜冠倫大國社區
+💰租金：23,000元／月
+💰管理費：2,000元／月
+🚗停車位：3,000元／月
+4房2廳2衛，約46坪，家具家電全配，可租補、可入戶籍、可養寵物">
+</head><body>
+<script>
+{"node_v2":{"actors":[{"name":"林思妤"}],"creation_time":1783950237,
+"seo_title":"桃園區｜冠倫大國｜46坪大四房",
+"post_id":"4623380861319264"}}
+</script>
+<!-- xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx -->
+</body></html>
+"""
+        page_response = Mock(
+            status_code=200,
+            text=public_html,
+            url=post_url,
+        )
+        image_response = Mock(
+            status_code=200,
+            headers={"Content-Type": "image/jpeg"},
+            content=b"\xff\xd8" + (b"x" * 1200),
+        )
+        stats = DIGEST.empty_source_stats()
+
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                patch.object(DIGEST, "FB_ASSET_DIR", Path(directory)),
+                patch.object(
+                    DIGEST.requests,
+                    "get",
+                    side_effect=[page_response, image_response],
+                ),
+            ):
+                row = DIGEST.enrich_facebook_row(
+                    {
+                        "url": post_url,
+                        "_submission_source": "GitHub issue #12",
+                    },
+                    stats,
+                )
+                archived = Path(directory) / "4623380861319264.jpg"
+                self.assertTrue(archived.exists())
+
+        self.assertEqual(row["publisher"], "林思妤")
+        self.assertEqual(row["updated"], "2026/07/13 21:43刊登")
+        self.assertEqual(row["district"], "桃園區")
+        self.assertEqual(row["layout"], "4房2廳2衛")
+        self.assertEqual(row["size"], "46坪")
+        self.assertEqual(row["rent"], 23_000)
+        self.assertEqual(row["total_cost"], 28_000)
+        self.assertTrue(row["image"].endswith("/4623380861319264.jpg"))
+        self.assertEqual(stats["public_metadata_enriched"], 1)
+        self.assertEqual(stats["images_archived"], 1)
+        self.assertEqual(DIGEST.facebook_row_reject_reasons(row), [])
+
+    def test_github_open_issue_source_uses_token_without_facebook_session(
+        self,
+    ) -> None:
+        issue = {
+            "number": 7,
+            "title": "[FB房源] 桃園四房",
+            "body": """
+### Facebook 永久貼文網址
+
+https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
+""",
+        }
+        response = Mock(status_code=200)
+        response.json.return_value = [issue]
+        stats = DIGEST.empty_source_stats()
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    DIGEST.GITHUB_REPOSITORY_ENV: "FlySpacesky/taoyuan-rental-digest",
+                    DIGEST.GITHUB_TOKEN_ENV: "test-github-token",
+                },
+                clear=False,
+            ),
+            patch.object(DIGEST.requests, "get", return_value=response) as get,
+        ):
+            rows = DIGEST.load_github_facebook_issue_rows(stats)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["_submission_source"], "GitHub issue #7")
+        self.assertTrue(stats["issue_source_enabled"])
+        self.assertEqual(stats["issue_submissions_seen"], 1)
+        headers = get.call_args.kwargs["headers"]
+        self.assertEqual(headers["Authorization"], "Bearer test-github-token")
+
     def test_supplied_taoyuan_four_room_post_accepts_archived_public_image(
         self,
     ) -> None:
@@ -689,6 +874,55 @@ class FacebookImportTests(unittest.TestCase):
         self.assertEqual(stats["allowed_groups"], len(DIGEST.FB_GROUPS))
         self.assertEqual(stats["anonymous_verified_posts"], 1)
         self.assertIn("不是社團全部貼文數", stats["notices"][0])
+
+    def test_file_and_actions_secret_are_merged_instead_of_shadowed(self) -> None:
+        def row(post_id: str, district: str) -> dict[str, str]:
+            return {
+                "url": f"{DIGEST.FB_GROUPS[0]}/posts/{post_id}/",
+                "title": f"{district}四房整層住家",
+                "district": district,
+                "address": f"{district}中正路",
+                "house_type": "整層住家",
+                "layout": "4房2廳",
+                "rent": "32000",
+                "publisher": "屋主林先生",
+                "updated": "2026/07/30 08:00刊登",
+                "image": f"https://images.example.test/{post_id}.jpg",
+                "post_text": f"{district} 4房2廳 租金32000 屋主自租",
+            }
+
+        file_row = row("12345678901", "桃園區")
+        secret_row = row("12345678902", "中壢區")
+        stats = DIGEST.empty_source_stats()
+        with tempfile.TemporaryDirectory() as directory:
+            import_file = Path(directory) / "facebook.json"
+            import_file.write_text(
+                json.dumps([file_row], ensure_ascii=False),
+                encoding="utf-8",
+            )
+            with (
+                patch.object(DIGEST, "FB_IMPORT", import_file),
+                patch.dict(
+                    os.environ,
+                    {
+                        DIGEST.FB_IMPORT_ENV: json.dumps(
+                            [secret_row],
+                            ensure_ascii=False,
+                        ),
+                        DIGEST.FB_IMPORT_URL_ENV: "",
+                        DIGEST.GITHUB_REPOSITORY_ENV: "",
+                        DIGEST.GITHUB_TOKEN_ENV: "",
+                    },
+                    clear=False,
+                ),
+            ):
+                items = DIGEST.load_facebook_import(stats)
+
+        self.assertEqual(len(items), 2)
+        self.assertEqual(stats["input_rows"], 2)
+        self.assertEqual(stats["candidate_links"], 2)
+        self.assertIn("data/facebook_posts.json", stats["import_source"])
+        self.assertIn(DIGEST.FB_IMPORT_ENV, stats["import_source"])
 
     def test_real_row_supports_listing_sort_fields(self) -> None:
         row = {
@@ -970,6 +1204,11 @@ class CurrentListingDisplayTests(unittest.TestCase):
         self.assertIn(f"{DIGEST.NOW:%Y/%m/%d %H:%M}", rendered)
         self.assertIn("允許社團 11 個", rendered)
         self.assertIn("匿名驗證貼文 0 筆", rendered)
+        self.assertIn("公開投稿 0 筆", rendered)
+        self.assertIn("自動補齊 0 筆", rendered)
+        self.assertIn("提交FB永久貼文", rendered)
+        self.assertIn("GitHub Actions會以不含Cookie的匿名請求", rendered)
+        self.assertIn(DIGEST.FB_ISSUE_TEMPLATE_URL, rendered)
         self.assertIn("優選好屋", rendered)
         self.assertIn("租金總費用", rendered)
         self.assertIn("室內坪數", rendered)

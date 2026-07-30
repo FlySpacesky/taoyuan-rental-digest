@@ -1,0 +1,45 @@
+name: 提交真實 Facebook 四房租屋
+description: 提供允許社團的單篇永久貼文；系統會匿名補齊公開照片與房源欄位並驗證。
+title: "[FB房源] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        這個入口不會要求 Facebook 帳號、密碼、Cookie 或 Session。
+        請只提交桃園區、中壢區、平鎮區或八德區，且明確為 4 房以上的真實出租貼文。
+        系統只會刊出能匿名驗證永久網址、貼文內容、租金、地區與真實照片的物件。
+
+  - type: input
+    id: permanent_url
+    attributes:
+      label: Facebook 永久貼文網址
+      description: 必須是允許社團內的 /groups/{社團}/posts/{貼文}/ 或 /permalink/{貼文}/ 網址；分享短網址不適用。
+      placeholder: https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
+    validations:
+      required: true
+
+  - type: textarea
+    id: post_text
+    attributes:
+      label: 完整貼文文字
+      description: 選填。若 Facebook 暫時不向匿名訪客提供完整內容，這份文字可協助驗證格局、地區及租金。
+      placeholder: 請貼上原始貼文文字，不要改寫或補造內容。
+    validations:
+      required: false
+
+  - type: input
+    id: image_url
+    attributes:
+      label: 公開照片網址
+      description: 選填。可提供照片頁或直接圖片網址；系統會嘗試匿名解析並保存真實照片。
+      placeholder: https://www.facebook.com/photo?fbid=...
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: 真實性確認
+      options:
+        - label: 我確認這是現存的真實 Facebook 租屋貼文，沒有捏造房源或挪用其他物件照片。
+          required: true

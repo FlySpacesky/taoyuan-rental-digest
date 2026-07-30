@@ -54,6 +54,21 @@ LAST_SUCCESS_591 = DATA_DIR / "last-success-591.json"
 FB_IMPORT = ROOT / "data" / "facebook_posts.json"
 FB_IMPORT_ENV = "FACEBOOK_POSTS_JSON"
 FB_IMPORT_URL_ENV = "FACEBOOK_POSTS_JSON_URL"
+FB_ASSET_DIR = DOCS / "assets" / "facebook"
+FB_ASSET_PUBLIC_BASE = (
+    "https://flyspacesky.github.io/taoyuan-rental-digest/assets/facebook"
+)
+FB_ISSUE_TITLE_PREFIX = "[FB房源]"
+FB_ISSUE_TEMPLATE_URL = (
+    "https://github.com/FlySpacesky/taoyuan-rental-digest/issues/new"
+    "?template=facebook-listing.yml"
+)
+GITHUB_REPOSITORY_ENV = "GITHUB_REPOSITORY"
+GITHUB_TOKEN_ENV = "GITHUB_TOKEN"
+FB_PUBLIC_CRAWLER_UA = (
+    "Mozilla/5.0 (compatible; Googlebot/2.1; "
+    "+http://www.google.com/bot.html)"
+)
 _591_BFF_LIST_URL = "https://bff-house.591.com.tw/v3/web/rent/list"
 _591_REFRESH_COOLDOWN = timedelta(hours=2)
 _591_SNAPSHOT_MAX_AGE = timedelta(hours=72)
@@ -1702,7 +1717,11 @@ def normalize_facebook_post_url(url: str) -> str:
 
     if parsed.scheme not in {"http", "https"}:
         return ""
-    if (parsed.hostname or "").lower() not in {"facebook.com", "www.facebook.com"}:
+    if (parsed.hostname or "").lower() not in {
+        "facebook.com",
+        "www.facebook.com",
+        "m.facebook.com",
+    }:
         return ""
 
     parts = [part for part in parsed.path.split("/") if part]
@@ -1716,6 +1735,15 @@ def normalize_facebook_post_url(url: str) -> str:
         return ""
 
     return f"https://www.facebook.com/groups/{parts[1]}/{parts[2]}/{parts[3]}/"
+
+
+def facebook_post_key(url: str) -> str:
+    """回傳社團與貼文 ID 組成的穩定鍵，posts/permalink 視為同一筆。"""
+    normalized = normalize_facebook_post_url(url)
+    if not normalized:
+        return ""
+    parts = [part for part in urllib.parse.urlparse(normalized).path.split("/") if part]
+    return f"{parts[1]}:{parts[3]}"
 
 
 def is_public_http_url(url: str) -> bool:
@@ -1733,6 +1761,442 @@ def is_direct_public_image_url(url: str) -> bool:
     parsed = urllib.parse.urlparse(str(url).strip())
     hostname = (parsed.hostname or "").lower()
     return hostname not in {"facebook.com", "www.facebook.com", "m.facebook.com"}
+
+
+def clean_multiline(value: Any, limit: int = 12000) -> str:
+    value = html.unescape(str(value or ""))
+    value = re.sub(r"<[^>]+>", " ", value)
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in value.splitlines()]
+    return "\n".join(line for line in lines if line)[:limit]
+
+
+def decode_json_fragment(value: str) -> str:
+    try:
+        return json.loads(f'"{value}"')
+    except (json.JSONDecodeError, TypeError):
+        return html.unescape(value or "")
+
+
+def facebook_labeled_money(text: str, *labels: str) -> int:
+    labels_pattern = "|".join(re.escape(label) for label in labels)
+    match = re.search(
+        rf"(?:{labels_pattern})\s*(?:費)?\s*[:：]?\s*"
+        r"(?:NT\$?|新台幣)?\s*([\d,]{3,})",
+        text or "",
+        re.I,
+    )
+    value = money(match.group(1)) if match else 0
+    return value if 1_000 <= value <= 1_000_000 else 0
+
+
+def facebook_layout_from_text(text: str) -> str:
+    match = re.search(
+        r"(?<!\d)(\d{1,2}\s*房(?:\s*\d{1,2}\s*廳)?"
+        r"(?:\s*\d{1,2}\s*衛)?)",
+        text or "",
+    )
+    return re.sub(r"\s+", "", match.group(1)) if match else ""
+
+
+def facebook_size_from_text(text: str) -> str:
+    match = re.search(r"(?:約\s*)?(\d+(?:\.\d+)?\s*坪)", text or "")
+    return re.sub(r"\s+", "", match.group(1)) if match else ""
+
+
+def facebook_address_from_text(text: str) -> str:
+    match = re.search(
+        r"(?:地點|地址|位置)\s*[:：]\s*([^\n\r]{2,120})",
+        text or "",
+        re.I,
+    )
+    if match:
+        return clean(match.group(1), 100)
+    district = district_from_text(text)
+    road = re.search(
+        r"((?:桃園區|中壢區|平鎮區|八德區)[^\n\r，。]{0,50}"
+        r"(?:路|街|巷|社區))",
+        text or "",
+    )
+    return clean(road.group(1), 100) if road else district
+
+
+def facebook_equipment_from_text(text: str) -> str:
+    markers = (
+        "家具家電全配",
+        "附傢俱",
+        "附設備",
+        "電梯",
+        "可開伙",
+        "可租補",
+        "租屋補助",
+        "可入戶籍",
+        "可養寵物",
+        "寵物友善",
+        "停車位",
+        "車位",
+    )
+    values: list[str] = []
+    for marker in markers:
+        if marker in (text or "") and marker not in values:
+            values.append(marker)
+    return "、".join(values)
+
+
+def facebook_title_from_text(text: str) -> str:
+    for line in clean_multiline(text, 3000).splitlines():
+        value = clean(line, 180).strip("｜|【】[]-—–・ ")
+        if value and not re.fullmatch(r"[\W_]+", value):
+            return value
+    return ""
+
+
+def fetch_public_facebook_metadata(url: str) -> dict[str, Any]:
+    """以全新匿名請求讀取 Facebook 對搜尋爬蟲公開的單篇貼文中繼資料。"""
+    normalized = normalize_facebook_post_url(url)
+    key = facebook_post_key(normalized)
+    if not normalized or not key:
+        return {}
+
+    try:
+        response = requests.get(
+            normalized,
+            headers={
+                "User-Agent": FB_PUBLIC_CRAWLER_UA,
+                "Accept-Language": "zh-TW,zh;q=0.9",
+                "Accept": "text/html,application/xhtml+xml",
+            },
+            timeout=35,
+            allow_redirects=True,
+        )
+    except requests.RequestException:
+        return {}
+    if response.status_code != 200 or not (1_000 < len(response.text) <= 3_000_000):
+        return {}
+
+    raw = response.text
+    soup = BeautifulSoup(raw, "html.parser")
+    canonical = meta(soup, "og:url")
+    if facebook_post_key(canonical) != key:
+        return {}
+
+    description_node = soup.find("meta", attrs={"property": "og:description"})
+    description = clean_multiline(
+        description_node.get("content", "") if description_node else "",
+        16000,
+    )
+    image = meta(soup, "og:image")
+
+    post_id = key.split(":", 1)[1]
+    post_marker = f'"post_id":"{post_id}"'
+    post_index = raw.find(post_marker)
+    window = raw[max(0, post_index - 7_000) : post_index + 800] if post_index >= 0 else ""
+
+    actor = ""
+    actor_matches = re.findall(
+        r'"actors"\s*:\s*\[\{[\s\S]{0,1200}?"name"\s*:\s*"((?:\\.|[^"])*)"',
+        window,
+    )
+    if actor_matches:
+        actor = clean(decode_json_fragment(actor_matches[-1]), 80)
+
+    creation_time = 0
+    creation_matches = re.findall(r'"creation_time"\s*:\s*(\d{9,12})', window)
+    if creation_matches:
+        creation_time = int(creation_matches[-1])
+
+    seo_title = ""
+    title_matches = re.findall(
+        r'"seo_title"\s*:\s*"((?:\\.|[^"])*)"',
+        window,
+    )
+    if title_matches:
+        seo_title = clean(decode_json_fragment(title_matches[-1]), 180)
+
+    return {
+        "url": normalized,
+        "canonical_url": canonical,
+        "post_text": description,
+        "image_origin": image,
+        "publisher": actor,
+        "creation_time": creation_time,
+        "title": seo_title,
+        "publicly_readable": bool(description and image),
+    }
+
+
+def resolve_public_image_url(url: str) -> str:
+    """直接圖片原樣保留；Facebook 照片頁則匿名解析 og:image。"""
+    value = str(url or "").strip()
+    if is_direct_public_image_url(value):
+        return value
+    if not is_public_http_url(value):
+        return ""
+    hostname = (urllib.parse.urlparse(value).hostname or "").lower()
+    if hostname not in {"facebook.com", "www.facebook.com", "m.facebook.com"}:
+        return ""
+    try:
+        response = requests.get(
+            value,
+            headers={
+                "User-Agent": FB_PUBLIC_CRAWLER_UA,
+                "Accept-Language": "zh-TW,zh;q=0.9",
+            },
+            timeout=30,
+            allow_redirects=True,
+        )
+    except requests.RequestException:
+        return ""
+    if response.status_code != 200 or len(response.text) > 3_000_000:
+        return ""
+    return meta(BeautifulSoup(response.text, "html.parser"), "og:image")
+
+
+def is_safe_facebook_image_download(url: str) -> bool:
+    """公開投稿只下載 Facebook CDN 或本站圖片，避免任意網址伺服器端請求。"""
+    if not is_direct_public_image_url(url):
+        return False
+    parsed = urllib.parse.urlparse(str(url).strip())
+    if parsed.scheme != "https":
+        return False
+    hostname = (parsed.hostname or "").lower()
+    return (
+        hostname == "flyspacesky.github.io"
+        or hostname == "lookaside.fbsbx.com"
+        or hostname.endswith(".fbsbx.com")
+        or hostname.endswith(".fbcdn.net")
+    )
+
+
+def archive_facebook_image(
+    post_url: str,
+    image_url: str,
+    source_stats: dict[str, Any],
+) -> str:
+    """把匿名可讀的真實照片保存到 Pages，避免 Facebook CDN 短效網址失效。"""
+    key = facebook_post_key(post_url)
+    if not key:
+        return ""
+    post_id = key.split(":", 1)[1]
+    for extension in ("jpg", "png", "webp", "gif"):
+        existing = FB_ASSET_DIR / f"{post_id}.{extension}"
+        if existing.exists() and existing.stat().st_size > 500:
+            return f"{FB_ASSET_PUBLIC_BASE}/{existing.name}"
+
+    resolved = resolve_public_image_url(image_url)
+    if not resolved or not is_safe_facebook_image_download(resolved):
+        return ""
+    try:
+        response = requests.get(
+            resolved,
+            headers={
+                "User-Agent": FB_PUBLIC_CRAWLER_UA,
+                "Accept": "image/avif,image/webp,image/png,image/jpeg,image/*",
+            },
+            timeout=35,
+            allow_redirects=True,
+        )
+    except requests.RequestException:
+        return ""
+    content_type = response.headers.get("Content-Type", "").split(";", 1)[0].lower()
+    extension_by_type = {
+        "image/jpeg": "jpg",
+        "image/jpg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+        "image/gif": "gif",
+    }
+    extension = extension_by_type.get(content_type, "")
+    content = response.content
+    if response.status_code != 200 or not extension or not (500 < len(content) <= 15_000_000):
+        return ""
+
+    FB_ASSET_DIR.mkdir(parents=True, exist_ok=True)
+    target = FB_ASSET_DIR / f"{post_id}.{extension}"
+    target.write_bytes(content)
+    source_stats["images_archived"] = source_stats.get("images_archived", 0) + 1
+    return f"{FB_ASSET_PUBLIC_BASE}/{target.name}"
+
+
+def enrich_facebook_row(
+    row: dict[str, Any],
+    source_stats: dict[str, Any],
+) -> dict[str, Any]:
+    """用公開貼文補齊投稿缺少欄位；無法匿名驗證時不臆測資料。"""
+    enriched = dict(row)
+    url = normalize_facebook_post_url(str(enriched.get("url", "")))
+    if not url:
+        return enriched
+    enriched["url"] = url
+
+    needs_metadata = bool(enriched.get("_submission_source")) or any(
+        not clean(enriched.get(field, ""))
+        for field in ("post_text", "image", "publisher", "updated")
+    )
+    metadata = fetch_public_facebook_metadata(url) if needs_metadata else {}
+    if metadata:
+        source_stats["public_metadata_enriched"] = (
+            source_stats.get("public_metadata_enriched", 0) + 1
+        )
+
+    text = clean_multiline(
+        enriched.get("post_text") or metadata.get("post_text") or "",
+        16000,
+    )
+    enriched["post_text"] = text
+    enriched["title"] = clean(
+        enriched.get("title")
+        or metadata.get("title")
+        or facebook_title_from_text(text),
+        180,
+    )
+    enriched["district"] = clean(
+        enriched.get("district") or district_from_text(text),
+        20,
+    )
+    enriched["address"] = clean(
+        enriched.get("address") or facebook_address_from_text(text),
+        100,
+    )
+    enriched["house_type"] = clean(
+        enriched.get("house_type") or ("整層住家" if has_four_rooms(text) else ""),
+        30,
+    )
+    enriched["building_type"] = clean(
+        enriched.get("building_type") or ("電梯大樓" if "電梯" in text else ""),
+        30,
+    )
+    enriched["layout"] = clean(
+        enriched.get("layout") or facebook_layout_from_text(text),
+        30,
+    )
+    enriched["size"] = clean(
+        enriched.get("size") or facebook_size_from_text(text),
+        30,
+    )
+    enriched["equipment"] = clean(
+        enriched.get("equipment") or facebook_equipment_from_text(text),
+        220,
+    )
+
+    rent = money(str(enriched.get("rent", ""))) or facebook_labeled_money(
+        text,
+        "租金",
+        "月租",
+        "房租",
+    )
+    management = facebook_labeled_money(text, "管理費")
+    parking = facebook_labeled_money(text, "停車位", "車位")
+    enriched["rent"] = rent
+    enriched["total_cost"] = (
+        money(str(enriched.get("total_cost", "")))
+        or (rent + management + parking if rent else 0)
+    )
+    enriched["publisher"] = clean(
+        enriched.get("publisher") or metadata.get("publisher"),
+        80,
+    )
+
+    creation_time = int(metadata.get("creation_time") or 0)
+    if creation_time and not clean(enriched.get("updated", "")):
+        published = datetime.fromtimestamp(creation_time, TZ)
+        enriched["published_at"] = published.isoformat()
+        enriched["updated"] = published.strftime("%Y/%m/%d %H:%M刊登")
+
+    image_origin = (
+        str(enriched.get("image_origin", "")).strip()
+        or str(enriched.get("image", "")).strip()
+        or str(metadata.get("image_origin", "")).strip()
+    )
+    should_archive = bool(enriched.get("_submission_source")) or bool(metadata)
+    archived = (
+        archive_facebook_image(url, image_origin, source_stats)
+        if should_archive
+        else ""
+    )
+    if archived:
+        enriched["image"] = archived
+        enriched["image_origin"] = image_origin
+    elif not is_direct_public_image_url(str(enriched.get("image", "")).strip()):
+        enriched["image"] = ""
+
+    if not clean(enriched.get("summary", "")):
+        enriched["summary"] = clean(text, 500)
+    return enriched
+
+
+def parse_facebook_issue_body(issue: dict[str, Any]) -> dict[str, Any] | None:
+    title = clean(issue.get("title", ""), 200)
+    if not title.startswith(FB_ISSUE_TITLE_PREFIX):
+        return None
+    body = str(issue.get("body", ""))[:30_000]
+    fields: dict[str, str] = {}
+    for match in re.finditer(
+        r"^###\s+(.+?)\s*$\r?\n([\s\S]*?)(?=^###\s+|\Z)",
+        body,
+        re.M,
+    ):
+        label = clean(match.group(1), 120)
+        value = clean_multiline(match.group(2), 16000)
+        if value not in {"", "_No response_", "No response"}:
+            fields[label] = value
+
+    def value_containing(*needles: str) -> str:
+        for label, value in fields.items():
+            if any(needle in label for needle in needles):
+                return value
+        return ""
+
+    url = value_containing("永久貼文網址", "Facebook貼文網址")
+    if not url:
+        return None
+    number = int(issue.get("number") or 0)
+    return {
+        "url": url,
+        "post_text": value_containing("完整貼文文字", "貼文內容"),
+        "image": value_containing("照片網址", "圖片網址"),
+        "_submission_source": f"GitHub issue #{number}" if number else "GitHub issue",
+    }
+
+
+def load_github_facebook_issue_rows(source_stats: dict[str, Any]) -> list[dict[str, Any]]:
+    repository = os.environ.get(GITHUB_REPOSITORY_ENV, "").strip()
+    token = os.environ.get(GITHUB_TOKEN_ENV, "").strip()
+    if (
+        not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository)
+        or not token
+    ):
+        source_stats["issue_source_enabled"] = False
+        return []
+    source_stats["issue_source_enabled"] = True
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "taoyuan-rental-digest",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    headers["Authorization"] = f"Bearer {token}"
+    url = (
+        f"https://api.github.com/repos/{repository}/issues"
+        "?state=open&sort=updated&direction=desc&per_page=100"
+    )
+    try:
+        response = requests.get(url, headers=headers, timeout=30)
+        payload = response.json() if response.status_code == 200 else []
+    except (requests.RequestException, ValueError):
+        payload = []
+    if not isinstance(payload, list):
+        source_stats["notices"].append("GitHub FB公開投稿目前無法讀取；本輪仍使用其他FB來源。")
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for issue in payload:
+        if not isinstance(issue, dict) or issue.get("pull_request"):
+            continue
+        row = parse_facebook_issue_body(issue)
+        if row:
+            rows.append(row)
+    source_stats["issue_submissions_seen"] = len(rows)
+    return rows
 
 
 def facebook_row_reject_reasons(row: dict[str, Any]) -> list[str]:
@@ -1806,66 +2270,80 @@ def parse_social_row(row: dict[str, Any], source: str) -> Listing | None:
 
 def load_facebook_import(source_stats: dict[str, Any]) -> list[Listing]:
     source_stats["allowed_groups"] = len(FB_GROUPS)
-    raw_json = ""
-    import_source = ""
+    source_payloads: list[tuple[str, str]] = []
 
     if FB_IMPORT.exists():
         try:
-            raw_json = FB_IMPORT.read_text(encoding="utf-8")
-            import_source = "data/facebook_posts.json"
+            source_payloads.append(
+                ("data/facebook_posts.json", FB_IMPORT.read_text(encoding="utf-8"))
+            )
         except OSError as exc:
             source_stats["errors"].append(f"facebook_posts.json 無法讀取：{exc}")
-            return []
-    else:
-        raw_json = os.environ.get(FB_IMPORT_ENV, "").strip()
-        if raw_json:
-            import_source = f"GitHub Actions secret {FB_IMPORT_ENV}"
-        else:
-            feed_url = os.environ.get(FB_IMPORT_URL_ENV, "").strip()
-            parsed_feed = urllib.parse.urlparse(feed_url)
-            if feed_url and parsed_feed.scheme == "https" and parsed_feed.netloc:
-                response, feed_text = get_requests(feed_url)
-                if (
-                    response is not None
-                    and response.status_code == 200
-                    and 0 < len(feed_text) <= 2_000_000
-                ):
-                    raw_json = feed_text
-                    import_source = f"HTTPS feed {FB_IMPORT_URL_ENV}"
-                else:
-                    source_stats["errors"].append(
-                        f"{FB_IMPORT_URL_ENV} 無法取得有效JSON資料；"
-                        "請確認HTTPS網址可由GitHub Actions匿名讀取且小於2MB。"
-                    )
-                    return []
-            elif feed_url:
-                source_stats["errors"].append(
-                    f"{FB_IMPORT_URL_ENV} 必須是可匿名讀取的HTTPS網址。"
-                )
-                return []
 
-    if not raw_json:
+    secret_json = os.environ.get(FB_IMPORT_ENV, "").strip()
+    if secret_json:
+        source_payloads.append((f"GitHub Actions secret {FB_IMPORT_ENV}", secret_json))
+
+    feed_url = os.environ.get(FB_IMPORT_URL_ENV, "").strip()
+    parsed_feed = urllib.parse.urlparse(feed_url)
+    if feed_url and parsed_feed.scheme == "https" and parsed_feed.netloc:
+        response, feed_text = get_requests(feed_url)
+        if (
+            response is not None
+            and response.status_code == 200
+            and 0 < len(feed_text) <= 2_000_000
+        ):
+            source_payloads.append((f"HTTPS feed {FB_IMPORT_URL_ENV}", feed_text))
+        else:
+            source_stats["errors"].append(
+                f"{FB_IMPORT_URL_ENV} 無法取得有效JSON資料；"
+                "請確認HTTPS網址可由GitHub Actions匿名讀取且小於2MB。"
+            )
+    elif feed_url:
+        source_stats["errors"].append(
+            f"{FB_IMPORT_URL_ENV} 必須是可匿名讀取的HTTPS網址。"
+        )
+
+    rows: list[dict[str, Any]] = []
+    import_sources: list[str] = []
+    for import_source, raw_json in source_payloads:
+        try:
+            payload = json.loads(raw_json)
+        except json.JSONDecodeError as exc:
+            source_stats["errors"].append(f"{import_source} 不是有效JSON：{exc}")
+            continue
+
+        payload_rows = payload.get("posts") if isinstance(payload, dict) else payload
+        if not isinstance(payload_rows, list):
+            source_stats["errors"].append(
+                f"{import_source} 的最外層必須是陣列，或包含 posts 陣列。"
+            )
+            continue
+        import_sources.append(import_source)
+        for row in payload_rows:
+            if isinstance(row, dict):
+                normalized = dict(row)
+                normalized.setdefault("_import_source", import_source)
+                rows.append(normalized)
+            else:
+                rows.append(row)
+
+    issue_rows = load_github_facebook_issue_rows(source_stats)
+    if issue_rows:
+        import_sources.append("GitHub公開Issue投稿")
+        rows.extend(issue_rows)
+
+    if not rows and not import_sources:
         source_stats["errors"].append(
             "FB沒有資料來源：請建立 data/facebook_posts.json，或設定GitHub Actions "
-            f"secret {FB_IMPORT_ENV}／{FB_IMPORT_URL_ENV}。在不使用Facebook帳號、密碼、"
-            "Cookie或Session的限制下，程式不會假裝能匿名抓取受登入保護的社團貼文。"
+            f"secret {FB_IMPORT_ENV}／{FB_IMPORT_URL_ENV}，或使用電子報的FB公開投稿入口。"
+            "在不使用Facebook帳號、密碼、Cookie或Session的限制下，程式不會假裝能"
+            "匿名抓取受登入保護的社團貼文。"
         )
         return []
 
-    try:
-        payload = json.loads(raw_json)
-    except json.JSONDecodeError as exc:
-        source_stats["errors"].append(f"{import_source} 不是有效JSON：{exc}")
-        return []
-
-    rows = payload.get("posts") if isinstance(payload, dict) else payload
-    if not isinstance(rows, list):
-        source_stats["errors"].append(
-            f"{import_source} 的最外層必須是陣列，或包含 posts 陣列。"
-        )
-        return []
-
-    source_stats["import_source"] = import_source
+    source_stats["import_sources"] = import_sources
+    source_stats["import_source"] = " + ".join(import_sources)
     source_stats["input_rows"] = len(rows)
     rejects: dict[str, int] = {}
 
@@ -1873,29 +2351,31 @@ def load_facebook_import(source_stats: dict[str, Any]) -> list[Listing]:
         rejects[reason] = rejects.get(reason, 0) + 1
 
     result: list[Listing] = []
-    seen_urls: set[str] = set()
+    seen_keys: set[str] = set()
     for row in rows:
         if not isinstance(row, dict):
             reject("invalid_row")
             continue
 
-        reasons = facebook_row_reject_reasons(row)
-        url = normalize_facebook_post_url(str(row.get("url", "")))
-        if not url:
+        enriched_row = enrich_facebook_row(row, source_stats)
+        reasons = facebook_row_reject_reasons(enriched_row)
+        url = normalize_facebook_post_url(str(enriched_row.get("url", "")))
+        key = facebook_post_key(url)
+        if not url or not key:
             for reason in reasons or ["invalid_or_unlisted_group_url"]:
                 reject(reason)
             continue
-        if url in seen_urls:
+        if key in seen_keys:
             reject("duplicate_url")
             continue
-        seen_urls.add(url)
+        seen_keys.add(key)
 
         if reasons:
             for reason in reasons:
                 reject(reason)
             continue
 
-        normalized_row = dict(row)
+        normalized_row = dict(enriched_row)
         normalized_row["url"] = url
         item = parse_social_row(normalized_row, "FB")
         if item:
@@ -1903,12 +2383,14 @@ def load_facebook_import(source_stats: dict[str, Any]) -> list[Listing]:
         else:
             reject("listing_validation_failed")
 
-    source_stats["candidate_links"] = len(seen_urls)
+    source_stats["candidate_links"] = len(seen_keys)
     source_stats["validated"] = len(result)
     source_stats["anonymous_verified_posts"] = len(result)
     source_stats["rejects"] = dict(sorted(rejects.items()))
     source_stats["notices"].append(
-        f"FB目前採已驗證永久貼文匯入；允許社團共{len(FB_GROUPS)}個。"
+        f"FB目前合併檔案、Secret、HTTPS feed與GitHub公開投稿；"
+        f"允許社團共{len(FB_GROUPS)}個。投稿只有在永久網址、公開貼文內容、"
+        "照片、4房、地區與租金都能匿名驗證後才刊出。"
         "Facebook未向未登入訪客提供完整社團貼文清單，"
         "因此候選數代表已取得且可匿名驗證的永久貼文，不是社團全部貼文數。"
     )
@@ -2356,6 +2838,8 @@ def render_status(stats: dict[str, Any], source: str) -> str:
             f"<span>允許社團 {row.get('allowed_groups', len(FB_GROUPS))} 個</span>"
             f"<span>匿名驗證貼文 "
             f"{row.get('anonymous_verified_posts', row.get('validated', 0))} 筆</span>"
+            f"<span>公開投稿 {row.get('issue_submissions_seen', 0)} 筆</span>"
+            f"<span>自動補齊 {row.get('public_metadata_enriched', 0)} 筆</span>"
         )
 
     return f"""
@@ -2419,6 +2903,8 @@ main{{padding:22px 0 48px}}
 .source-heading{{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-bottom:10px}}
 .source-heading h2{{font-size:31px;margin:0}}
 .source-heading a{{font-size:14px;color:#555;text-underline-offset:3px}}
+.source-actions{{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}}
+.source-actions .submission-link{{color:#fff;background:var(--fb);padding:7px 10px;border-radius:6px;text-decoration:none;font-weight:850}}
 .source-status{{display:flex;flex-direction:column;align-items:flex-end;background:#fff;padding:12px 14px;border:1px solid var(--line);border-radius:10px}}
 .status-primary{{width:75%;align-self:flex-start;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));align-items:center;direction:ltr}}
 .status-primary>*{{min-width:0;padding:2px 10px;direction:ltr;text-align:center}}
@@ -2558,14 +3044,21 @@ h3 a{{text-decoration:none}}
 </div>
 
 <div id="source-fb" class="source-block">
-  <div class="source-heading"><h2>FB社團</h2><a href="https://www.facebook.com/groups/feed/" target="_blank">開啟Facebook社團 ↗</a></div>
+  <div class="source-heading">
+    <h2>FB社團</h2>
+    <div class="source-actions">
+      <a class="submission-link" href="{FB_ISSUE_TEMPLATE_URL}" target="_blank" rel="noopener noreferrer">提交FB永久貼文 ↗</a>
+      <a href="https://www.facebook.com/groups/feed/" target="_blank" rel="noopener noreferrer">開啟Facebook社團 ↗</a>
+    </div>
+  </div>
   {render_status(stats, 'FB')}
   <div class="social-note">
-    <strong>Facebook真實資料提供方式：</strong>
-    提供允許社團的單篇永久貼文網址、貼文內容、租金／格局／地區，以及可公開讀取的照片網址，
-    即可代為建立真實JSON並驗證。也可設定可匿名讀取的HTTPS JSON feed持續更新。
-    不需要、也請勿提供Facebook帳號、密碼、Cookie或Session；只有社團首頁或無法讀取的私密貼文網址不足以匯入。
-    Facebook分享短網址與 <code>facebook.com/photo</code> 照片頁也無法取代社團永久網址及直接圖片網址。
+    <strong>Facebook真實資料自動處理：</strong>
+    點選「提交FB永久貼文」後，只要提供允許社團的單篇永久網址；完整貼文文字與照片頁可選填。
+    GitHub Actions會以不含Cookie的匿名請求讀取公開中繼資料，自動補齊貼文內容、照片、刊登者、
+    刊登時間、租金、格局、坪數與地區，並把真實照片保存到本站後再驗證刊出。
+    檔案、Secret與匿名HTTPS JSON feed現在會合併處理，不會因既有JSON存在而忽略其他來源。
+    不需要、也請勿提供Facebook帳號、密碼、Cookie或Session；社團首頁、分享短網址或無法匿名讀取的私密貼文仍不會刊出。
     在不登入的限制下，Facebook不提供完整社團貼文清單；本頁只顯示已取得永久網址且可匿名驗證的真實物件。
   </div>
   <div class="social-links">{fb_buttons}</div>

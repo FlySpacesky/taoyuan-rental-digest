@@ -19,9 +19,15 @@ on:
   schedule:
     - cron: "17 8,20 * * *"
       timezone: "Asia/Taipei"
+  issues:
+    types:
+      - opened
+      - edited
+      - reopened
 
 permissions:
   contents: write
+  issues: read
   pages: write
   id-token: write
 
@@ -40,6 +46,8 @@ jobs:
     steps:
       - name: 下載儲存庫
         uses: actions/checkout@v6
+        with:
+          ref: main
 
       - name: 設定 Python
         uses: actions/setup-python@v6
@@ -69,6 +77,7 @@ jobs:
         env:
           FACEBOOK_POSTS_JSON: ${{ secrets.FACEBOOK_POSTS_JSON }}
           FACEBOOK_POSTS_JSON_URL: ${{ secrets.FACEBOOK_POSTS_JSON_URL || vars.FACEBOOK_POSTS_JSON_URL }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: python scripts/generate_rental_digest.py
 
       - name: 顯示來源診斷摘要
@@ -83,7 +92,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/index.html docs/rental-data
+          git add docs/index.html docs/rental-data docs/assets/facebook
           if ! git diff --cached --quiet; then
             git commit -m "rental: refresh validated listings"
             git push
@@ -104,7 +113,7 @@ jobs:
         uses: actions/deploy-pages@v4
 
       - name: 發送 LINE
-        if: ${{ github.event_name != 'push' }}
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           SITE_URL: ${{ steps.deployment.outputs.page_url }}

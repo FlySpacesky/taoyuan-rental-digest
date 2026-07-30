@@ -14,7 +14,10 @@
 - Threads：不納入本快報，也不需要設定 Threads Access Token
 - Facebook：不登入、不使用帳密／Cookie／Session；資料來源為
   `data/facebook_posts.json`、`FACEBOOK_POSTS_JSON` Actions secret，或
-  `FACEBOOK_POSTS_JSON_URL` HTTPS feed（Actions secret／repository variable）
+  `FACEBOOK_POSTS_JSON_URL` HTTPS feed（Actions secret／repository variable），
+  以及電子報上的 GitHub 公開投稿表單。這些來源會合併、依永久貼文去重；
+  公開投稿會匿名讀取 Facebook 單篇貼文的 Open Graph／公開中繼資料，
+  自動補齊欄位並把真實照片保存到本站，驗證失敗的投稿不刊出
 - 顯示：每個來源均為單欄列表、每筆左圖右文；591與樂屋網提供各自對應的分類與排序控制
 - 591：優選好屋使用官方 BFF `preferred`；租金總費用使用月租加上官方
   `extra_fee`，若來源未提供額外月費則回退為月租
