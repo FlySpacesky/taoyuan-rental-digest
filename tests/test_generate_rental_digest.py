@@ -683,7 +683,12 @@ class FacebookImportTests(unittest.TestCase):
         self.assertEqual(target.layout, "4房2廳2衛")
         self.assertEqual(target.size, "46坪")
         self.assertEqual(target.rent, 23_000)
+        self.assertEqual(target.publisher, "林思妤")
+        self.assertEqual(target.updated, "2026/07/13 21:43刊登")
         self.assertEqual(stats["import_source"], "data/facebook_posts.json")
+        self.assertEqual(stats["allowed_groups"], len(DIGEST.FB_GROUPS))
+        self.assertEqual(stats["anonymous_verified_posts"], 1)
+        self.assertIn("不是社團全部貼文數", stats["notices"][0])
 
     def test_real_row_supports_listing_sort_fields(self) -> None:
         row = {
@@ -958,9 +963,13 @@ class CurrentListingDisplayTests(unittest.TestCase):
         rendered = DIGEST.render_html([owner, discount], stats)
 
         self.assertIn(
-            f'<time datetime="{DIGEST.NOW:%Y-%m-%d}">{DIGEST.NOW:%Y/%m/%d}</time>',
+            f'<time datetime="{DIGEST.NOW.isoformat(timespec="minutes")}" '
+            f'aria-label="本次執行時間">',
             rendered,
         )
+        self.assertIn(f"{DIGEST.NOW:%Y/%m/%d %H:%M}", rendered)
+        self.assertIn("允許社團 11 個", rendered)
+        self.assertIn("匿名驗證貼文 0 筆", rendered)
         self.assertIn("優選好屋", rendered)
         self.assertIn("租金總費用", rendered)
         self.assertIn("室內坪數", rendered)

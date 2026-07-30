@@ -1805,6 +1805,7 @@ def parse_social_row(row: dict[str, Any], source: str) -> Listing | None:
 
 
 def load_facebook_import(source_stats: dict[str, Any]) -> list[Listing]:
+    source_stats["allowed_groups"] = len(FB_GROUPS)
     raw_json = ""
     import_source = ""
 
@@ -1904,7 +1905,13 @@ def load_facebook_import(source_stats: dict[str, Any]) -> list[Listing]:
 
     source_stats["candidate_links"] = len(seen_urls)
     source_stats["validated"] = len(result)
+    source_stats["anonymous_verified_posts"] = len(result)
     source_stats["rejects"] = dict(sorted(rejects.items()))
+    source_stats["notices"].append(
+        f"FB目前採已驗證永久貼文匯入；允許社團共{len(FB_GROUPS)}個。"
+        "Facebook未向未登入訪客提供完整社團貼文清單，"
+        "因此候選數代表已取得且可匿名驗證的永久貼文，不是社團全部貼文數。"
+    )
     if rows and not result:
         source_stats["errors"].append(
             "FB匯入有資料列，但沒有資料通過社團永久網址、4房、地區、租金、"
@@ -2344,6 +2351,12 @@ def render_status(stats: dict[str, Any], source: str) -> str:
             f"<span>列表快照 {row.get('list_cache', 0)} 筆</span>"
             f"<details><summary>591排除診斷</summary><div>{esc(reject_text)}</div></details>"
         )
+    elif source == "FB":
+        diagnostics = (
+            f"<span>允許社團 {row.get('allowed_groups', len(FB_GROUPS))} 個</span>"
+            f"<span>匿名驗證貼文 "
+            f"{row.get('anonymous_verified_posts', row.get('validated', 0))} 筆</span>"
+        )
 
     return f"""
     <div class="source-status">
@@ -2509,7 +2522,11 @@ h3 a{{text-decoration:none}}
 <body>
 <header>
   <div class="wrap">
-    <h1>桃園四房以上租屋快報 <time datetime="{NOW.strftime('%Y-%m-%d')}">{NOW.strftime('%Y/%m/%d')}</time></h1>
+    <h1>桃園四房以上租屋快報
+      <time datetime="{NOW.isoformat(timespec='minutes')}" aria-label="本次執行時間">
+        {NOW.strftime('%Y/%m/%d %H:%M')}
+      </time>
+    </h1>
     <p class="subtitle">三個來源分區顯示；每筆物件均包含照片與來源直達連結，本輪有效物件不因近48小時曾顯示而隱藏。</p>
     <nav class="source-nav">
       <a href="#source-591">591</a>
@@ -2549,6 +2566,7 @@ h3 a{{text-decoration:none}}
     即可代為建立真實JSON並驗證。也可設定可匿名讀取的HTTPS JSON feed持續更新。
     不需要、也請勿提供Facebook帳號、密碼、Cookie或Session；只有社團首頁或無法讀取的私密貼文網址不足以匯入。
     Facebook分享短網址與 <code>facebook.com/photo</code> 照片頁也無法取代社團永久網址及直接圖片網址。
+    在不登入的限制下，Facebook不提供完整社團貼文清單；本頁只顯示已取得永久網址且可匿名驗證的真實物件。
   </div>
   <div class="social-links">{fb_buttons}</div>
   {render_listing_browser(
