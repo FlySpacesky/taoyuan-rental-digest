@@ -24,6 +24,7 @@ on:
       - opened
       - edited
       - reopened
+      - closed
 
 permissions:
   contents: write
