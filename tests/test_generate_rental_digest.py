@@ -1076,7 +1076,7 @@ class ThreadsImportTests(unittest.TestCase):
         self.assertIn(DIGEST.THREADS_ACCESS_TOKEN_ENV, stats["errors"][0])
         self.assertIn("threads_keyword_search", stats["errors"][0])
 
-    def test_search_uses_broad_queries_with_recent_and_top(self) -> None:
+    def test_search_uses_keyword_and_tag_plans_with_recent_and_top(self) -> None:
         stats = DIGEST.empty_source_stats()
         recorded_params: list[dict[str, object]] = []
 
@@ -1087,7 +1087,11 @@ class ThreadsImportTests(unittest.TestCase):
             return response
 
         with (
-            patch.object(DIGEST, "THREADS_SEARCH_QUERIES", ("桃園區", "四房")),
+            patch.object(
+                DIGEST,
+                "THREADS_SEARCH_PLANS",
+                (("KEYWORD", "桃園"), ("TAG", "桃園租屋")),
+            ),
             patch.object(DIGEST, "THREADS_SEARCH_TYPES", ("RECENT", "TOP")),
             patch.object(DIGEST.requests, "get", side_effect=search_response),
         ):
@@ -1095,19 +1099,22 @@ class ThreadsImportTests(unittest.TestCase):
 
         self.assertEqual(rows, [])
         self.assertEqual(
-            {(params["q"], params["search_type"]) for params in recorded_params},
             {
-                ("桃園區", "RECENT"),
-                ("四房", "RECENT"),
-                ("桃園區", "TOP"),
-                ("四房", "TOP"),
+                (params["search_mode"], params["q"], params["search_type"])
+                for params in recorded_params
+            },
+            {
+                ("KEYWORD", "桃園", "RECENT"),
+                ("TAG", "桃園租屋", "RECENT"),
+                ("KEYWORD", "桃園", "TOP"),
+                ("TAG", "桃園租屋", "TOP"),
             },
         )
         self.assertTrue(all(" " not in str(params["q"]) for params in recorded_params))
         self.assertEqual(stats["api_pages"], 4)
         self.assertEqual(stats["raw_rows"], 0)
-        self.assertEqual(stats["query_results"]["RECENT:桃園區"], 0)
-        self.assertEqual(stats["query_results"]["TOP:四房"], 0)
+        self.assertEqual(stats["query_results"]["KEYWORD:RECENT:桃園"], 0)
+        self.assertEqual(stats["query_results"]["TAG:TOP:桃園租屋"], 0)
 
     def test_search_uses_after_cursor_for_second_page(self) -> None:
         stats = DIGEST.empty_source_stats()
@@ -1125,7 +1132,11 @@ class ThreadsImportTests(unittest.TestCase):
         second.json.return_value = {"data": []}
 
         with (
-            patch.object(DIGEST, "THREADS_SEARCH_QUERIES", ("桃園區",)),
+            patch.object(
+                DIGEST,
+                "THREADS_SEARCH_PLANS",
+                (("KEYWORD", "桃園"),),
+            ),
             patch.object(DIGEST, "THREADS_SEARCH_TYPES", ("RECENT",)),
             patch.object(DIGEST, "THREADS_SEARCH_MAX_PAGES", 2),
             patch.object(
@@ -1145,7 +1156,7 @@ class ThreadsImportTests(unittest.TestCase):
         )
         self.assertEqual(stats["api_pages"], 2)
         self.assertEqual(stats["raw_rows"], 1)
-        self.assertEqual(stats["query_results"]["RECENT:桃園區"], 1)
+        self.assertEqual(stats["query_results"]["KEYWORD:RECENT:桃園"], 1)
 
     def test_official_search_keeps_taoyuan_four_room_and_all_photos(self) -> None:
         stats = DIGEST.empty_source_stats()

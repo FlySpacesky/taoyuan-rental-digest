@@ -65,12 +65,17 @@ THREADS_ASSET_DIR = DOCS / "assets" / "threads"
 THREADS_ASSET_PUBLIC_BASE = (
     "https://flyspacesky.github.io/taoyuan-rental-digest/assets/threads"
 )
-THREADS_SEARCH_QUERIES = (
-    "桃園區",
-    "桃園租屋",
-    "桃園出租",
-    "四房",
-    "4房",
+THREADS_SEARCH_PLANS = (
+    ("KEYWORD", "桃園"),
+    ("KEYWORD", "桃園區"),
+    ("KEYWORD", "租屋"),
+    ("KEYWORD", "出租"),
+    ("KEYWORD", "四房"),
+    ("KEYWORD", "4房"),
+    ("TAG", "桃園租屋"),
+    ("TAG", "桃園"),
+    ("TAG", "租屋"),
+    ("TAG", "四房"),
 )
 THREADS_SEARCH_TYPES = ("RECENT", "TOP")
 THREADS_SEARCH_MAX_PAGES = 2
@@ -2634,14 +2639,14 @@ def fetch_threads_search_rows(
     pages = 0
     query_results: dict[str, int] = {}
     for search_type in THREADS_SEARCH_TYPES:
-        for query in THREADS_SEARCH_QUERIES:
-            search_key = f"{search_type}:{query}"
+        for search_mode, query in THREADS_SEARCH_PLANS:
+            search_key = f"{search_mode}:{search_type}:{query}"
             query_results[search_key] = 0
             next_url = f"{THREADS_GRAPH_BASE}/keyword_search"
             base_params: dict[str, Any] = {
                 "q": query,
                 "search_type": search_type,
-                "search_mode": "KEYWORD",
+                "search_mode": search_mode,
                 "limit": 50,
                 "fields": THREADS_SEARCH_FIELDS,
             }
@@ -2658,13 +2663,15 @@ def fetch_threads_search_rows(
                     payload = response.json()
                 except (requests.RequestException, ValueError) as exc:
                     source_stats["errors"].append(
-                        f"Threads官方搜尋「{query}／{search_type}」無法讀取："
+                        f"Threads官方搜尋「{search_mode}／{query}／{search_type}」"
+                        "無法讀取："
                         f"{clean(exc, 180)}"
                     )
                     break
                 if response.status_code != 200 or not isinstance(payload, dict):
                     source_stats["errors"].append(
-                        f"Threads官方搜尋「{query}／{search_type}」失敗："
+                        f"Threads官方搜尋「{search_mode}／{query}／{search_type}」"
+                        "失敗："
                         f"{threads_api_error(response, payload)}"
                     )
                     break
@@ -2718,15 +2725,18 @@ def fetch_threads_search_rows(
 
 def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
     token = os.environ.get(THREADS_ACCESS_TOKEN_ENV, "").strip()
-    source_stats["search_queries"] = len(THREADS_SEARCH_QUERIES)
+    source_stats["search_queries"] = len(THREADS_SEARCH_PLANS)
+    source_stats["search_modes"] = sorted(
+        {search_mode for search_mode, _ in THREADS_SEARCH_PLANS}
+    )
     source_stats["search_types"] = list(THREADS_SEARCH_TYPES)
     source_stats["search_requests"] = (
-        len(THREADS_SEARCH_QUERIES) * len(THREADS_SEARCH_TYPES)
+        len(THREADS_SEARCH_PLANS) * len(THREADS_SEARCH_TYPES)
     )
     source_stats["target"] = "桃園區、4房以上、租金與全部照片完整"
     source_stats["notices"].append(
-        "Threads只使用官方keyword_search；以桃園區、租屋、出租與四房相關"
-        "廣泛關鍵字分別搜尋RECENT與TOP後，"
+        "Threads只使用官方keyword_search；以桃園、租屋、出租與四房相關"
+        "單一關鍵字及主題標籤分別搜尋RECENT與TOP後，"
         "逐筆驗證桃園區、4房以上、租金，並保存輪播中的全部照片。"
     )
     if not token:
