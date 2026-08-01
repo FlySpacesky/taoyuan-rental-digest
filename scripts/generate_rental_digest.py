@@ -67,18 +67,26 @@ THREADS_ASSET_PUBLIC_BASE = (
 )
 THREADS_SEARCH_PLANS = (
     ("KEYWORD", "桃園"),
+    ("KEYWORD", "桃園市"),
     ("KEYWORD", "桃園區"),
+    ("KEYWORD", "桃園租屋"),
+    ("KEYWORD", "桃園出租"),
     ("KEYWORD", "租屋"),
     ("KEYWORD", "出租"),
     ("KEYWORD", "四房"),
     ("KEYWORD", "4房"),
+    ("KEYWORD", "大四房"),
+    ("KEYWORD", "四房2廳"),
+    ("KEYWORD", "4房2廳"),
     ("TAG", "桃園租屋"),
+    ("TAG", "桃園出租"),
     ("TAG", "桃園"),
     ("TAG", "租屋"),
     ("TAG", "四房"),
 )
 THREADS_SEARCH_TYPES = ("RECENT", "TOP")
 THREADS_SEARCH_MAX_PAGES = 2
+THREADS_SEARCH_LOOKBACK_DAYS = 45
 THREADS_SEARCH_FIELDS = (
     "id,media_product_type,media_type,media_url,permalink,username,text,"
     "timestamp,shortcode,thumbnail_url,children"
@@ -2649,6 +2657,10 @@ def fetch_threads_search_rows(
                 "search_mode": search_mode,
                 "limit": 50,
                 "fields": THREADS_SEARCH_FIELDS,
+                "since": int(
+                    (NOW - timedelta(days=THREADS_SEARCH_LOOKBACK_DAYS)).timestamp()
+                ),
+                "until": int(NOW.timestamp()),
             }
             params: dict[str, Any] | None = dict(base_params)
             seen_after: set[str] = set()
@@ -2733,10 +2745,15 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
     source_stats["search_requests"] = (
         len(THREADS_SEARCH_PLANS) * len(THREADS_SEARCH_TYPES)
     )
+    source_stats["search_lookback_days"] = THREADS_SEARCH_LOOKBACK_DAYS
+    source_stats["search_since"] = (
+        NOW - timedelta(days=THREADS_SEARCH_LOOKBACK_DAYS)
+    ).isoformat()
+    source_stats["search_until"] = NOW.isoformat()
     source_stats["target"] = "桃園區、4房以上、租金與全部照片完整"
     source_stats["notices"].append(
-        "Threads只使用官方keyword_search；以桃園、租屋、出租與四房相關"
-        "單一關鍵字及主題標籤分別搜尋RECENT與TOP後，"
+        "Threads只使用官方keyword_search；搜尋近45天內桃園、租屋、出租與"
+        "四房相關單一關鍵字及主題標籤的RECENT與TOP後，"
         "逐筆驗證桃園區、4房以上、租金，並保存輪播中的全部照片。"
     )
     if not token:
