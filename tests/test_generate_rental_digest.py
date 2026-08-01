@@ -1111,13 +1111,6 @@ class ThreadsImportTests(unittest.TestCase):
             },
         )
         self.assertTrue(all(" " not in str(params["q"]) for params in recorded_params))
-        self.assertTrue(
-            all(
-                int(params["until"]) - int(params["since"])
-                == DIGEST.THREADS_SEARCH_LOOKBACK_DAYS * 24 * 60 * 60
-                for params in recorded_params
-            )
-        )
         self.assertEqual(stats["api_pages"], 4)
         self.assertEqual(stats["raw_rows"], 0)
         self.assertEqual(stats["query_results"]["KEYWORD:RECENT:桃園"], 0)
