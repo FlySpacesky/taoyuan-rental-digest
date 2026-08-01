@@ -1076,6 +1076,77 @@ class ThreadsImportTests(unittest.TestCase):
         self.assertIn(DIGEST.THREADS_ACCESS_TOKEN_ENV, stats["errors"][0])
         self.assertIn("threads_keyword_search", stats["errors"][0])
 
+    def test_search_uses_broad_queries_with_recent_and_top(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        recorded_params: list[dict[str, object]] = []
+
+        def search_response(*args: object, **kwargs: object) -> Mock:
+            recorded_params.append(dict(kwargs["params"]))
+            response = Mock(status_code=200)
+            response.json.return_value = {"data": []}
+            return response
+
+        with (
+            patch.object(DIGEST, "THREADS_SEARCH_QUERIES", ("桃園區", "四房")),
+            patch.object(DIGEST, "THREADS_SEARCH_TYPES", ("RECENT", "TOP")),
+            patch.object(DIGEST.requests, "get", side_effect=search_response),
+        ):
+            rows = DIGEST.fetch_threads_search_rows("test-token", stats)
+
+        self.assertEqual(rows, [])
+        self.assertEqual(
+            {(params["q"], params["search_type"]) for params in recorded_params},
+            {
+                ("桃園區", "RECENT"),
+                ("四房", "RECENT"),
+                ("桃園區", "TOP"),
+                ("四房", "TOP"),
+            },
+        )
+        self.assertTrue(all(" " not in str(params["q"]) for params in recorded_params))
+        self.assertEqual(stats["api_pages"], 4)
+        self.assertEqual(stats["raw_rows"], 0)
+        self.assertEqual(stats["query_results"]["RECENT:桃園區"], 0)
+        self.assertEqual(stats["query_results"]["TOP:四房"], 0)
+
+    def test_search_uses_after_cursor_for_second_page(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        first = Mock(status_code=200)
+        first.json.return_value = {
+            "data": [
+                {
+                    "id": "180123456789",
+                    "permalink": "https://www.threads.com/@home/post/ABC123",
+                }
+            ],
+            "paging": {"cursors": {"after": "cursor-2"}},
+        }
+        second = Mock(status_code=200)
+        second.json.return_value = {"data": []}
+
+        with (
+            patch.object(DIGEST, "THREADS_SEARCH_QUERIES", ("桃園區",)),
+            patch.object(DIGEST, "THREADS_SEARCH_TYPES", ("RECENT",)),
+            patch.object(DIGEST, "THREADS_SEARCH_MAX_PAGES", 2),
+            patch.object(
+                DIGEST.requests,
+                "get",
+                side_effect=[first, second],
+            ) as request,
+        ):
+            rows = DIGEST.fetch_threads_search_rows("test-token", stats)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(request.call_count, 2)
+        self.assertNotIn("after", request.call_args_list[0].kwargs["params"])
+        self.assertEqual(
+            request.call_args_list[1].kwargs["params"]["after"],
+            "cursor-2",
+        )
+        self.assertEqual(stats["api_pages"], 2)
+        self.assertEqual(stats["raw_rows"], 1)
+        self.assertEqual(stats["query_results"]["RECENT:桃園區"], 1)
+
     def test_official_search_keeps_taoyuan_four_room_and_all_photos(self) -> None:
         stats = DIGEST.empty_source_stats()
         response = Mock(status_code=200)
