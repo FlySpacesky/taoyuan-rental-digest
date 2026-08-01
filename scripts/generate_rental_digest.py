@@ -66,11 +66,14 @@ THREADS_ASSET_PUBLIC_BASE = (
     "https://flyspacesky.github.io/taoyuan-rental-digest/assets/threads"
 )
 THREADS_SEARCH_QUERIES = (
-    "桃園區 租屋",
-    "桃園區 出租",
-    "桃園區 四房",
-    "桃園區 4房",
+    "桃園區",
+    "桃園租屋",
+    "桃園出租",
+    "四房",
+    "4房",
 )
+THREADS_SEARCH_TYPES = ("RECENT", "TOP")
+THREADS_SEARCH_MAX_PAGES = 2
 THREADS_SEARCH_FIELDS = (
     "id,media_product_type,media_type,media_url,permalink,username,text,"
     "timestamp,shortcode,thumbnail_url,children"
@@ -2629,65 +2632,101 @@ def fetch_threads_search_rows(
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     pages = 0
-    for query in THREADS_SEARCH_QUERIES:
-        next_url = f"{THREADS_GRAPH_BASE}/keyword_search"
-        params: dict[str, Any] | None = {
-            "q": query,
-            "search_type": "RECENT",
-            "search_mode": "KEYWORD",
-            "limit": 50,
-            "fields": THREADS_SEARCH_FIELDS,
-        }
-        for _ in range(2):
-            try:
-                response = requests.get(
-                    next_url,
-                    headers={"Authorization": f"Bearer {token}"},
-                    params=params,
-                    timeout=35,
-                )
-                payload = response.json()
-            except (requests.RequestException, ValueError) as exc:
-                source_stats["errors"].append(
-                    f"Threads官方搜尋「{query}」無法讀取：{clean(exc, 180)}"
-                )
-                break
-            if response.status_code != 200 or not isinstance(payload, dict):
-                source_stats["errors"].append(
-                    f"Threads官方搜尋「{query}」失敗："
-                    f"{threads_api_error(response, payload)}"
-                )
-                break
+    query_results: dict[str, int] = {}
+    for search_type in THREADS_SEARCH_TYPES:
+        for query in THREADS_SEARCH_QUERIES:
+            search_key = f"{search_type}:{query}"
+            query_results[search_key] = 0
+            next_url = f"{THREADS_GRAPH_BASE}/keyword_search"
+            base_params: dict[str, Any] = {
+                "q": query,
+                "search_type": search_type,
+                "search_mode": "KEYWORD",
+                "limit": 50,
+                "fields": THREADS_SEARCH_FIELDS,
+            }
+            params: dict[str, Any] | None = dict(base_params)
+            seen_after: set[str] = set()
+            for page_index in range(THREADS_SEARCH_MAX_PAGES):
+                try:
+                    response = requests.get(
+                        next_url,
+                        headers={"Authorization": f"Bearer {token}"},
+                        params=params,
+                        timeout=35,
+                    )
+                    payload = response.json()
+                except (requests.RequestException, ValueError) as exc:
+                    source_stats["errors"].append(
+                        f"Threads官方搜尋「{query}／{search_type}」無法讀取："
+                        f"{clean(exc, 180)}"
+                    )
+                    break
+                if response.status_code != 200 or not isinstance(payload, dict):
+                    source_stats["errors"].append(
+                        f"Threads官方搜尋「{query}／{search_type}」失敗："
+                        f"{threads_api_error(response, payload)}"
+                    )
+                    break
 
-            pages += 1
-            data = payload.get("data", [])
-            if isinstance(data, list):
-                rows.extend(row for row in data if isinstance(row, dict))
+                pages += 1
+                data = payload.get("data", [])
+                page_rows = (
+                    [row for row in data if isinstance(row, dict)]
+                    if isinstance(data, list)
+                    else []
+                )
+                rows.extend(page_rows)
+                query_results[search_key] += len(page_rows)
 
-            candidate_next = (
-                payload.get("paging", {}).get("next", "")
-                if isinstance(payload.get("paging"), dict)
-                else ""
-            )
-            parsed_next = urllib.parse.urlparse(str(candidate_next))
-            if (
-                not candidate_next
-                or parsed_next.scheme != "https"
-                or parsed_next.hostname != "graph.threads.net"
-            ):
+                paging = payload.get("paging", {})
+                if not isinstance(paging, dict):
+                    break
+                candidate_next = paging.get("next", "")
+                parsed_next = urllib.parse.urlparse(str(candidate_next))
+                if (
+                    candidate_next
+                    and parsed_next.scheme == "https"
+                    and parsed_next.hostname == "graph.threads.net"
+                ):
+                    next_url = str(candidate_next)
+                    params = None
+                    continue
+
+                cursors = paging.get("cursors", {})
+                after = (
+                    clean(cursors.get("after"), 500)
+                    if isinstance(cursors, dict)
+                    else ""
+                )
+                if (
+                    page_rows
+                    and after
+                    and after not in seen_after
+                    and page_index + 1 < THREADS_SEARCH_MAX_PAGES
+                ):
+                    seen_after.add(after)
+                    next_url = f"{THREADS_GRAPH_BASE}/keyword_search"
+                    params = {**base_params, "after": after}
+                    continue
                 break
-            next_url = str(candidate_next)
-            params = None
     source_stats["api_pages"] = pages
+    source_stats["raw_rows"] = len(rows)
+    source_stats["query_results"] = query_results
     return rows
 
 
 def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
     token = os.environ.get(THREADS_ACCESS_TOKEN_ENV, "").strip()
     source_stats["search_queries"] = len(THREADS_SEARCH_QUERIES)
+    source_stats["search_types"] = list(THREADS_SEARCH_TYPES)
+    source_stats["search_requests"] = (
+        len(THREADS_SEARCH_QUERIES) * len(THREADS_SEARCH_TYPES)
+    )
     source_stats["target"] = "桃園區、4房以上、租金與全部照片完整"
     source_stats["notices"].append(
-        "Threads只使用官方keyword_search；搜尋桃園區租屋相關關鍵字後，"
+        "Threads只使用官方keyword_search；以桃園區、租屋、出租與四房相關"
+        "廣泛關鍵字分別搜尋RECENT與TOP後，"
         "逐筆驗證桃園區、4房以上、租金，並保存輪播中的全部照片。"
     )
     if not token:
