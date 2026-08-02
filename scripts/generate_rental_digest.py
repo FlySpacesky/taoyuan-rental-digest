@@ -2670,6 +2670,34 @@ def threads_api_error(response: requests.Response, payload: Any) -> str:
     return f"HTTP {response.status_code}{f'：{message}' if message else ''}"
 
 
+def probe_threads_reply_access(
+    token: str,
+    source_stats: dict[str, Any],
+) -> None:
+    """只確認threads_read_replies是否可用，不保存或輸出帳號自己的留言內容。"""
+    try:
+        response = requests.get(
+            f"{THREADS_GRAPH_BASE}/me/replies",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"fields": "id", "limit": 1},
+            timeout=35,
+        )
+        payload = response.json()
+    except (requests.RequestException, ValueError) as exc:
+        source_stats["reply_permission"] = "probe_failed"
+        source_stats["reply_permission_error"] = clean(exc, 180)
+        return
+    if response.status_code == 200 and isinstance(payload, dict):
+        source_stats["reply_permission"] = "available_for_own_posts"
+        return
+    source_stats["reply_permission"] = f"unavailable_http_{response.status_code}"
+    source_stats["reply_permission_error"] = threads_api_error(response, payload)
+    source_stats["notices"].append(
+        "目前THREADS_ACCESS_TOKEN無法使用threads_read_replies；主貼文搜尋仍可執行，"
+        "但無法讀取權杖帳號自己貼文的conversation。"
+    )
+
+
 def fetch_threads_post(
     post_id: str,
     token: str,
@@ -2897,6 +2925,7 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
         )
         return []
 
+    probe_threads_reply_access(token, source_stats)
     raw_rows = fetch_threads_search_rows(token, source_stats)
     unique_rows: dict[str, dict[str, Any]] = {}
     search_replies: dict[str, list[dict[str, Any]]] = {}
@@ -2933,6 +2962,7 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
         rejects[reason] = rejects.get(reason, 0) + 1
 
     result: list[Listing] = []
+    candidate_diagnostics: list[dict[str, Any]] = []
     for row in unique_rows.values():
         post_id = clean(row.get("id"), 100)
         url = normalize_threads_post_url(str(row.get("permalink", "")))
@@ -3014,6 +3044,26 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
         if not threads_is_today_or_yesterday(latest_activity):
             reasons.append("outside_today_yesterday")
 
+        if len(candidate_diagnostics) < 100:
+            candidate_diagnostics.append(
+                {
+                    "source_id": post_id,
+                    "url": url,
+                    "username": original_username,
+                    "main_timestamp": clean(row.get("timestamp"), 80),
+                    "latest_activity": (
+                        latest_activity.isoformat() if latest_activity else ""
+                    ),
+                    "has_replies": threads_truthy(row.get("has_replies")),
+                    "author_reply_rows": len(author_replies),
+                    "district": district,
+                    "four_rooms": has_four_rooms(text),
+                    "rent_provided": bool(rent),
+                    "photo_count": len(media_urls),
+                    "reasons": list(reasons),
+                }
+            )
+
         if reasons:
             for reason in reasons:
                 reject(reason)
@@ -3063,6 +3113,7 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
 
     source_stats["validated"] = len(result)
     source_stats["rejects"] = dict(sorted(rejects.items()))
+    source_stats["candidate_diagnostics"] = candidate_diagnostics
     if source_stats.get("reply_access_limited"):
         source_stats["notices"].append(
             "部分Threads留言無法由官方conversation端點讀取。Meta官方僅允許完整讀取"
@@ -3548,11 +3599,32 @@ def render_status(stats: dict[str, Any], source: str) -> str:
             f"<span>自動補齊 {row.get('public_metadata_enriched', 0)} 筆</span>"
         )
     elif source == "Threads":
+        reply_permission = (
+            "可用（限自己的貼文）"
+            if row.get("reply_permission") == "available_for_own_posts"
+            else "不可用"
+        )
+        candidate_rows = row.get("candidate_diagnostics", []) or []
+        candidate_html = "".join(
+            "<li>"
+            f"{esc(candidate.get('source_id', ''))}｜"
+            f"活動 {esc(candidate.get('latest_activity', '') or '未知')}｜"
+            f"原作者留言 {candidate.get('author_reply_rows', 0)} 則｜"
+            f"地區 {esc(candidate.get('district', '') or '未辨識')}｜"
+            f"4房 {'是' if candidate.get('four_rooms') else '否'}｜"
+            f"照片 {candidate.get('photo_count', 0)} 張｜"
+            f"排除 {esc('、'.join(candidate.get('reasons', [])) or '無')}"
+            "</li>"
+            for candidate in candidate_rows[:20]
+        )
         diagnostics = (
             f"<span>搜尋查詢 {row.get('search_queries', 0)} 組</span>"
             f"<span>API頁面 {row.get('api_pages', 0)} 頁</span>"
+            f"<span>原作者留言 {row.get('author_reply_rows', 0)} 則</span>"
+            f"<span>留言權限 {reply_permission}</span>"
             f"<span>找到照片 {row.get('images_found', 0)} 張</span>"
             f"<span>完整保存 {row.get('images_archived', 0)} 張</span>"
+            f"{f'<details><summary>Threads候選診斷</summary><ul>{candidate_html}</ul></details>' if candidate_html else ''}"
         )
 
     return f"""
@@ -3810,8 +3882,9 @@ h3 a{{text-decoration:none}}
   {render_status(stats, 'Threads')}
   <div class="social-note">
     <strong>Threads真實物件：</strong>
-    本區只使用Threads官方關鍵字搜尋，並且只刊出正文可確認為桃園區、
-    4房以上、具有租金且輪播全部照片都已完整保存的出租物件。
+    本區只使用Threads官方API，會合併API可讀取且username與主貼文相同的
+    原作者留言；只刊出今天或昨天有活動、可確認為桃園區、4房以上，且主貼文
+    與原作者留言全部照片都已完整保存的出租物件。租金可未提供，會顯示租金洽詢。
     不使用帳號密碼、Cookie或瀏覽器Session；未設定官方Access Token、
     貼文資料不足或任一照片無法保存時，會保留0筆與來源原因，不會加入假物件。
   </div>
@@ -3937,8 +4010,8 @@ def main() -> int:
         }
     }
     stats["sources"]["Threads"]["notices"].append(
-        "Threads只顯示官方API驗證通過的桃園區4房以上出租物件；"
-        "每篇輪播的全部照片都必須成功保存。"
+        "Threads只顯示官方API驗證通過、今天或昨天有活動的桃園區4房以上出租物件；"
+        "租金可未提供，主貼文與原作者留言中的全部照片都必須成功保存。"
     )
     candidates: list[Listing] = []
 

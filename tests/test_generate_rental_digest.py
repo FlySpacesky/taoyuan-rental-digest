@@ -1061,6 +1061,17 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
 
 
 class ThreadsImportTests(unittest.TestCase):
+    def test_reply_permission_probe_records_unavailable_without_content(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        response = Mock(status_code=403)
+        response.json.return_value = {"error": {"message": "missing permission"}}
+        with patch.object(DIGEST.requests, "get", return_value=response):
+            DIGEST.probe_threads_reply_access("test-token", stats)
+
+        self.assertEqual(stats["reply_permission"], "unavailable_http_403")
+        self.assertIn("HTTP 403", stats["reply_permission_error"])
+        self.assertTrue(any("threads_read_replies" in row for row in stats["notices"]))
+
     def test_missing_access_token_reports_actionable_error(self) -> None:
         stats = DIGEST.empty_source_stats()
         with patch.dict(
@@ -1322,6 +1333,7 @@ class ThreadsImportTests(unittest.TestCase):
         self.assertEqual(stats["author_reply_rows"], 1)
         self.assertEqual(stats["missing_rent_accepted"], 1)
         self.assertEqual(stats["reply_api_attempts"], 1)
+        self.assertEqual(stats["candidate_diagnostics"][0]["reasons"], [])
         self.assertIn("租金洽詢", DIGEST.render_card(item))
 
     def test_keyword_search_reply_is_grouped_under_its_root_post(self) -> None:
@@ -1409,6 +1421,10 @@ class ThreadsImportTests(unittest.TestCase):
 
         self.assertEqual(items, [])
         self.assertEqual(stats["rejects"]["outside_today_yesterday"], 1)
+        self.assertIn(
+            "outside_today_yesterday",
+            stats["candidate_diagnostics"][0]["reasons"],
+        )
         archive.assert_not_called()
 
     def test_reply_permission_failure_does_not_hide_valid_main_post(self) -> None:
@@ -1765,7 +1781,9 @@ class CurrentListingDisplayTests(unittest.TestCase):
             rendered,
         )
         self.assertIn("桃園區、", rendered)
-        self.assertIn("輪播全部照片都已完整保存", rendered)
+        self.assertIn("原作者留言全部照片都已完整保存", rendered)
+        self.assertIn("租金可未提供", rendered)
+        self.assertIn("留言權限 不可用", rendered)
         self.assertIn(">Threads <b>0</b></button>", rendered)
         self.assertNotIn(">優選好屋 <b>0</b></button>", rendered)
         self.assertIn("Threads 官方 API 驗證通過", rendered)
