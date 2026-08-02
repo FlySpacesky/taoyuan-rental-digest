@@ -233,7 +233,8 @@ Threads區塊只使用Meta官方API，不使用Threads帳號密碼、Cookie或�
 
 1. 在Meta for Developers建立具有Threads使用案例的App。
 2. 由使用者完成OAuth授權，Access Token必須包含
-   `threads_basic` 與 `threads_keyword_search` 權限。
+   `threads_basic` 與 `threads_keyword_search` 權限。若要讀取權杖帳號自己貼文的
+   留言，另加入 `threads_read_replies`。
 3. 到GitHub儲存庫的 `Settings → Secrets and variables → Actions`。
 4. 建立Repository secret：
 
@@ -245,11 +246,17 @@ THREADS_ACCESS_TOKEN
 
 程式會使用官方 `keyword_search` 搜尋桃園區租屋相關關鍵字，再逐筆確認：
 
-- 正文明確包含桃園區
-- 格局為4房以上
-- 有明確租金
+- 主貼文或原作者本人留言明確包含桃園區
+- 主貼文或原作者本人留言可確認格局為4房以上
+- 主貼文或原作者本人留言的最新活動日期為台灣時區的今天或昨天
 - 是出租／租屋貼文
-- 單圖或輪播中的全部照片都能下載並保存到本站
+- 主貼文與API可讀取的原作者留言，其單圖或輪播中的全部照片都能下載並保存到本站
+
+租金不是必要欄位；未提供時電子報顯示「租金洽詢」，並在租金排序中排在有價格的
+物件之後。系統只合併username與原貼文作者相同的留言，不採用其他人的留言。
+Meta官方Reply Moderation API只允許完整讀取權杖帳號自己貼文的回覆，因此其他公開
+作者貼文的留言若未由官方搜尋結果提供，程式會在來源診斷標示API限制，不會使用帳密、
+Cookie、Session或繞過登入保護。
 
 任一條件不足或任一張照片保存失敗時，該物件不會刊出。未設定
 `THREADS_ACCESS_TOKEN` 時，Threads統計維持0並在來源訊息顯示設定方式。

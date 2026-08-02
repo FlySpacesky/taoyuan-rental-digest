@@ -6,7 +6,7 @@
 - 591：桃園區、中壢區、平鎮區、八德區，整層住家、4房以上
 - Facebook：安全 JSON 匯入
 - 樂屋網：中壢區、桃園區、平鎮區，4房及5房以上
-- Threads：官方關鍵字搜尋，僅收錄桃園區、4房以上且全部照片可保存的物件
+- Threads：官方關鍵字搜尋，收錄今天與昨天的桃園區、4房以上且全部照片可保存的物件
 
 本版重點：
 1. Threads 使用官方 API，不使用帳號密碼、Cookie 或瀏覽器 Session。
@@ -88,8 +88,14 @@ THREADS_SEARCH_TYPES = ("RECENT", "TOP")
 THREADS_SEARCH_MAX_PAGES = 2
 THREADS_SEARCH_FIELDS = (
     "id,media_product_type,media_type,media_url,permalink,username,text,"
-    "timestamp,shortcode,thumbnail_url,children"
+    "timestamp,shortcode,thumbnail_url,children,has_replies"
 )
+THREADS_REPLY_FIELDS = (
+    "id,media_product_type,media_type,media_url,permalink,username,text,"
+    "timestamp,shortcode,thumbnail_url,children,has_replies,is_reply,"
+    "root_post,replied_to"
+)
+THREADS_REPLY_MAX_PAGES = 2
 FB_ISSUE_TITLE_PREFIX = "[FB房源]"
 FB_ISSUE_TEMPLATE_URL = (
     "https://github.com/FlySpacesky/taoyuan-rental-digest/issues/new"
@@ -2599,16 +2605,42 @@ def archive_threads_images(
 
 
 def threads_timestamp_label(value: Any) -> str:
+    parsed = threads_parse_timestamp(value)
+    if parsed is not None:
+        return parsed.strftime("%Y/%m/%d %H:%M刊登")
+    return clean(value, 50)
+
+
+def threads_parse_timestamp(value: Any) -> datetime | None:
     raw = str(value or "").strip()
     if not raw:
-        return ""
+        return None
     try:
         parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
     except ValueError:
-        return clean(raw, 50)
-    return parsed.astimezone(TZ).strftime("%Y/%m/%d %H:%M刊登")
+        return None
+    return parsed.astimezone(TZ)
+
+
+def threads_is_today_or_yesterday(value: datetime | None) -> bool:
+    if value is None:
+        return False
+    today = NOW.astimezone(TZ).date()
+    return today - timedelta(days=1) <= value.astimezone(TZ).date() <= today
+
+
+def threads_reference_id(value: Any) -> str:
+    if isinstance(value, dict):
+        value = value.get("id", "")
+    return clean(value, 100)
+
+
+def threads_truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes"}
 
 
 def threads_district_from_text(text: str) -> str:
@@ -2636,6 +2668,140 @@ def threads_api_error(response: requests.Response, payload: Any) -> str:
     if isinstance(payload, dict) and isinstance(payload.get("error"), dict):
         message = clean(payload["error"].get("message"), 240)
     return f"HTTP {response.status_code}{f'：{message}' if message else ''}"
+
+
+def probe_threads_reply_access(
+    token: str,
+    source_stats: dict[str, Any],
+) -> None:
+    """只確認threads_read_replies是否可用，不保存或輸出帳號自己的留言內容。"""
+    try:
+        response = requests.get(
+            f"{THREADS_GRAPH_BASE}/me/replies",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"fields": "id", "limit": 1},
+            timeout=35,
+        )
+        payload = response.json()
+    except (requests.RequestException, ValueError) as exc:
+        source_stats["reply_permission"] = "probe_failed"
+        source_stats["reply_permission_error"] = clean(exc, 180)
+        return
+    if response.status_code == 200 and isinstance(payload, dict):
+        source_stats["reply_permission"] = "available_for_own_posts"
+        return
+    source_stats["reply_permission"] = f"unavailable_http_{response.status_code}"
+    source_stats["reply_permission_error"] = threads_api_error(response, payload)
+    source_stats["notices"].append(
+        "目前THREADS_ACCESS_TOKEN無法使用threads_read_replies；主貼文搜尋仍可執行，"
+        "但無法讀取權杖帳號自己貼文的conversation。"
+    )
+
+
+def fetch_threads_post(
+    post_id: str,
+    token: str,
+    source_stats: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{3,100}", post_id or ""):
+        return None
+    source_stats["root_post_requests"] = source_stats.get("root_post_requests", 0) + 1
+    try:
+        response = requests.get(
+            f"{THREADS_GRAPH_BASE}/{post_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"fields": THREADS_SEARCH_FIELDS},
+            timeout=35,
+        )
+        payload = response.json()
+    except (requests.RequestException, ValueError):
+        source_stats["root_post_failures"] = source_stats.get("root_post_failures", 0) + 1
+        return None
+    if response.status_code != 200 or not isinstance(payload, dict):
+        source_stats["root_post_failures"] = source_stats.get("root_post_failures", 0) + 1
+        return None
+    return payload
+
+
+def fetch_threads_conversation(
+    post_id: str,
+    token: str,
+    source_stats: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """讀取官方 conversation；API 拒絕時保留診斷，不把失敗當成空留言。"""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{3,100}", post_id or ""):
+        return []
+    source_stats["reply_api_attempts"] = source_stats.get("reply_api_attempts", 0) + 1
+    rows: list[dict[str, Any]] = []
+    next_url = f"{THREADS_GRAPH_BASE}/{post_id}/conversation"
+    base_params: dict[str, Any] = {
+        "fields": THREADS_REPLY_FIELDS,
+        "limit": 100,
+        "reverse": "false",
+    }
+    params: dict[str, Any] | None = dict(base_params)
+    seen_after: set[str] = set()
+    for page_index in range(THREADS_REPLY_MAX_PAGES):
+        try:
+            response = requests.get(
+                next_url,
+                headers={"Authorization": f"Bearer {token}"},
+                params=params,
+                timeout=35,
+            )
+            payload = response.json()
+        except (requests.RequestException, ValueError):
+            source_stats["reply_api_failures"] = source_stats.get("reply_api_failures", 0) + 1
+            break
+
+        if response.status_code != 200 or not isinstance(payload, dict):
+            statuses = source_stats.setdefault("reply_http_statuses", {})
+            status = str(response.status_code)
+            statuses[status] = int(statuses.get(status, 0)) + 1
+            source_stats["reply_access_limited"] = True
+            break
+
+        source_stats["reply_api_pages"] = source_stats.get("reply_api_pages", 0) + 1
+        data = payload.get("data", [])
+        page_rows = (
+            [row for row in data if isinstance(row, dict)]
+            if isinstance(data, list)
+            else []
+        )
+        rows.extend(page_rows)
+
+        paging = payload.get("paging", {})
+        if not isinstance(paging, dict):
+            break
+        candidate_next = paging.get("next", "")
+        parsed_next = urllib.parse.urlparse(str(candidate_next))
+        if (
+            candidate_next
+            and parsed_next.scheme == "https"
+            and parsed_next.hostname == "graph.threads.net"
+        ):
+            next_url = str(candidate_next)
+            params = None
+            continue
+        cursors = paging.get("cursors", {})
+        after = (
+            clean(cursors.get("after"), 500)
+            if isinstance(cursors, dict)
+            else ""
+        )
+        if (
+            page_rows
+            and after
+            and after not in seen_after
+            and page_index + 1 < THREADS_REPLY_MAX_PAGES
+        ):
+            seen_after.add(after)
+            next_url = f"{THREADS_GRAPH_BASE}/{post_id}/conversation"
+            params = {**base_params, "after": after}
+            continue
+        break
+    source_stats["reply_rows"] = source_stats.get("reply_rows", 0) + len(rows)
+    return rows
 
 
 def fetch_threads_search_rows(
@@ -2740,27 +2906,54 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
     source_stats["search_requests"] = (
         len(THREADS_SEARCH_PLANS) * len(THREADS_SEARCH_TYPES)
     )
-    source_stats["target"] = "桃園區、4房以上、租金與全部照片完整"
+    today = NOW.astimezone(TZ).date()
+    yesterday = today - timedelta(days=1)
+    source_stats["target"] = (
+        f"桃園區、4房以上、全部照片完整、活動日期為{yesterday}或{today}；租金可未提供"
+    )
     source_stats["notices"].append(
         "Threads只使用官方keyword_search；以官方預設完整索引搜尋桃園、"
         "租屋、出租與四房相關單一關鍵字及主題標籤的RECENT與TOP後，"
-        "逐筆驗證桃園區、4房以上、租金，並保存輪播中的全部照片。"
+        "逐筆合併API可讀取的原作者本人留言，驗證桃園區、4房以上及今天／"
+        "昨天的活動時間，並保存主貼文與原作者留言中的全部照片；租金可未提供。"
     )
     if not token:
         source_stats["errors"].append(
             f"Threads官方搜尋尚未啟用：請在GitHub Actions設定"
-            f"{THREADS_ACCESS_TOKEN_ENV} secret；Token需具備threads_keyword_search權限。"
+            f"{THREADS_ACCESS_TOKEN_ENV} secret；Token需具備threads_keyword_search權限；"
+            "若要讀取權杖帳號自己貼文的留言，另需threads_read_replies權限。"
         )
         return []
 
+    probe_threads_reply_access(token, source_stats)
     raw_rows = fetch_threads_search_rows(token, source_stats)
     unique_rows: dict[str, dict[str, Any]] = {}
+    search_replies: dict[str, list[dict[str, Any]]] = {}
     for row in raw_rows:
         post_id = clean(row.get("id"), 100)
+        if threads_truthy(row.get("is_reply")):
+            root_id = threads_reference_id(row.get("root_post"))
+            if root_id:
+                search_replies.setdefault(root_id, []).append(row)
+            else:
+                source_stats["reply_rows_without_root"] = (
+                    source_stats.get("reply_rows_without_root", 0) + 1
+                )
+            continue
         permalink = normalize_threads_post_url(str(row.get("permalink", "")))
         key = post_id or permalink
         if key:
             unique_rows[key] = row
+
+    # keyword_search 可能直接命中留言；取得其 root_post 後，仍以主貼文為物件單位。
+    for root_id in search_replies:
+        if root_id in unique_rows:
+            continue
+        root_row = fetch_threads_post(root_id, token, source_stats)
+        if root_row:
+            unique_rows[root_id] = root_row
+
+    source_stats["search_reply_rows"] = sum(len(rows) for rows in search_replies.values())
     source_stats["candidate_links"] = len(unique_rows)
 
     rejects: dict[str, int] = {}
@@ -2769,30 +2962,107 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
         rejects[reason] = rejects.get(reason, 0) + 1
 
     result: list[Listing] = []
+    candidate_diagnostics: list[dict[str, Any]] = []
     for row in unique_rows.values():
         post_id = clean(row.get("id"), 100)
         url = normalize_threads_post_url(str(row.get("permalink", "")))
-        text = clean_multiline(row.get("text"), 16000)
+        original_username = clean(row.get("username"), 80)
+        candidate_replies = list(search_replies.get(post_id, []))
+        if threads_truthy(row.get("has_replies")):
+            candidate_replies.extend(
+                fetch_threads_conversation(post_id, token, source_stats)
+            )
+
+        author_replies: list[dict[str, Any]] = []
+        seen_replies: set[str] = set()
+        for reply in candidate_replies:
+            reply_id = clean(reply.get("id"), 100)
+            if reply_id == post_id:
+                continue
+            reply_username = clean(reply.get("username"), 80)
+            if (
+                not original_username
+                or not reply_username
+                or reply_username.casefold() != original_username.casefold()
+            ):
+                continue
+            reply_key = reply_id or "|".join(
+                (
+                    clean_multiline(reply.get("text"), 16000),
+                    clean(reply.get("timestamp"), 80),
+                )
+            )
+            if not reply_key or reply_key in seen_replies:
+                continue
+            seen_replies.add(reply_key)
+            author_replies.append(reply)
+
+        source_stats["author_reply_rows"] = (
+            source_stats.get("author_reply_rows", 0) + len(author_replies)
+        )
+        main_text = clean_multiline(row.get("text"), 16000)
+        text_parts = [main_text] if main_text else []
+        text_parts.extend(
+            f"原作者留言：{reply_text}"
+            for reply in author_replies
+            if (reply_text := clean_multiline(reply.get("text"), 16000))
+        )
+        text = clean_multiline("\n".join(text_parts), 32000)
         district = threads_district_from_text(text)
         rent = facebook_labeled_money(text, "租金", "月租", "房租")
-        media_urls = threads_media_urls(row, token)
+        media_urls = list(
+            dict.fromkeys(
+                url
+                for media_row in [row, *author_replies]
+                for url in threads_media_urls(media_row, token)
+            )
+        )
         source_stats["images_found"] = (
             source_stats.get("images_found", 0) + len(media_urls)
         )
+        activities = [
+            value
+            for media_row in [row, *author_replies]
+            if (value := threads_parse_timestamp(media_row.get("timestamp")))
+        ]
+        latest_activity = max(activities) if activities else None
 
         reasons: list[str] = []
         if not post_id or not url:
             reasons.append("invalid_permalink")
-        if not any(marker in text for marker in ("租屋", "出租", "月租", "租金")):
+        if not any(
+            marker in text
+            for marker in ("租屋", "出租", "招租", "月租", "租金", "房屋出租")
+        ):
             reasons.append("not_rental_post")
         if district != "桃園區":
             reasons.append("not_taoyuan_district")
         if not has_four_rooms(text):
             reasons.append("not_four_rooms")
-        if not rent:
-            reasons.append("missing_rent")
         if not media_urls:
             reasons.append("missing_photos")
+        if not threads_is_today_or_yesterday(latest_activity):
+            reasons.append("outside_today_yesterday")
+
+        if len(candidate_diagnostics) < 100:
+            candidate_diagnostics.append(
+                {
+                    "source_id": post_id,
+                    "url": url,
+                    "username": original_username,
+                    "main_timestamp": clean(row.get("timestamp"), 80),
+                    "latest_activity": (
+                        latest_activity.isoformat() if latest_activity else ""
+                    ),
+                    "has_replies": threads_truthy(row.get("has_replies")),
+                    "author_reply_rows": len(author_replies),
+                    "district": district,
+                    "four_rooms": has_four_rooms(text),
+                    "rent_provided": bool(rent),
+                    "photo_count": len(media_urls),
+                    "reasons": list(reasons),
+                }
+            )
 
         if reasons:
             for reason in reasons:
@@ -2806,6 +3076,10 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
 
         management = facebook_labeled_money(text, "管理費")
         parking = facebook_labeled_money(text, "停車位", "車位")
+        if not rent:
+            source_stats["missing_rent_accepted"] = (
+                source_stats.get("missing_rent_accepted", 0) + 1
+            )
         item = Listing(
             source="Threads",
             source_id=post_id,
@@ -2819,11 +3093,11 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
             size=facebook_size_from_text(text),
             equipment=facebook_equipment_from_text(text),
             rent=rent,
-            total_cost=rent + management + parking,
-            updated=threads_timestamp_label(row.get("timestamp")),
+            total_cost=(rent + management + parking) if rent else 0,
+            updated=threads_timestamp_label(latest_activity),
             publisher=(
-                f"@{clean(row.get('username'), 80)}"
-                if clean(row.get("username"), 80)
+                f"@{original_username}"
+                if original_username
                 else ""
             ),
             image=archived_images[0],
@@ -2839,10 +3113,18 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
 
     source_stats["validated"] = len(result)
     source_stats["rejects"] = dict(sorted(rejects.items()))
+    source_stats["candidate_diagnostics"] = candidate_diagnostics
+    if source_stats.get("reply_access_limited"):
+        source_stats["notices"].append(
+            "部分Threads留言無法由官方conversation端點讀取。Meta官方僅允許完整讀取"
+            "權杖帳號自己貼文的回覆；其他公開貼文仍會合併keyword_search直接回傳且"
+            "username與原作者相同的留言，不會採用其他使用者留言或繞過登入限制。"
+        )
     if unique_rows and not result:
         source_stats["errors"].append(
             "Threads有搜尋候選貼文，但沒有物件同時通過桃園區、4房以上、"
-            "租金與全部照片保存驗證；請查看rejects。"
+            "今天／昨天活動日期與全部照片保存驗證；租金不是必要欄位。"
+            "請查看rejects。"
         )
     return result
 
@@ -3098,6 +3380,11 @@ def render_card(item: Listing, order: int = 0) -> str:
     area = numeric_value(item.size)
     popularity = int(numeric_value(item.views))
     total_cost = item.total_cost or item.rent
+    rent_html = (
+        f"{item.rent:,}<small> 元／月</small>"
+        if item.rent
+        else '<span class="rent-contact">租金洽詢</span>'
+    )
     images = list(
         dict.fromkeys(
             value
@@ -3139,7 +3426,7 @@ def render_card(item: Listing, order: int = 0) -> str:
         </div>
         <div class="price-column">
           {old_html}
-          <div class="rent">{item.rent:,}<small> 元／月</small></div>
+          <div class="rent">{rent_html}</div>
           <a class="button" href="{esc(item.url)}" target="_blank" rel="noopener noreferrer">查看物件 ↗</a>
         </div>
       </div>
@@ -3312,11 +3599,32 @@ def render_status(stats: dict[str, Any], source: str) -> str:
             f"<span>自動補齊 {row.get('public_metadata_enriched', 0)} 筆</span>"
         )
     elif source == "Threads":
+        reply_permission = (
+            "可用（限自己的貼文）"
+            if row.get("reply_permission") == "available_for_own_posts"
+            else "不可用"
+        )
+        candidate_rows = row.get("candidate_diagnostics", []) or []
+        candidate_html = "".join(
+            "<li>"
+            f"{esc(candidate.get('source_id', ''))}｜"
+            f"活動 {esc(candidate.get('latest_activity', '') or '未知')}｜"
+            f"原作者留言 {candidate.get('author_reply_rows', 0)} 則｜"
+            f"地區 {esc(candidate.get('district', '') or '未辨識')}｜"
+            f"4房 {'是' if candidate.get('four_rooms') else '否'}｜"
+            f"照片 {candidate.get('photo_count', 0)} 張｜"
+            f"排除 {esc('、'.join(candidate.get('reasons', [])) or '無')}"
+            "</li>"
+            for candidate in candidate_rows[:20]
+        )
         diagnostics = (
             f"<span>搜尋查詢 {row.get('search_queries', 0)} 組</span>"
             f"<span>API頁面 {row.get('api_pages', 0)} 頁</span>"
+            f"<span>原作者留言 {row.get('author_reply_rows', 0)} 則</span>"
+            f"<span>留言權限 {reply_permission}</span>"
             f"<span>找到照片 {row.get('images_found', 0)} 張</span>"
             f"<span>完整保存 {row.get('images_archived', 0)} 張</span>"
+            f"{f'<details><summary>Threads候選診斷</summary><ul>{candidate_html}</ul></details>' if candidate_html else ''}"
         )
 
     return f"""
@@ -3574,8 +3882,9 @@ h3 a{{text-decoration:none}}
   {render_status(stats, 'Threads')}
   <div class="social-note">
     <strong>Threads真實物件：</strong>
-    本區只使用Threads官方關鍵字搜尋，並且只刊出正文可確認為桃園區、
-    4房以上、具有租金且輪播全部照片都已完整保存的出租物件。
+    本區只使用Threads官方API，會合併API可讀取且username與主貼文相同的
+    原作者留言；只刊出今天或昨天有活動、可確認為桃園區、4房以上，且主貼文
+    與原作者留言全部照片都已完整保存的出租物件。租金可未提供，會顯示租金洽詢。
     不使用帳號密碼、Cookie或瀏覽器Session；未設定官方Access Token、
     貼文資料不足或任一照片無法保存時，會保留0筆與來源原因，不會加入假物件。
   </div>
@@ -3630,11 +3939,11 @@ document.querySelectorAll('[data-listing-browser]').forEach((panel) => {{
       const second = numeric(b, activeSort);
       const firstMissing = (
         (activeSort === 'recency' && first >= 1000000000) ||
-        (['area', 'popularity'].includes(activeSort) && first <= 0)
+        (['total', 'rent', 'area', 'popularity'].includes(activeSort) && first <= 0)
       );
       const secondMissing = (
         (activeSort === 'recency' && second >= 1000000000) ||
-        (['area', 'popularity'].includes(activeSort) && second <= 0)
+        (['total', 'rent', 'area', 'popularity'].includes(activeSort) && second <= 0)
       );
       if (firstMissing !== secondMissing) return firstMissing ? 1 : -1;
       const delta = direction === 'asc' ? first - second : second - first;
@@ -3701,8 +4010,8 @@ def main() -> int:
         }
     }
     stats["sources"]["Threads"]["notices"].append(
-        "Threads只顯示官方API驗證通過的桃園區4房以上出租物件；"
-        "每篇輪播的全部照片都必須成功保存。"
+        "Threads只顯示官方API驗證通過、今天或昨天有活動的桃園區4房以上出租物件；"
+        "租金可未提供，主貼文與原作者留言中的全部照片都必須成功保存。"
     )
     candidates: list[Listing] = []
 

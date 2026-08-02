@@ -1061,6 +1061,17 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
 
 
 class ThreadsImportTests(unittest.TestCase):
+    def test_reply_permission_probe_records_unavailable_without_content(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        response = Mock(status_code=403)
+        response.json.return_value = {"error": {"message": "missing permission"}}
+        with patch.object(DIGEST.requests, "get", return_value=response):
+            DIGEST.probe_threads_reply_access("test-token", stats)
+
+        self.assertEqual(stats["reply_permission"], "unavailable_http_403")
+        self.assertIn("HTTP 403", stats["reply_permission_error"])
+        self.assertTrue(any("threads_read_replies" in row for row in stats["notices"]))
+
     def test_missing_access_token_reports_actionable_error(self) -> None:
         stats = DIGEST.empty_source_stats()
         with patch.dict(
@@ -1111,6 +1122,8 @@ class ThreadsImportTests(unittest.TestCase):
             },
         )
         self.assertTrue(all(" " not in str(params["q"]) for params in recorded_params))
+        self.assertTrue(all("has_replies" in str(params["fields"]) for params in recorded_params))
+        self.assertTrue(all("is_reply" not in str(params["fields"]) for params in recorded_params))
         self.assertEqual(stats["api_pages"], 4)
         self.assertEqual(stats["raw_rows"], 0)
         self.assertEqual(stats["query_results"]["KEYWORD:RECENT:桃園"], 0)
@@ -1175,7 +1188,7 @@ class ThreadsImportTests(unittest.TestCase):
                         "租金：25,000元\n"
                         "4房2廳2衛，約46坪，電梯大樓"
                     ),
-                    "timestamp": "2026-07-30T01:02:03+0000",
+                    "timestamp": DIGEST.NOW.isoformat(),
                     "children": {
                         "data": [
                             {
@@ -1246,6 +1259,220 @@ class ThreadsImportTests(unittest.TestCase):
         self.assertEqual(rendered.count('class="photo gallery-photo"'), 2)
         self.assertIn(">1/2</span>", rendered)
         self.assertIn(">2/2</span>", rendered)
+
+    def test_author_reply_can_complete_listing_and_missing_rent_is_allowed(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        main_response = Mock(status_code=200)
+        main_response.json.return_value = {
+            "data": [
+                {
+                    "id": "180123456700",
+                    "media_type": "IMAGE",
+                    "media_url": "https://scontent.cdninstagram.com/main.jpg",
+                    "permalink": (
+                        "https://www.threads.com/@real.home/post/REPLY_DETAILS"
+                    ),
+                    "username": "real.home",
+                    "text": "房屋出租，完整資訊補在留言",
+                    "timestamp": (DIGEST.NOW - DIGEST.timedelta(days=3)).isoformat(),
+                    "has_replies": True,
+                }
+            ]
+        }
+        conversation_response = Mock(status_code=200)
+        conversation_response.json.return_value = {
+            "data": [
+                {
+                    "id": "180123456701",
+                    "is_reply": True,
+                    "username": "real.home",
+                    "text": "地點：桃園區大有路\n4房2廳2衛，約46坪",
+                    "timestamp": (DIGEST.NOW - DIGEST.timedelta(days=1)).isoformat(),
+                },
+                {
+                    "id": "180123456702",
+                    "is_reply": True,
+                    "username": "someone.else",
+                    "text": "中壢區三房，租金100元",
+                    "timestamp": DIGEST.NOW.isoformat(),
+                },
+            ]
+        }
+
+        def threads_get(url: str, **kwargs: object) -> Mock:
+            if url.endswith("/conversation"):
+                return conversation_response
+            return main_response
+
+        with (
+            patch.dict(
+                os.environ,
+                {DIGEST.THREADS_ACCESS_TOKEN_ENV: "test-token"},
+                clear=False,
+            ),
+            patch.object(DIGEST, "THREADS_SEARCH_PLANS", (("KEYWORD", "桃園"),)),
+            patch.object(DIGEST, "THREADS_SEARCH_TYPES", ("RECENT",)),
+            patch.object(DIGEST.requests, "get", side_effect=threads_get),
+            patch.object(
+                DIGEST,
+                "archive_threads_images",
+                return_value=["https://example.test/assets/threads/main.jpg"],
+            ),
+        ):
+            items = DIGEST.load_threads_listings(stats)
+
+        self.assertEqual(len(items), 1)
+        item = items[0]
+        self.assertEqual(item.district, "桃園區")
+        self.assertEqual(item.layout, "4房2廳2衛")
+        self.assertEqual(item.rent, 0)
+        self.assertEqual(item.total_cost, 0)
+        self.assertIn("原作者留言：地點：桃園區大有路", item.raw_text)
+        self.assertNotIn("someone.else", item.raw_text)
+        self.assertNotIn("租金100元", item.raw_text)
+        self.assertEqual(stats["author_reply_rows"], 1)
+        self.assertEqual(stats["missing_rent_accepted"], 1)
+        self.assertEqual(stats["reply_api_attempts"], 1)
+        self.assertEqual(stats["candidate_diagnostics"][0]["reasons"], [])
+        self.assertIn("租金洽詢", DIGEST.render_card(item))
+
+    def test_keyword_search_reply_is_grouped_under_its_root_post(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        search_response = Mock(status_code=200)
+        search_response.json.return_value = {
+            "data": [
+                {
+                    "id": "reply-100",
+                    "is_reply": True,
+                    "root_post": {"id": "root-100"},
+                    "username": "real.home",
+                    "text": "地點：桃園區\n4房2廳2衛",
+                    "timestamp": DIGEST.NOW.isoformat(),
+                }
+            ]
+        }
+        root_response = Mock(status_code=200)
+        root_response.json.return_value = {
+            "id": "root-100",
+            "media_type": "IMAGE",
+            "media_url": "https://scontent.cdninstagram.com/root.jpg",
+            "permalink": "https://www.threads.com/@real.home/post/ROOT_100",
+            "username": "real.home",
+            "text": "房屋出租，詳細條件請看留言",
+            "timestamp": (DIGEST.NOW - DIGEST.timedelta(days=2)).isoformat(),
+        }
+
+        def threads_get(url: str, **kwargs: object) -> Mock:
+            if url.endswith("/keyword_search"):
+                return search_response
+            return root_response
+
+        with (
+            patch.dict(
+                os.environ,
+                {DIGEST.THREADS_ACCESS_TOKEN_ENV: "test-token"},
+                clear=False,
+            ),
+            patch.object(DIGEST, "THREADS_SEARCH_PLANS", (("KEYWORD", "桃園"),)),
+            patch.object(DIGEST, "THREADS_SEARCH_TYPES", ("RECENT",)),
+            patch.object(DIGEST.requests, "get", side_effect=threads_get),
+            patch.object(
+                DIGEST,
+                "archive_threads_images",
+                return_value=["https://example.test/assets/threads/root.jpg"],
+            ),
+        ):
+            items = DIGEST.load_threads_listings(stats)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].source_id, "root-100")
+        self.assertEqual(stats["search_reply_rows"], 1)
+        self.assertEqual(stats["root_post_requests"], 1)
+        self.assertEqual(stats["author_reply_rows"], 1)
+
+    def test_old_threads_post_without_recent_author_activity_is_rejected(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "data": [
+                {
+                    "id": "180123456799",
+                    "media_type": "IMAGE",
+                    "media_url": "https://scontent.cdninstagram.com/old.jpg",
+                    "permalink": "https://www.threads.com/@real.home/post/OLD_POST",
+                    "username": "real.home",
+                    "text": "桃園區四房出租\n4房2廳2衛",
+                    "timestamp": (DIGEST.NOW - DIGEST.timedelta(days=2)).isoformat(),
+                }
+            ]
+        }
+        with (
+            patch.dict(
+                os.environ,
+                {DIGEST.THREADS_ACCESS_TOKEN_ENV: "test-token"},
+                clear=False,
+            ),
+            patch.object(DIGEST, "THREADS_SEARCH_PLANS", (("KEYWORD", "桃園"),)),
+            patch.object(DIGEST, "THREADS_SEARCH_TYPES", ("RECENT",)),
+            patch.object(DIGEST.requests, "get", return_value=response),
+            patch.object(DIGEST, "archive_threads_images") as archive,
+        ):
+            items = DIGEST.load_threads_listings(stats)
+
+        self.assertEqual(items, [])
+        self.assertEqual(stats["rejects"]["outside_today_yesterday"], 1)
+        self.assertIn(
+            "outside_today_yesterday",
+            stats["candidate_diagnostics"][0]["reasons"],
+        )
+        archive.assert_not_called()
+
+    def test_reply_permission_failure_does_not_hide_valid_main_post(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        search_response = Mock(status_code=200)
+        search_response.json.return_value = {
+            "data": [
+                {
+                    "id": "180123456788",
+                    "media_type": "IMAGE",
+                    "media_url": "https://scontent.cdninstagram.com/current.jpg",
+                    "permalink": "https://www.threads.com/@real.home/post/CURRENT",
+                    "username": "real.home",
+                    "text": "桃園區四房出租\n4房2廳2衛",
+                    "timestamp": DIGEST.NOW.isoformat(),
+                    "has_replies": True,
+                }
+            ]
+        }
+        denied_response = Mock(status_code=403)
+        denied_response.json.return_value = {"error": {"message": "not permitted"}}
+
+        def threads_get(url: str, **kwargs: object) -> Mock:
+            if url.endswith("/conversation"):
+                return denied_response
+            return search_response
+
+        with (
+            patch.dict(
+                os.environ,
+                {DIGEST.THREADS_ACCESS_TOKEN_ENV: "test-token"},
+                clear=False,
+            ),
+            patch.object(DIGEST, "THREADS_SEARCH_PLANS", (("KEYWORD", "桃園"),)),
+            patch.object(DIGEST, "THREADS_SEARCH_TYPES", ("RECENT",)),
+            patch.object(DIGEST.requests, "get", side_effect=threads_get),
+            patch.object(
+                DIGEST,
+                "archive_threads_images",
+                return_value=["https://example.test/assets/threads/current.jpg"],
+            ),
+        ):
+            items = DIGEST.load_threads_listings(stats)
+
+        self.assertEqual(len(items), 1)
+        self.assertTrue(stats["reply_access_limited"])
+        self.assertEqual(stats["reply_http_statuses"]["403"], 1)
+        self.assertTrue(any("Meta官方" in notice for notice in stats["notices"]))
 
     def test_non_taoyuan_or_under_four_rooms_is_rejected(self) -> None:
         stats = DIGEST.empty_source_stats()
@@ -1554,7 +1781,9 @@ class CurrentListingDisplayTests(unittest.TestCase):
             rendered,
         )
         self.assertIn("桃園區、", rendered)
-        self.assertIn("輪播全部照片都已完整保存", rendered)
+        self.assertIn("原作者留言全部照片都已完整保存", rendered)
+        self.assertIn("租金可未提供", rendered)
+        self.assertIn("留言權限 不可用", rendered)
         self.assertIn(">Threads <b>0</b></button>", rendered)
         self.assertNotIn(">優選好屋 <b>0</b></button>", rendered)
         self.assertIn("Threads 官方 API 驗證通過", rendered)

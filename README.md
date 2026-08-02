@@ -2,7 +2,7 @@
 
 這是一個與 `tech-newsletter` 完全分離的獨立專案。
 
-- 來源：591、樂屋網、透過檔案或 GitHub Actions secret 安全匯入的真實 Facebook 貼文
+- 來源：591、樂屋網、Threads官方API，以及透過檔案或 GitHub Actions secret 安全匯入的真實 Facebook 貼文
 - 地區：桃園區、中壢區、平鎮區、八德區
 - 格局：4房以上
 - 驗證：樂屋網逐筆檢查單筆頁；591 優先讀網站前端使用的官方 BFF，並以 `role_name` 驗證屋主、以 `diff_price` 驗證降價，BFF 失效時才退回 SSR HTML／Chromium；BFF 清單不再逐筆重打詳情頁，以避免 GitHub Runner 出口 IP 被限流
@@ -11,8 +11,9 @@
 - 排程：台灣時間每天08:17、20:17
 - 網站：GitHub Pages
 - 通知：LINE Messaging API；排程每次都發送最新快報連結，即使本次沒有新物件也會發送
-- Threads：使用官方 `keyword_search` 與 `THREADS_ACCESS_TOKEN`；只刊出桃園區、
-  4房以上、租金明確且全部照片成功保存的真實物件
+- Threads：使用官方 `keyword_search` 與 `THREADS_ACCESS_TOKEN`；只刊出今天或昨天
+  有主貼文／原作者留言活動的桃園區、4房以上且全部照片成功保存的真實物件。
+  租金可未提供，頁面會顯示「租金洽詢」；留言只合併與原貼文同一username的內容
 - Facebook：不登入、不使用帳密／Cookie／Session；資料來源為
   `data/facebook_posts.json`、`FACEBOOK_POSTS_JSON` Actions secret，或
   `FACEBOOK_POSTS_JSON_URL` HTTPS feed（Actions secret／repository variable），
