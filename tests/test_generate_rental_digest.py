@@ -1545,6 +1545,174 @@ class ThreadsImportTests(unittest.TestCase):
         self.assertEqual(stats["images_archived"], 2)
 
 
+class SinyiAndYungchingTests(unittest.TestCase):
+    def test_sinyi_parser_keeps_40_ping_home_and_excludes_store(self) -> None:
+        raw = """
+        <a href="houseno/C357998">
+          <div class="item_img"><img src="https://res.sinyi.com.tw/rent/C357998/smallimg/A.JPG"></div>
+          <span class="item_title">採光佳家俱全配三房車位</span>
+          <div class="item_detailbox">
+            <span class="num num-1">成屋</span><span class="num">46.66</span>坪
+            <span class="num">3/14</span>樓<span class="num">3房2廳2衛</span>
+            <span class="num num-text">桃園市八德區豐德路</span>
+            <span class="gray-date-1">2026/07/26 18:42</span>
+            <div class="price_new"><span class="num">27,500</span>元/月</div>
+          </div>
+        </a>
+        <a href="houseno/C354553">
+          <div class="item_img"><img src="https://res.sinyi.com.tw/rent/C354553/smallimg/A.JPG"></div>
+          <span class="item_title">近中壢火車站稀有店面</span>
+          <span class="num">44.72</span>坪
+          <span class="num num-text">桃園市中壢區中正路</span>
+          <div class="price_new"><span class="num">45,000</span>元/月</div>
+        </a>
+        """
+
+        items = DIGEST.parse_sinyi_list_cards(
+            raw,
+            "https://www.sinyi.com.tw/rent/list/example/1.html",
+        )
+
+        self.assertEqual(list(items), ["C357998"])
+        item = items["C357998"]
+        self.assertEqual(item.source, "信義房屋")
+        self.assertEqual(item.district, "八德區")
+        self.assertEqual(item.size, "46.66坪")
+        self.assertEqual(item.rent, 27_500)
+        self.assertEqual(item.updated, "2026/07/26 18:42")
+        self.assertEqual(item.house_type, "整層住家")
+
+    def test_yungching_list_parser_marks_official_new_tab(self) -> None:
+        raw = """
+        <a class="link" href="//rent.yungching.com.tw/house/2410499">
+          <div class="yc-ng-rent-house-card list">
+            <div class="caseName">青埔景觀4房雙車</div>
+            <span class="address">桃園市中壢區領航北路二段</span>
+            <span class="purpose">住宅</span>
+            <span class="regArea">83.56坪</span>
+            <span class="floor">19/19樓</span>
+            <span class="room">4房(室)2廳2衛</span>
+            <div class="price">58,500</div>
+          </div>
+        </a>
+        """
+
+        items = DIGEST.extract_yungching_list_cards(
+            raw,
+            DIGEST.yungching_result_url("new", 1),
+            "new",
+        )
+
+        self.assertEqual(list(items), ["2410499"])
+        item = items["2410499"]
+        self.assertEqual(item.url, "https://rent.yungching.com.tw/house/2410499")
+        self.assertEqual(item.filter_tags, ["new"])
+        self.assertEqual(item.layout, "4房(室)2廳2衛")
+        self.assertEqual(item.rent, 58_500)
+
+    def test_yungching_detail_requires_detail_update_date_and_collects_photos(self) -> None:
+        candidate = DIGEST.Listing(
+            source="永慶房屋",
+            source_id="2410994",
+            url="https://rent.yungching.com.tw/house/2410994",
+            title="列表標題",
+            district="中壢區",
+            address="桃園市中壢區領航南路一段",
+            house_type="整層住家",
+            layout="4房(室)2廳2衛",
+            size="96.62坪",
+            rent=60_000,
+            filter_tags=["new"],
+        )
+        raw = """
+        <html><head>
+          <meta name="description" content="高樓層四房雙車位">
+          <script type="application/ld+json">
+          {"@type":"Product","name":"A19宜誠僑峰美妝4房雙車", "image":["https://yccdn.yungching.com.tw/cover.jpg"], "offers":{"price":"60000"}}
+          </script>
+        </head><body>
+          <h1>A19宜誠僑峰美妝4房雙車</h1>
+          <h3>桃園市中壢區領航南路一段</h3>
+          <div>住宅 電梯大樓 坪數96.62坪 11/14樓 4房(室)2廳2衛</div>
+          <div><h3>更新日期</h3><span>2026年08月03日</span></div>
+          <a href="//shop.yungching.com.tw/033790555">永慶不動產 桃園中路加盟店</a>
+          <figure><img src="https://yccdn.yungching.com.tw/photo-1.jpg"></figure>
+          <figure><img src="https://yccdn.yungching.com.tw/photo-2.jpg"></figure>
+          <p>有車位 近捷運 可開伙 有陽台 有電梯 冷氣 冰箱 洗衣機</p>
+          <p>詳細房源說明 詳細房源說明 詳細房源說明 詳細房源說明 詳細房源說明</p>
+          <p>測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容</p>
+          <p>測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容</p>
+          <p>測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容</p>
+          <p>測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容</p>
+          <p>測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容</p>
+          <p>測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容</p>
+          <p>測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容</p>
+          <p>測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容</p>
+        </body></html>
+        """
+
+        with patch.object(DIGEST, "fetch_html", return_value=(None, raw)):
+            item = DIGEST.parse_yungching_detail(candidate)
+
+        self.assertIsNotNone(item)
+        assert item is not None
+        self.assertEqual(item.updated, "2026年08月03日")
+        self.assertEqual(item.layout, "4房(室)2廳2衛")
+        self.assertEqual(item.image, "https://yccdn.yungching.com.tw/photo-1.jpg")
+        self.assertIn("https://yccdn.yungching.com.tw/photo-2.jpg", item.images)
+        self.assertIn("new", DIGEST.listing_filter_tokens(item))
+
+    def test_absolute_source_dates_sort_by_real_age(self) -> None:
+        old_now = DIGEST.NOW
+        DIGEST.NOW = DIGEST.datetime(2026, 8, 4, 12, 0, tzinfo=DIGEST.TZ)
+        try:
+            sinyi = DIGEST.Listing(
+                source="信義房屋",
+                source_id="C1",
+                url="https://example.test/C1",
+                updated="2026/08/04 10:30",
+            )
+            yungching = DIGEST.Listing(
+                source="永慶房屋",
+                source_id="1",
+                url="https://example.test/1",
+                updated="2026年08月03日",
+            )
+            self.assertEqual(DIGEST.recency_minutes(sinyi), 90)
+            self.assertEqual(DIGEST.recency_minutes(yungching), 36 * 60)
+        finally:
+            DIGEST.NOW = old_now
+
+    def test_yungching_generic_og_uses_honest_no_photo_panel(self) -> None:
+        self.assertFalse(
+            DIGEST.is_yungching_photo_url(
+                "https://rent.yungching.com.tw/list/assets/rent_og.jpg"
+            )
+        )
+        self.assertTrue(
+            DIGEST.is_yungching_photo_url(
+                "https://yccdn.yungching.com.tw/v1/image/?key=real"
+            )
+        )
+        item = DIGEST.Listing(
+            source="永慶房屋",
+            source_id="2410499",
+            url="https://rent.yungching.com.tw/house/2410499",
+            title="青埔四房",
+            district="中壢區",
+            address="桃園市中壢區領航北路二段",
+            house_type="整層住家",
+            layout="4房(室)2廳2衛",
+            size="83.56坪",
+            rent=58_500,
+            updated="2026年07月31日",
+        )
+        self.assertTrue(DIGEST.source_snapshot_item_valid(item, "永慶房屋"))
+        rendered = DIGEST.render_card(item)
+        self.assertIn("來源未提供可讀取照片", rendered)
+        self.assertIn('data-photo-count="0"', rendered)
+
+
 class CurrentListingDisplayTests(unittest.TestCase):
     @staticmethod
     def listing(
@@ -1670,6 +1838,8 @@ class CurrentListingDisplayTests(unittest.TestCase):
                 "FB": DIGEST.empty_source_stats(),
                 "樂屋網": DIGEST.empty_source_stats(),
                 "Threads": DIGEST.empty_source_stats(),
+                "信義房屋": DIGEST.empty_source_stats(),
+                "永慶房屋": DIGEST.empty_source_stats(),
             },
             "candidates": 2,
             "validated": 2,
@@ -1711,9 +1881,10 @@ class CurrentListingDisplayTests(unittest.TestCase):
         self.assertIn("人氣高到低", rendered)
         self.assertIn("人氣低到高", rendered)
         self.assertEqual(rendered.count('<select class="sort-select"'), 16)
+        self.assertEqual(rendered.count('data-combined-sort="true"'), 2)
         self.assertNotIn('class="sort-button', rendered)
         self.assertIn("justify-content:flex-end", rendered)
-        self.assertEqual(rendered.count('class="status-primary"'), 4)
+        self.assertEqual(rendered.count('class="status-primary"'), 6)
         self.assertEqual(
             rendered.count('<div class="filter-group" data-filter-count="4"'),
             2,
@@ -1724,6 +1895,10 @@ class CurrentListingDisplayTests(unittest.TestCase):
         )
         self.assertEqual(
             rendered.count('<div class="filter-group" data-filter-count="1"'),
+            2,
+        )
+        self.assertEqual(
+            rendered.count('<div class="filter-group" data-filter-count="2"'),
             1,
         )
         self.assertIn(
@@ -1775,7 +1950,15 @@ class CurrentListingDisplayTests(unittest.TestCase):
             rendered,
         )
         self.assertIn('<a href="#source-threads">Threads</a>', rendered)
+        self.assertIn('<a href="#source-sinyi">信義房屋</a>', rendered)
+        self.assertIn('<a href="#source-yungching">永慶房屋</a>', rendered)
         self.assertIn('id="source-threads"', rendered)
+        self.assertIn('id="source-sinyi"', rendered)
+        self.assertIn('id="source-yungching"', rendered)
+        self.assertIn("更新時間：新 → 舊", rendered)
+        self.assertIn("上架時間：新 → 舊", rendered)
+        self.assertIn("店面、透店、住辦、辦公", rendered)
+        self.assertIn("更新日期與全部可讀取照片", rendered)
         self.assertIn(
             'href="https://www.threads.com/"',
             rendered,
