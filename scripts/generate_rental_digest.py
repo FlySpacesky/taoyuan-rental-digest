@@ -52,6 +52,8 @@ STATE_FILE = DATA_DIR / "history.json"
 OUTPUT_JSON = DATA_DIR / "latest.json"
 OUTPUT_HTML = DOCS / "index.html"
 LAST_SUCCESS_591 = DATA_DIR / "last-success-591.json"
+LAST_SUCCESS_SINYI = DATA_DIR / "last-success-sinyi.json"
+LAST_SUCCESS_YUNGCHING = DATA_DIR / "last-success-yungching.json"
 FB_IMPORT = ROOT / "data" / "facebook_posts.json"
 FB_IMPORT_ENV = "FACEBOOK_POSTS_JSON"
 FB_IMPORT_URL_ENV = "FACEBOOK_POSTS_JSON_URL"
@@ -110,6 +112,30 @@ FB_PUBLIC_CRAWLER_UA = (
 _591_BFF_LIST_URL = "https://bff-house.591.com.tw/v3/web/rent/list"
 _591_REFRESH_COOLDOWN = timedelta(hours=2)
 _591_SNAPSHOT_MAX_AGE = timedelta(hours=72)
+SOURCE_REFRESH_COOLDOWN = _591_REFRESH_COOLDOWN
+SOURCE_SNAPSHOT_MAX_AGE = _591_SNAPSHOT_MAX_AGE
+
+SINYI_SEARCH_TEMPLATE = (
+    "https://www.sinyi.com.tw/rent/list/Taoyuan-city/"
+    "320-324-330-334-zip/40-up-area/house-use/{page}.html"
+)
+YUNGCHING_SEARCH_BASE = (
+    "https://rent.yungching.com.tw/list/"
+    "桃園市-中壢區,桃園市-平鎮區,桃園市-桃園區,桃園市-八德區_c/"
+    "整層住家_use/4-4_room"
+)
+SINYI_NON_RESIDENTIAL_MARKERS = (
+    "店面",
+    "透店",
+    "住店",
+    "商辦",
+    "辦公",
+    "住辦",
+    "廠房",
+    "廠辦",
+    "倉庫",
+    "土地",
+)
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -287,13 +313,23 @@ class BrowserFetcher:
             self._disabled = True
             return False
 
-    def html(self, url: str, wait_ms: int = 2200) -> str:
+    def html(
+        self,
+        url: str,
+        wait_ms: int = 2200,
+        click_button_text: str = "",
+    ) -> str:
         if not self.start():
             return ""
         page = self._context.new_page()
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=50000)
             page.wait_for_timeout(wait_ms)
+            if click_button_text:
+                button = page.get_by_role("button", name=click_button_text)
+                if button.count() == 1:
+                    button.click(timeout=8000)
+                    page.wait_for_timeout(700)
             return page.content()
         except Exception as exc:
             print(f"[WARN] Browser fetch failed: {url}: {exc}", file=sys.stderr)
@@ -360,6 +396,7 @@ def fetch_html(
     browser_fallback: bool = False,
     browser_first: bool = False,
     browser_wait_ms: int = 2200,
+    browser_click_text: str = "",
 ) -> tuple[requests.Response | None, str]:
     """取得 HTML。
 
@@ -368,7 +405,11 @@ def fetch_html(
     """
 
     if browser_first:
-        rendered = browser.html(url, wait_ms=browser_wait_ms)
+        rendered = browser.html(
+            url,
+            wait_ms=browser_wait_ms,
+            click_button_text=browser_click_text,
+        )
         if rendered and not looks_blocked(rendered):
             return None, rendered
 
@@ -381,7 +422,11 @@ def fetch_html(
     )
 
     if should_use_browser:
-        rendered = browser.html(url, wait_ms=browser_wait_ms)
+        rendered = browser.html(
+            url,
+            wait_ms=browser_wait_ms,
+            click_button_text=browser_click_text,
+        )
         if rendered:
             if not looks_blocked(rendered):
                 return None, rendered
@@ -1524,6 +1569,526 @@ def collect_591_listings(source_stats: dict[str, Any]) -> list[Listing]:
             "source_blocked",
         )
 
+    if snapshot_error:
+        source_stats["errors"].append(snapshot_error)
+    return []
+
+
+# ---------------------------------------------------------------------------
+# 信義房屋、永慶房屋
+# ---------------------------------------------------------------------------
+
+
+def is_yungching_photo_url(url: str) -> bool:
+    try:
+        parsed = urllib.parse.urlparse(str(url).strip())
+    except ValueError:
+        return False
+    return (
+        parsed.scheme in {"http", "https"}
+        and (parsed.hostname or "").lower() == "yccdn.yungching.com.tw"
+    )
+
+
+def source_snapshot_item_valid(item: Listing, source: str) -> bool:
+    if (
+        item.source != source
+        or not item.source_id
+        or not item.title
+        or not item.url
+        or not item.rent
+        or not allowed_district(item)
+    ):
+        return False
+    if source == "信義房屋":
+        text = " ".join((item.title, item.address, item.raw_text))
+        return (
+            item.house_type == "整層住家"
+            and bool(item.image)
+            and numeric_value(item.size) >= 40
+            and not any(marker in text for marker in SINYI_NON_RESIDENTIAL_MARKERS)
+        )
+    if source == "永慶房屋":
+        return (
+            item.house_type == "整層住家"
+            and has_four_rooms(item.layout)
+            and bool(item.updated)
+        )
+    return False
+
+
+def load_source_snapshot(
+    source: str,
+    path: Path,
+) -> tuple[list[Listing], str, float | None, str]:
+    """讀取信義／永慶最近一次成功快照，規則與591相同。"""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return [], "", None, ""
+    except (OSError, json.JSONDecodeError) as exc:
+        return [], "", None, f"{source}上次成功快照無法讀取：{exc}"
+
+    generated_at = str(payload.get("generated_at", ""))
+    try:
+        generated_time = datetime.fromisoformat(generated_at)
+        if generated_time.tzinfo is None:
+            raise ValueError("timezone is required")
+        age = max(timedelta(0), NOW - generated_time.astimezone(TZ))
+    except (TypeError, ValueError):
+        return [], generated_at, None, f"{source}上次成功快照缺少有效時區時間戳。"
+
+    age_hours = age.total_seconds() / 3600
+    if age > SOURCE_SNAPSHOT_MAX_AGE:
+        return (
+            [],
+            generated_at,
+            age_hours,
+            f"{source}上次成功快照已超過"
+            f"{int(SOURCE_SNAPSHOT_MAX_AGE.total_seconds() / 3600)}小時，"
+            "為避免顯示過期房源，本輪不沿用。",
+        )
+
+    rows = payload.get("items")
+    if not isinstance(rows, list):
+        return [], generated_at, age_hours, f"{source}上次成功快照的items不是陣列。"
+
+    field_names = set(Listing.__dataclass_fields__)
+    items: list[Listing] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict) or row.get("source") != source:
+            continue
+        source_id = str(row.get("source_id", ""))
+        if not source_id or source_id in seen:
+            continue
+        try:
+            values = {key: row[key] for key in field_names if key in row}
+            for key in ("rent", "old_rent", "total_cost"):
+                values[key] = int(values.get(key, 0) or 0)
+            item = Listing(**values)
+        except (TypeError, ValueError):
+            continue
+        if source == "永慶房屋":
+            photos = [
+                value
+                for value in [item.image, *list(item.images or [])]
+                if is_yungching_photo_url(value)
+            ]
+            photos = list(dict.fromkeys(photos))
+            item.image = photos[0] if photos else ""
+            item.images = photos[1:]
+        if not source_snapshot_item_valid(item, source):
+            continue
+        item.fingerprint = item.fingerprint or fingerprint(item)
+        seen.add(source_id)
+        items.append(item)
+
+    if not items:
+        return [], generated_at, age_hours, f"{source}上次成功快照沒有可安全沿用的有效物件。"
+    return items, generated_at, age_hours, ""
+
+
+def save_source_snapshot(source: str, items: list[Listing], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "generated_at": NOW.isoformat(),
+                "items": [asdict(item) for item in items if item.source == source],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def use_source_snapshot(
+    source_stats: dict[str, Any],
+    source: str,
+    items: list[Listing],
+    generated_at: str,
+    age_hours: float,
+    reason: str,
+) -> list[Listing]:
+    fresh_candidates = int(source_stats.get("candidate_links", 0) or 0)
+    source_stats["fresh_candidate_links"] = fresh_candidates
+    source_stats["candidate_links"] = len(items)
+    source_stats["validated"] = len(items)
+    source_stats["snapshot_items"] = len(items)
+    source_stats["snapshot_generated_at"] = generated_at
+    source_stats["snapshot_age_hours"] = round(age_hours, 2)
+    source_stats["fallback"] = reason
+    if reason == "refresh_cooldown":
+        source_stats["notices"].append(
+            f"距上次成功抓取僅{age_hours:.1f}小時；本輪沿用"
+            f"{generated_at}的{len(items)}筆真實快照，未重新請求{source}。"
+        )
+    else:
+        source_stats["errors"].append(
+            f"本輪{source}未取得完整新資料，沿用{generated_at}的"
+            f"{len(items)}筆上次成功真實快照；請點開來源確認仍在刊登。"
+        )
+    return items
+
+
+def parse_sinyi_list_cards(raw: str, base_url: str) -> dict[str, Listing]:
+    soup = BeautifulSoup(raw, "html.parser")
+    items: dict[str, Listing] = {}
+    for anchor in soup.select('a[href*="houseno/"]'):
+        href = urllib.parse.urljoin(base_url, anchor.get("href", ""))
+        match = re.search(r"/houseno/([A-Za-z]\d+)", urllib.parse.urlparse(href).path)
+        if not match:
+            continue
+        source_id = match.group(1).upper()
+        title_node = anchor.select_one(".item_title")
+        title = clean(title_node.get_text(" ") if title_node else "", 180)
+        text = clean(anchor.get_text(" "), 12000)
+        address_node = anchor.select_one(".num-text") or anchor.select_one(".phone-address")
+        address = clean(address_node.get_text(" ") if address_node else "", 100)
+        district = district_from_text(address + " " + text)
+        layout_match = re.search(r"(\d+房\d*廳\d*衛)", text)
+        size_match = re.search(r"(\d+(?:\.\d+)?)\s*坪", text)
+        floor_match = re.search(r"((?:B?\d+(?:~|～|-)\d+|\d+)\s*/\s*\d+樓)", text, re.I)
+        updated_node = anchor.select_one(".gray-date-1")
+        image_node = anchor.select_one(".item_img img")
+        image = str(image_node.get("src", "")).strip() if image_node else ""
+        rent_node = anchor.select_one(".price_new .num")
+        rent = money(rent_node.get_text(" ") if rent_node else "")
+        building_node = anchor.select_one(".detail_line2 .num-1")
+        building_type = clean(building_node.get_text(" ") if building_node else "", 30)
+
+        item = Listing(
+            source="信義房屋",
+            source_id=source_id,
+            url=normalize_item_url(href),
+            title=title,
+            district=district,
+            address=address,
+            house_type="整層住家",
+            building_type=building_type,
+            floor=floor_match.group(1).replace(" ", "") if floor_match else "",
+            layout=layout_match.group(1) if layout_match else "",
+            size=f"{size_match.group(1)}坪" if size_match else "",
+            rent=rent,
+            updated=clean(updated_node.get_text(" ") if updated_node else "", 40),
+            publisher="信義房屋",
+            image=image,
+            summary=text,
+            raw_text=text,
+            validated_at=NOW.isoformat(),
+        )
+        if not source_snapshot_item_valid(item, "信義房屋"):
+            continue
+        item.fingerprint = fingerprint(item)
+        items[source_id] = item
+    return items
+
+
+def crawl_sinyi_listings(source_stats: dict[str, Any]) -> list[Listing]:
+    candidates: set[str] = set()
+    validated: dict[str, Listing] = {}
+    no_new = 0
+    pages_read = 0
+    for page_no in range(1, 21):
+        url = SINYI_SEARCH_TEMPLATE.format(page=page_no)
+        response, raw = fetch_html(url, browser_fallback=True, browser_wait_ms=5000)
+        if not raw or looks_blocked(raw):
+            source_stats["errors"].append(f"信義房屋搜尋頁無法讀取：第{page_no}頁。")
+            break
+        pages_read += 1
+        soup = BeautifulSoup(raw, "html.parser")
+        if page_no == 1:
+            total_match = re.search(r"(?:搜尋結果)?共\s*(\d+)\s*筆", clean(soup.get_text(" "), 50000))
+            if total_match:
+                source_stats["source_total"] = int(total_match.group(1))
+
+        page_ids = {
+            match.group(1).upper()
+            for match in re.finditer(r"houseno/([A-Za-z]\d+)", raw)
+        }
+        new_ids = page_ids - candidates
+        candidates.update(page_ids)
+        base_url = response.url if response is not None else url
+        validated.update(parse_sinyi_list_cards(raw, base_url))
+        print(f"[Sinyi] page={page_no} candidates={len(page_ids)} new={len(new_ids)}")
+        if not page_ids or not new_ids:
+            no_new += 1
+            if no_new >= 2:
+                break
+        else:
+            no_new = 0
+
+    source_stats["pages_read"] = pages_read
+    source_stats["candidate_links"] = len(candidates)
+    source_stats["validated"] = len(validated)
+    rejected = len(candidates) - len(validated)
+    if rejected:
+        source_stats["notices"].append(
+            f"已排除{rejected}筆非40坪以上、非指定地區、店面／辦公用途或缺少必要欄位的物件。"
+        )
+    return list(validated.values())
+
+
+def collect_sinyi_listings(source_stats: dict[str, Any]) -> list[Listing]:
+    snapshot, generated_at, age_hours, snapshot_error = load_source_snapshot(
+        "信義房屋", LAST_SUCCESS_SINYI
+    )
+    if snapshot and age_hours is not None and timedelta(hours=age_hours) < SOURCE_REFRESH_COOLDOWN:
+        return use_source_snapshot(
+            source_stats, "信義房屋", snapshot, generated_at, age_hours, "refresh_cooldown"
+        )
+    fresh = crawl_sinyi_listings(source_stats)
+    if fresh:
+        save_source_snapshot("信義房屋", fresh, LAST_SUCCESS_SINYI)
+        source_stats["snapshot_updated_at"] = NOW.isoformat()
+        return fresh
+    if snapshot and age_hours is not None:
+        return use_source_snapshot(
+            source_stats, "信義房屋", snapshot, generated_at, age_hours, "source_blocked"
+        )
+    if snapshot_error:
+        source_stats["errors"].append(snapshot_error)
+    return []
+
+
+def yungching_result_url(category: str, page_no: int) -> str:
+    suffix = "/new_filter" if category == "new" else ""
+    return f"{YUNGCHING_SEARCH_BASE}{suffix}?od=80&pg={page_no}"
+
+
+def extract_yungching_list_cards(
+    raw: str,
+    base_url: str,
+    category: str,
+) -> dict[str, Listing]:
+    soup = BeautifulSoup(raw, "html.parser")
+    items: dict[str, Listing] = {}
+    for anchor in soup.select('a[href*="/house/"]'):
+        title_node = anchor.select_one(".caseName")
+        address_node = anchor.select_one(".address")
+        if not title_node or not address_node:
+            continue
+        href = urllib.parse.urljoin(base_url, anchor.get("href", ""))
+        match = re.search(r"/house/(\d+)", urllib.parse.urlparse(href).path)
+        if not match:
+            continue
+        source_id = match.group(1)
+        title = clean(title_node.get_text(" "), 180)
+        address = clean(address_node.get_text(" "), 100)
+        purpose_node = anchor.select_one(".purpose")
+        layout_node = anchor.select_one(".room")
+        size_node = anchor.select_one(".regArea")
+        floor_node = anchor.select_one(".floor")
+        rent_node = anchor.select_one(".price")
+        image_node = anchor.select_one("img[src]")
+        image = str(image_node.get("src", "")).strip() if image_node else ""
+        if image.startswith("data:"):
+            image = ""
+        item = Listing(
+            source="永慶房屋",
+            source_id=source_id,
+            url=normalize_item_url(href),
+            title=title,
+            district=district_from_text(address),
+            address=address,
+            house_type="整層住家" if clean(purpose_node.get_text(" ") if purpose_node else "") == "住宅" else "",
+            layout=clean(layout_node.get_text(" ") if layout_node else "", 60),
+            size=clean(size_node.get_text(" ") if size_node else "", 30),
+            floor=clean(floor_node.get_text(" ") if floor_node else "", 30),
+            rent=money(rent_node.get_text(" ") if rent_node else ""),
+            publisher="永慶房屋",
+            image=image,
+            raw_text=clean(anchor.get_text(" "), 12000),
+            filter_tags=["new"] if category == "new" else [],
+        )
+        items[source_id] = item
+    return items
+
+
+def crawl_yungching_candidates(source_stats: dict[str, Any]) -> dict[str, Listing]:
+    candidates: dict[str, Listing] = {}
+    pages_read = 0
+    category_counts: dict[str, int] = {}
+    for category in ("all", "new"):
+        category_ids: set[str] = set()
+        no_new = 0
+        for page_no in range(1, 21):
+            url = yungching_result_url(category, page_no)
+            _, raw = fetch_html(
+                url,
+                browser_first=True,
+                browser_wait_ms=6000,
+            )
+            if not raw or looks_blocked(raw):
+                source_stats["errors"].append(
+                    f"永慶房屋{('新上架' if category == 'new' else '全部')}搜尋頁無法讀取：第{page_no}頁。"
+                )
+                break
+            pages_read += 1
+            cards = extract_yungching_list_cards(raw, url, category)
+            new_ids = set(cards) - category_ids
+            category_ids.update(cards)
+            for source_id, item in cards.items():
+                if source_id in candidates:
+                    candidates[source_id].filter_tags = sorted(
+                        set(candidates[source_id].filter_tags) | set(item.filter_tags)
+                    )
+                else:
+                    candidates[source_id] = item
+            print(
+                f"[Yungching] category={category} page={page_no} "
+                f"candidates={len(cards)} new={len(new_ids)}"
+            )
+            if not cards or not new_ids:
+                no_new += 1
+                if no_new >= 2:
+                    break
+            else:
+                no_new = 0
+        category_counts[category] = len(category_ids)
+
+    source_stats["pages_read"] = pages_read
+    source_stats["candidate_links"] = len(candidates)
+    source_stats["category_counts"] = category_counts
+    return candidates
+
+
+def yungching_json_ld_images(soup: BeautifulSoup) -> list[str]:
+    images: list[str] = []
+    for value in iter_json_ld(soup):
+        if value.get("@type") != "Product":
+            continue
+        raw_images = value.get("image")
+        if isinstance(raw_images, str):
+            raw_images = [raw_images]
+        elif isinstance(raw_images, dict):
+            raw_images = [raw_images.get("url", "")]
+        if isinstance(raw_images, list):
+            for image in raw_images:
+                if isinstance(image, dict):
+                    image = image.get("url", "")
+                if is_yungching_photo_url(str(image)):
+                    images.append(str(image))
+    return list(dict.fromkeys(images))
+
+
+def parse_yungching_detail(candidate: Listing) -> Listing | None:
+    response, raw = fetch_html(
+        candidate.url,
+        browser_first=True,
+        browser_wait_ms=5000,
+        browser_click_text="看詳細基本資訊",
+    )
+    if not raw or looks_blocked(raw) or is_dead_page(response, raw, "yungching.com.tw"):
+        return None
+    soup = BeautifulSoup(raw, "html.parser")
+    text = clean(soup.get_text(" "), 240000)
+    title_node = soup.find("h1")
+    json_title, json_image = json_ld_title_image(soup)
+    title = clean(title_node.get_text(" ") if title_node else json_title, 180)
+    layout_match = re.search(r"(\d+房(?:\(室\))?\d*廳\d*衛)", text)
+    layout = layout_match.group(1) if layout_match else candidate.layout
+    size_match = re.search(r"坪數\s*(\d+(?:\.\d+)?)\s*坪", text)
+    size = f"{size_match.group(1)}坪" if size_match else candidate.size
+    floor_match = re.search(r"((?:B?\d+(?:~|～|-)\d+|\d+)\s*/\s*\d+樓)", text, re.I)
+    floor = floor_match.group(1).replace(" ", "") if floor_match else candidate.floor
+    address_match = re.search(r"桃園市(桃園區|中壢區|平鎮區|八德區)[^\s｜|]{0,80}", text)
+    address = clean(address_match.group(0), 100) if address_match else candidate.address
+    updated_match = re.search(r"更新日期\s*(\d{4}年\d{1,2}月\d{1,2}日)", text)
+    updated = updated_match.group(1) if updated_match else ""
+    building_type = next(
+        (value for value in ("電梯大樓", "華廈", "公寓", "透天厝", "別墅", "樓中樓") if value in text),
+        "",
+    )
+    equipment = "、".join(
+        value
+        for value in (
+            "有車位",
+            "近捷運",
+            "可開伙",
+            "可養寵物",
+            "有陽台",
+            "有電梯",
+            "冷氣",
+            "冰箱",
+            "洗衣機",
+        )
+        if value in text
+    )
+    publisher_node = soup.select_one('a[href*="shop.yungching.com.tw"]')
+    publisher = clean(publisher_node.get_text(" ") if publisher_node else "永慶房屋", 100)
+    images = [
+        str(node.get("src", "")).strip()
+        for node in soup.select("figure img[src]")
+        if is_yungching_photo_url(str(node.get("src", "")).strip())
+    ]
+    images.extend(yungching_json_ld_images(soup))
+    if is_yungching_photo_url(json_image):
+        images.append(json_image)
+    images = list(dict.fromkeys(images))
+    rent = json_ld_offer_price(soup) or candidate.rent
+
+    item = Listing(
+        source="永慶房屋",
+        source_id=candidate.source_id,
+        url=normalize_item_url(response.url if response is not None else candidate.url),
+        title=title or candidate.title,
+        district=district_from_text(address),
+        address=address,
+        house_type="整層住家" if "住宅" in text else "",
+        building_type=building_type,
+        floor=floor,
+        layout=layout,
+        size=size,
+        equipment=equipment,
+        rent=rent,
+        updated=updated,
+        publisher=publisher,
+        image=images[0] if images else candidate.image,
+        images=images[1:] if images else [],
+        summary=meta(soup, "description", "og:description"),
+        raw_text=text,
+        validated_at=NOW.isoformat(),
+        filter_tags=sorted(set(candidate.filter_tags)),
+    )
+    if not source_snapshot_item_valid(item, "永慶房屋"):
+        return None
+    item.fingerprint = fingerprint(item)
+    return item
+
+
+def collect_yungching_listings(source_stats: dict[str, Any]) -> list[Listing]:
+    snapshot, generated_at, age_hours, snapshot_error = load_source_snapshot(
+        "永慶房屋", LAST_SUCCESS_YUNGCHING
+    )
+    if snapshot and age_hours is not None and timedelta(hours=age_hours) < SOURCE_REFRESH_COOLDOWN:
+        return use_source_snapshot(
+            source_stats, "永慶房屋", snapshot, generated_at, age_hours, "refresh_cooldown"
+        )
+
+    candidates = crawl_yungching_candidates(source_stats)
+    fresh: list[Listing] = []
+    for index, candidate in enumerate(candidates.values(), 1):
+        print(f"[Yungching detail] {index}/{len(candidates)} {candidate.url}")
+        item = parse_yungching_detail(candidate)
+        if item:
+            fresh.append(item)
+    source_stats["details_checked"] = len(candidates)
+    source_stats["validated"] = len(fresh)
+    if candidates and not fresh:
+        source_stats["errors"].append(
+            "永慶房屋已取得候選，但詳細頁的4房、更新日期、圖片或必要欄位沒有物件通過驗證。"
+        )
+    if fresh:
+        save_source_snapshot("永慶房屋", fresh, LAST_SUCCESS_YUNGCHING)
+        source_stats["snapshot_updated_at"] = NOW.isoformat()
+        return fresh
+    if snapshot and age_hours is not None:
+        return use_source_snapshot(
+            source_stats, "永慶房屋", snapshot, generated_at, age_hours, "source_blocked"
+        )
     if snapshot_error:
         source_stats["errors"].append(snapshot_error)
     return []
@@ -3233,6 +3798,8 @@ def source_label(source: str) -> str:
         "FB": "FB社團",
         "樂屋網": "樂屋網",
         "Threads": "Threads",
+        "信義房屋": "信義房屋",
+        "永慶房屋": "永慶房屋",
     }.get(source, source)
 
 
@@ -3248,6 +3815,8 @@ def category_label(item: Listing) -> str:
         ("FB", "priority"): "優先置頂",
         ("FB", "general"): "其他符合物件",
         ("Threads", "general"): "一般物件",
+        ("信義房屋", "general"): "出租",
+        ("永慶房屋", "general"): "全部",
     }
     return labels.get((item.source, item.category), item.category)
 
@@ -3301,6 +3870,15 @@ def listing_filter_tokens(item: Listing) -> list[str]:
             tokens.append("discount")
         return tokens
 
+    if item.source == "永慶房屋":
+        tokens = ["all"]
+        if "new" in set(item.filter_tags):
+            tokens.append("new")
+        return tokens
+
+    if item.source == "信義房屋":
+        return ["all"]
+
     tokens = ["all"]
     if item.source == "Threads":
         return tokens
@@ -3330,6 +3908,19 @@ def recency_minutes(item: Listing) -> int:
     match = re.search(r"(\d+)\s*個月", value)
     if match:
         return int(match.group(1)) * 30 * 24 * 60
+    for pattern, date_format in (
+        (r"(\d{4}/\d{1,2}/\d{1,2}\s+\d{1,2}:\d{2})", "%Y/%m/%d %H:%M"),
+        (r"(\d{4}/\d{1,2}/\d{1,2})", "%Y/%m/%d"),
+        (r"(\d{4}年\d{1,2}月\d{1,2}日)", "%Y年%m月%d日"),
+    ):
+        absolute_match = re.search(pattern, value)
+        if not absolute_match:
+            continue
+        try:
+            parsed = datetime.strptime(absolute_match.group(1), date_format).replace(tzinfo=TZ)
+        except ValueError:
+            continue
+        return max(0, int((NOW - parsed).total_seconds() // 60))
     return 10**9
 
 
@@ -3347,6 +3938,10 @@ def card_badges(item: Listing) -> list[str]:
             badges.append("友善房源")
     elif item.source == "FB" and item.category == "priority":
         badges.append("優先物件")
+    elif item.source == "信義房屋":
+        badges.append("40坪以上")
+    elif item.source == "永慶房屋" and "new" in listing_filter_tokens(item):
+        badges.append("新上架")
     if item.old_rent > item.rent:
         badges.append("降價")
     return badges
@@ -3392,10 +3987,9 @@ def render_card(item: Listing, order: int = 0) -> str:
             if value
         )
     )
-    if not images:
-        images = [""]
-    photo_html = "".join(
-        f"""
+    if images:
+        photo_html = "".join(
+            f"""
         <a class="photo gallery-photo" href="{esc(item.url)}" target="_blank"
            rel="noopener noreferrer" aria-label="{esc(item.title)} 照片 {index}/{len(images)}">
           <img src="{esc(image_url)}" alt="{esc(item.title)} 照片 {index}"
@@ -3406,8 +4000,16 @@ def render_card(item: Listing, order: int = 0) -> str:
           {f'<span class="photo-index">{index}/{len(images)}</span>' if len(images) > 1 else ''}
         </a>
         """
-        for index, image_url in enumerate(images, 1)
-    )
+            for index, image_url in enumerate(images, 1)
+        )
+    else:
+        photo_html = f"""
+        <a class="photo gallery-photo" href="{esc(item.url)}" target="_blank"
+           rel="noopener noreferrer" aria-label="{esc(item.title)} 來源頁">
+          <div class="photo-fallback no-photo">來源未提供可讀取照片<br>點擊前往來源頁</div>
+          <span class="source-badge">{esc(source_label(item.source))}</span>
+        </a>
+        """
 
     return f"""
     <article class="card" data-categories="{esc(categories)}"
@@ -3501,6 +4103,8 @@ def render_listing_browser(
     source: str,
     filters: tuple[tuple[str, str], ...],
     sorts: tuple[tuple[str, str], ...],
+    *,
+    combined_sort: bool = False,
 ) -> str:
     source_items = [item for item in items if item.source == source]
     filter_buttons: list[str] = []
@@ -3519,25 +4123,48 @@ def render_listing_browser(
         "popularity": ("人氣高到低", "人氣低到高", "desc"),
     }
     sort_controls: list[str] = []
-    for index, (key, label) in enumerate(sorts):
-        first_label, second_label, default_direction = direction_labels[key]
-        first_direction = "desc" if key == "popularity" else "asc"
-        second_direction = "asc" if first_direction == "desc" else "desc"
+    if combined_sort:
+        combined_options = ['<option value="order:asc" selected>預設排序</option>']
+        for key, label in sorts:
+            if key == "recency":
+                option_rows = (("asc", f"{label}：新 → 舊"), ("desc", f"{label}：舊 → 新"))
+            elif key in {"rent", "total"}:
+                option_rows = (("asc", f"{label}：低 → 高"), ("desc", f"{label}：高 → 低"))
+            elif key == "area":
+                option_rows = (("asc", f"{label}：小 → 大"), ("desc", f"{label}：大 → 小"))
+            else:
+                option_rows = (("desc", f"{label}：高 → 低"), ("asc", f"{label}：低 → 高"))
+            combined_options.extend(
+                f'<option value="{esc(key)}:{direction}">{esc(option_label)}</option>'
+                for direction, option_label in option_rows
+            )
         sort_controls.append(
-            f'<label class="sort-control{" active" if index == 0 else ""}">'
-            f'<span>{esc(label)}</span>'
-            f'<select class="sort-select" data-sort="{esc(key)}" '
-            f'data-default-direction="{default_direction}" '
-            f'aria-current="{"true" if index == 0 else "false"}" '
-            f'aria-label="{esc(source_label(source))} {esc(label)}排序">'
-            f'<option value="{first_direction}"'
-            f'{" selected" if default_direction == first_direction else ""}>'
-            f'{esc(first_label)}</option>'
-            f'<option value="{second_direction}"'
-            f'{" selected" if default_direction == second_direction else ""}>'
-            f'{esc(second_label)}</option>'
-            "</select></label>"
+            '<label class="sort-control active combined-sort-control">'
+            f'<select class="sort-select combined-sort-select" data-combined-sort="true" '
+            f'data-sort="order" aria-current="true" '
+            f'aria-label="{esc(source_label(source))} 排序">'
+            f'{"".join(combined_options)}</select></label>'
         )
+    else:
+        for index, (key, label) in enumerate(sorts):
+            first_label, second_label, default_direction = direction_labels[key]
+            first_direction = "desc" if key == "popularity" else "asc"
+            second_direction = "asc" if first_direction == "desc" else "desc"
+            sort_controls.append(
+                f'<label class="sort-control{" active" if index == 0 else ""}">'
+                f'<span>{esc(label)}</span>'
+                f'<select class="sort-select" data-sort="{esc(key)}" '
+                f'data-default-direction="{default_direction}" '
+                f'aria-current="{"true" if index == 0 else "false"}" '
+                f'aria-label="{esc(source_label(source))} {esc(label)}排序">'
+                f'<option value="{first_direction}"'
+                f'{" selected" if default_direction == first_direction else ""}>'
+                f'{esc(first_label)}</option>'
+                f'<option value="{second_direction}"'
+                f'{" selected" if default_direction == second_direction else ""}>'
+                f'{esc(second_label)}</option>'
+                "</select></label>"
+            )
     cards = "".join(
         render_card(item, order)
         for order, item in enumerate(source_items)
@@ -3626,6 +4253,29 @@ def render_status(stats: dict[str, Any], source: str) -> str:
             f"<span>完整保存 {row.get('images_archived', 0)} 張</span>"
             f"{f'<details><summary>Threads候選診斷</summary><ul>{candidate_html}</ul></details>' if candidate_html else ''}"
         )
+    elif source in {"信義房屋", "永慶房屋"}:
+        snapshot_html = ""
+        if row.get("fallback"):
+            snapshot_html = (
+                '<strong class="fallback-warning">⚠ 本輪顯示上次成功快照：'
+                f"{row.get('snapshot_items', 0)} 筆，"
+                f"{row.get('snapshot_age_hours', 0)} 小時前；未重新驗證</strong>"
+            )
+        source_total_html = (
+            f"<span>來源頁總數 {row.get('source_total')} 間</span>"
+            if row.get("source_total") is not None
+            else ""
+        )
+        detail_html = (
+            f"<span>詳細頁檢查 {row.get('details_checked', 0)} 筆</span>"
+            if source == "永慶房屋"
+            else ""
+        )
+        diagnostics = (
+            f"{snapshot_html}{source_total_html}"
+            f"<span>讀取列表 {row.get('pages_read', 0)} 頁</span>"
+            f"{detail_html}"
+        )
 
     return f"""
     <div class="source-status">
@@ -3657,7 +4307,7 @@ def render_html(items: list[Listing], stats: dict[str, Any]) -> str:
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>桃園四房以上租屋快報</title>
 <style>
-:root{{--orange:#f56a00;--orange-soft:#fff5eb;--bg:#f6f7f8;--line:#e5e7eb;--muted:#69717d;--fb:#1877f2;--raku:#d65431;--threads:#101010}}
+:root{{--orange:#f56a00;--orange-soft:#fff5eb;--bg:#f6f7f8;--line:#e5e7eb;--muted:#69717d;--fb:#1877f2;--raku:#d65431;--threads:#101010;--sinyi:#dc0017;--yungching:#087652}}
 *{{box-sizing:border-box}}
 html{{scroll-behavior:smooth}}
 body{{margin:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;color:#202124}}
@@ -3682,6 +4332,8 @@ h1 time{{font-size:15px;color:#995018;background:var(--orange-soft);border:1px s
 .source-nav a:nth-child(2){{color:var(--fb)}}
 .source-nav a:nth-child(3){{color:var(--raku)}}
 .source-nav a:nth-child(4){{color:var(--threads)}}
+.source-nav a:nth-child(5){{color:var(--sinyi)}}
+.source-nav a:nth-child(6){{color:var(--yungching)}}
 .statusbar{{background:#23272d;color:#fff;padding:12px 0;font-size:14px}}
 main{{padding:22px 0 48px}}
 .notice{{background:#fff;border-left:5px solid var(--orange);padding:15px 18px;border-radius:10px;line-height:1.7}}
@@ -3705,6 +4357,7 @@ main{{padding:22px 0 48px}}
 .filter-group{{width:75%;margin-right:auto;display:grid;grid-template-columns:repeat(var(--filter-count),minmax(0,1fr));align-items:stretch;direction:ltr;border-bottom:1px solid var(--line)}}
 .filter-group[data-filter-count="4"]{{--filter-count:4}}
 .filter-group[data-filter-count="3"]{{--filter-count:3}}
+.filter-group[data-filter-count="2"]{{--filter-count:2}}
 .filter-group[data-filter-count="1"]{{--filter-count:1}}
 .filter-button{{width:100%;appearance:none;border:0;background:transparent;color:#4f5965;font:inherit;font-weight:800;cursor:pointer;padding:14px 8px;border-bottom:3px solid transparent;direction:ltr;text-align:center}}
 .filter-button b{{font-size:12px;color:#8a929b;margin-left:3px}}
@@ -3718,6 +4371,7 @@ main{{padding:22px 0 48px}}
 .sort-control.active{{color:#b55a09}}
 .sort-control.active .sort-select{{border-color:#ffb879;background:var(--orange-soft)}}
 .sort-select{{max-width:118px;border:1px solid #d9dde3;border-radius:5px;background:#fff;color:#30343a;padding:5px 19px 5px 6px;font:inherit;font-size:12px;cursor:pointer}}
+.combined-sort-select{{max-width:190px;min-width:175px}}
 .sort-select:focus{{outline:2px solid #ffb879;outline-offset:1px}}
 .visible-count{{color:#5a626d;white-space:nowrap;margin-right:2px;direction:ltr}}
 .listing-list{{display:flex;flex-direction:column;gap:12px;margin-top:12px}}
@@ -3730,6 +4384,7 @@ main{{padding:22px 0 48px}}
 .photo .source-badge{{position:absolute;left:10px;top:10px;background:#111c;color:#fff;padding:6px 9px;border-radius:5px;font-size:13px;font-weight:900}}
 .photo-index{{position:absolute;right:10px;bottom:10px;background:#111c;color:#fff;padding:5px 8px;border-radius:999px;font-size:12px;font-weight:900}}
 .photo-fallback{{display:none;position:absolute;inset:0;align-items:center;justify-content:center;text-align:center;color:#fff;font-weight:900;background:#4b5563}}
+.photo-fallback.no-photo{{display:flex}}
 .body{{display:grid;grid-template-columns:minmax(0,1fr) 175px;gap:18px;padding:18px 20px}}
 .body-main{{min-width:0}}
 h3{{font-size:21px;line-height:1.4;margin:7px 0 12px}}
@@ -3781,6 +4436,7 @@ h3 a{{text-decoration:none}}
   .sort-group{{width:100%}}
   .sort-control{{flex:0 1 auto;justify-content:flex-start}}
   .sort-select{{max-width:118px;min-width:0}}
+  .combined-sort-select{{max-width:190px;min-width:175px}}
   .visible-count{{width:100%;padding:0 8px 4px;text-align:left}}
   .back-to-top{{right:12px;bottom:12px;width:44px;height:44px;font-size:23px}}
   .card{{grid-template-columns:minmax(130px,38%) minmax(0,1fr);min-height:220px}}
@@ -3803,12 +4459,14 @@ h3 a{{text-decoration:none}}
         {NOW.strftime('%Y/%m/%d %H:%M')}
       </time>
     </h1>
-    <p class="subtitle">四個來源分區顯示；每筆物件均包含照片與來源直達連結，本輪有效物件不因近48小時曾顯示而隱藏。</p>
+    <p class="subtitle">六個來源分區顯示；每筆物件均包含照片與來源直達連結，本輪有效物件不因近48小時曾顯示而隱藏。</p>
     <nav class="source-nav">
       <a href="#source-591">591</a>
       <a href="#source-fb">FB社團</a>
       <a href="#source-rakuya">樂屋網</a>
       <a href="#source-threads">Threads</a>
+      <a href="#source-sinyi">信義房屋</a>
+      <a href="#source-yungching">永慶房屋</a>
     </nav>
   </div>
 </header>
@@ -3896,6 +4554,50 @@ h3 a{{text-decoration:none}}
       (('recency', '最新'), ('total', '租金總費用'), ('rent', '租金'), ('area', '坪數')),
   )}
 </div>
+
+<div id="source-sinyi" class="source-block">
+  <div class="source-heading">
+    <h2>信義房屋</h2>
+    <a href="https://www.sinyi.com.tw/rent/list/Taoyuan-city/320-324-330-334-zip/40-up-area/house-use/1.html"
+       target="_blank" rel="noopener noreferrer">開啟信義房屋搜尋 ↗</a>
+  </div>
+  {render_status(stats, '信義房屋')}
+  <div class="social-note">
+    <strong>收錄條件：</strong>
+    桃園區、中壢區、平鎮區、八德區，出租坪數40坪以上的整層住家；
+    店面、透店、住辦、辦公、廠房、倉庫與土地會明確排除。
+  </div>
+  {render_listing_browser(
+      items,
+      stats,
+      '信義房屋',
+      (('all', '全部'),),
+      (('recency', '更新時間'), ('rent', '租金'), ('area', '坪數')),
+      combined_sort=True,
+  )}
+</div>
+
+<div id="source-yungching" class="source-block">
+  <div class="source-heading">
+    <h2>永慶房屋</h2>
+    <a href="{esc(YUNGCHING_SEARCH_BASE + '?od=80&pg=1')}"
+       target="_blank" rel="noopener noreferrer">開啟永慶房屋搜尋 ↗</a>
+  </div>
+  {render_status(stats, '永慶房屋')}
+  <div class="social-note">
+    <strong>收錄條件：</strong>
+    桃園區、中壢區、平鎮區、八德區的整層住家，且詳細頁確認為4房以上；
+    更新日期與全部可讀取照片均由每筆物件詳細頁取得。「新上架」來自永慶官方新上架頁籤。
+  </div>
+  {render_listing_browser(
+      items,
+      stats,
+      '永慶房屋',
+      (('all', '全部'), ('new', '新上架')),
+      (('recency', '上架時間'), ('rent', '租金'), ('area', '坪數')),
+      combined_sort=True,
+  )}
+</div>
 </main>
 <button id="back-to-top" class="back-to-top" type="button"
         aria-label="回到頁面頂端" title="回到頁面頂端" hidden>↑</button>
@@ -3921,8 +4623,15 @@ document.querySelectorAll('[data-listing-browser]').forEach((panel) => {{
   const filterButtons = Array.from(panel.querySelectorAll('.filter-button'));
   const sortSelects = Array.from(panel.querySelectorAll('.sort-select'));
   let activeFilter = filterButtons[0]?.dataset.filter || 'all';
-  let activeSort = sortSelects[0]?.dataset.sort || 'order';
-  let direction = sortSelects[0]?.value || 'asc';
+  const initialSort = sortSelects[0];
+  const initialCombined = initialSort?.dataset.combinedSort === 'true';
+  const initialParts = initialCombined ? initialSort.value.split(':') : [];
+  let activeSort = initialCombined
+    ? (initialParts[0] || 'order')
+    : (initialSort?.dataset.sort || 'order');
+  let direction = initialCombined
+    ? (initialParts[1] || 'asc')
+    : (initialSort?.value || 'asc');
 
   const numeric = (card, key) => {{
     const value = Number(card.dataset[key]);
@@ -3970,8 +4679,14 @@ document.querySelectorAll('[data-listing-browser]').forEach((panel) => {{
   }}));
 
   sortSelects.forEach((select) => select.addEventListener('change', () => {{
-    activeSort = select.dataset.sort;
-    direction = select.value;
+    if (select.dataset.combinedSort === 'true') {{
+      const selectedParts = select.value.split(':');
+      activeSort = selectedParts[0] || 'order';
+      direction = selectedParts[1] || 'asc';
+    }} else {{
+      activeSort = select.dataset.sort;
+      direction = select.value;
+    }}
     sortSelects.forEach((value) => {{
       const selected = value === select;
       value.closest('.sort-control')?.classList.toggle('active', selected);
@@ -4007,6 +4722,8 @@ def main() -> int:
             "FB": empty_source_stats(),
             "樂屋網": empty_source_stats(),
             "Threads": empty_source_stats(),
+            "信義房屋": empty_source_stats(),
+            "永慶房屋": empty_source_stats(),
         }
     }
     stats["sources"]["Threads"]["notices"].append(
@@ -4035,6 +4752,8 @@ def main() -> int:
 
         candidates.extend(load_facebook_import(stats["sources"]["FB"]))
         candidates.extend(load_threads_listings(stats["sources"]["Threads"]))
+        candidates.extend(collect_sinyi_listings(stats["sources"]["信義房屋"]))
+        candidates.extend(collect_yungching_listings(stats["sources"]["永慶房屋"]))
 
     finally:
         browser.close()
