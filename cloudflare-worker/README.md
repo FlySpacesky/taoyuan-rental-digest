@@ -32,7 +32,7 @@ Worker 需要一個 Secret：
 若使用 repository 內的自動部署流程，需建立：
 
 - `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_API_TOKEN`：只授權 Workers Scripts Edit。
+- `CLOUDFLARE_API_TOKEN`：只授權 Workers Scripts Edit 與 Account Settings Read。
 
 ## 測試
 

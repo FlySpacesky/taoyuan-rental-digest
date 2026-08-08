@@ -158,7 +158,8 @@ GitHub排程可能因平台負載延遲，因此另有 Cloudflare Worker 作為�
 GitHub repository 的 Actions Secrets 需要：
 
 - `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_API_TOKEN`：Cloudflare帳戶的 `Workers Scripts Write` 權限
+- `CLOUDFLARE_API_TOKEN`：Cloudflare帳戶的 `Workers Scripts Write` 與
+  `Account Settings Read` 權限
 
 Worker 本身另需 Secret：
 
