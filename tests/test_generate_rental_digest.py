@@ -1581,6 +1581,52 @@ class SinyiAndYungchingTests(unittest.TestCase):
         self.assertEqual(item.rent, 27_500)
         self.assertEqual(item.updated, "2026/07/26 18:42")
         self.assertEqual(item.house_type, "整層住家")
+        expected_url = "https://www.sinyi.com.tw/rent/houseno/C357998"
+        self.assertEqual(item.url, expected_url)
+        rendered = DIGEST.render_card(item)
+        self.assertEqual(rendered.count(f'href="{expected_url}"'), 3)
+
+    def test_sinyi_snapshot_rewrites_legacy_list_url_to_detail_page(self) -> None:
+        item = DIGEST.Listing(
+            source="信義房屋",
+            source_id="C357998",
+            url=(
+                "https://www.sinyi.com.tw/rent/list/Taoyuan-city/"
+                "320-324-330-334-zip/40-up-area/house-use/houseno/C357998"
+            ),
+            title="採光佳家俱全配四房車位",
+            district="八德區",
+            address="桃園市八德區豐德路",
+            house_type="整層住家",
+            size="46.66坪",
+            rent=27_500,
+            image="https://res.sinyi.com.tw/rent/C357998/smallimg/A.JPG",
+            raw_text="桃園市八德區四房整層住家",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            snapshot = Path(temp_dir) / "last-success-sinyi.json"
+            snapshot.write_text(
+                json.dumps(
+                    {
+                        "generated_at": DIGEST.NOW.isoformat(),
+                        "items": [DIGEST.asdict(item)],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            loaded, _, _, error = DIGEST.load_source_snapshot(
+                "信義房屋",
+                snapshot,
+            )
+
+        self.assertEqual(error, "")
+        self.assertEqual(len(loaded), 1)
+        self.assertEqual(
+            loaded[0].url,
+            "https://www.sinyi.com.tw/rent/houseno/C357998",
+        )
 
     def test_yungching_list_parser_marks_official_new_tab(self) -> None:
         raw = """

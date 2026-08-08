@@ -121,6 +121,7 @@ SINYI_SEARCH_TEMPLATE = (
     "https://www.sinyi.com.tw/rent/list/Taoyuan-city/"
     "320-324-330-334-zip/40-up-area/house-use/{page}.html"
 )
+SINYI_DETAIL_BASE = "https://www.sinyi.com.tw/rent/houseno"
 YUNGCHING_SEARCH_BASE = (
     "https://rent.yungching.com.tw/list/"
     "桃園市-中壢區,桃園市-平鎮區,桃園市-桃園區,桃園市-八德區_c/"
@@ -1755,6 +1756,14 @@ def source_snapshot_item_valid(item: Listing, source: str) -> bool:
     return False
 
 
+def sinyi_detail_url(source_id: str) -> str:
+    """建立不受搜尋條件路徑影響的信義房屋標準詳細頁網址。"""
+    normalized = str(source_id or "").strip().upper()
+    if not re.fullmatch(r"[A-Z]\d+", normalized):
+        return ""
+    return f"{SINYI_DETAIL_BASE}/{normalized}"
+
+
 def load_source_snapshot(
     source: str,
     path: Path,
@@ -1807,7 +1816,10 @@ def load_source_snapshot(
             item = Listing(**values)
         except (TypeError, ValueError):
             continue
-        if source == "永慶房屋":
+        if source == "信義房屋":
+            item.source_id = source_id.upper()
+            item.url = sinyi_detail_url(item.source_id)
+        elif source == "永慶房屋":
             photos = [
                 value
                 for value in [item.image, *list(item.images or [])]
@@ -1875,11 +1887,15 @@ def parse_sinyi_list_cards(raw: str, base_url: str) -> dict[str, Listing]:
     soup = BeautifulSoup(raw, "html.parser")
     items: dict[str, Listing] = {}
     for anchor in soup.select('a[href*="houseno/"]'):
-        href = urllib.parse.urljoin(base_url, anchor.get("href", ""))
-        match = re.search(r"/houseno/([A-Za-z]\d+)", urllib.parse.urlparse(href).path)
+        raw_href = str(anchor.get("href", "")).strip()
+        match = re.search(
+            r"(?:^|/)houseno/([A-Za-z]\d+)(?:$|[/?#])",
+            urllib.parse.urlparse(raw_href).path,
+        )
         if not match:
             continue
         source_id = match.group(1).upper()
+        href = sinyi_detail_url(source_id)
         title_node = anchor.select_one(".item_title")
         title = clean(title_node.get_text(" ") if title_node else "", 180)
         text = clean(anchor.get_text(" "), 12000)
@@ -1900,7 +1916,7 @@ def parse_sinyi_list_cards(raw: str, base_url: str) -> dict[str, Listing]:
         item = Listing(
             source="信義房屋",
             source_id=source_id,
-            url=normalize_item_url(href),
+            url=href,
             title=title,
             district=district,
             address=address,
