@@ -8,9 +8,12 @@
 - 驗證：樂屋網逐筆檢查單筆頁；591 優先讀網站前端使用的官方 BFF，並以 `role_name` 驗證屋主、以 `diff_price` 驗證降價，BFF 失效時才退回 SSR HTML／Chromium；BFF 清單不再逐筆重打詳情頁，以避免 GitHub Runner 出口 IP 被限流
 - 分頁：591 公開搜尋網址使用 `page=1,2,3...`，官方 BFF 對應使用 `firstRow=0,30,60...`
 - 去重：同一輪跨來源相同房源只顯示一次；近48小時紀錄僅供診斷，不隱藏仍有效物件
-- 排程：台灣時間每天08:17、20:17
+- 排程：台灣時間每天09:30、16:00、22:00；Cloudflare Worker 在每個時段後的
+  備援窗口監看 GitHub Actions，必要時自動補觸發
 - 網站：GitHub Pages
 - 通知：LINE Messaging API；排程每次都發送最新快報連結，即使本次沒有新物件也會發送
+- 防重複發送：正常排程與 Cloudflare 補觸發使用同一投遞時段產生固定的
+  LINE Retry Key，同一時段只會被 LINE 接受一次
 - Threads：使用官方 `keyword_search` 與 `THREADS_ACCESS_TOKEN`；只刊出今天或昨天
   有主貼文／原作者留言活動的桃園區、4房以上且全部照片成功保存的真實物件。
   租金可未提供，頁面會顯示「租金洽詢」；留言只合併與原貼文同一username的內容

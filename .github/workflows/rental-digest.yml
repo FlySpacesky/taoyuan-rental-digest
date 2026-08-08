@@ -16,8 +16,17 @@ on:
         required: false
         default: false
         type: boolean
+      delivery_slot:
+        description: "Cloudflare備援指定的LINE投遞時段；人工測試請留空"
+        required: false
+        default: ""
+        type: string
   schedule:
-    - cron: "30 9,16,22 * * *"
+    - cron: "30 9 * * *"
+      timezone: "Asia/Taipei"
+    - cron: "0 16 * * *"
+      timezone: "Asia/Taipei"
+    - cron: "0 22 * * *"
       timezone: "Asia/Taipei"
   issues:
     types:
@@ -176,9 +185,34 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
+      - name: 決定 LINE 投遞時段
+        id: delivery-slot
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        env:
+          REQUESTED_SLOT: ${{ inputs.delivery_slot }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          if [ -n "${REQUESTED_SLOT}" ]; then
+            SLOT="${REQUESTED_SLOT}"
+          elif [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
+            DATE=$(TZ=Asia/Taipei date +%F)
+            case "${EVENT_SCHEDULE}" in
+              "30 9 * * *") SLOT="${DATE}T09:30+08:00" ;;
+              "0 16 * * *") SLOT="${DATE}T16:00+08:00" ;;
+              "0 22 * * *") SLOT="${DATE}T22:00+08:00" ;;
+              *) echo "無法辨識排程：${EVENT_SCHEDULE}" >&2; exit 1 ;;
+            esac
+          else
+            SLOT="manual:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}"
+          fi
+          echo "slot=${SLOT}" >> "${GITHUB_OUTPUT}"
+          echo "LINE delivery slot: ${SLOT}"
+
       - name: 發送 LINE
         if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_DELIVERY_SLOT: ${{ steps.delivery-slot.outputs.slot }}
           SITE_URL: ${{ steps.deployment.outputs.page_url }}
         run: python scripts/send_line.py

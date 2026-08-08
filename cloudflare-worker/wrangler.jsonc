@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "taoyuan-rental-line-watchdog",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-09",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "GITHUB_OWNER": "FlySpacesky",
+    "GITHUB_REPOSITORY": "taoyuan-rental-digest",
+    "GITHUB_WORKFLOW": "rental-digest.yml",
+    "GITHUB_BRANCH": "main"
+  },
+  "triggers": {
+    "crons": [
+      "35-59 1 * * *",
+      "5-30 8 * * *",
+      "5-30 14 * * *"
+    ]
+  }
+}

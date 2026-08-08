@@ -2149,8 +2149,13 @@ class CurrentListingDisplayTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn('cron: "30 9,16,22 * * *"', workflow)
-        self.assertIn('timezone: "Asia/Taipei"', workflow)
+        self.assertIn('cron: "30 9 * * *"', workflow)
+        self.assertIn('cron: "0 16 * * *"', workflow)
+        self.assertIn('cron: "0 22 * * *"', workflow)
+        self.assertNotIn('cron: "30 9,16,22 * * *"', workflow)
+        self.assertEqual(workflow.count('timezone: "Asia/Taipei"'), 3)
+        self.assertIn("LINE_DELIVERY_SLOT:", workflow)
+        self.assertIn("manual:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}", workflow)
         self.assertIn(
             'LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}',
             workflow,
