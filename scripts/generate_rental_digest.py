@@ -4281,7 +4281,7 @@ def render_listing_browser(
     }
     sort_controls: list[str] = []
     if combined_sort:
-        combined_options = ['<option value="order:asc" selected>預設排序</option>']
+        combined_options = ['<option value="order:asc">預設排序</option>']
         for key, label in sorts:
             if key == "recency":
                 option_rows = (("asc", f"{label}：新 → 舊"), ("desc", f"{label}：舊 → 新"))
@@ -4292,13 +4292,15 @@ def render_listing_browser(
             else:
                 option_rows = (("desc", f"{label}：高 → 低"), ("asc", f"{label}：低 → 高"))
             combined_options.extend(
-                f'<option value="{esc(key)}:{direction}">{esc(option_label)}</option>'
+                f'<option value="{esc(key)}:{direction}"'
+                f'{" selected" if key == "recency" and direction == "asc" else ""}>'
+                f'{esc(option_label)}</option>'
                 for direction, option_label in option_rows
             )
         sort_controls.append(
             '<label class="sort-control active combined-sort-control">'
             f'<select class="sort-select combined-sort-select" data-combined-sort="true" '
-            f'data-sort="order" aria-current="true" '
+            f'data-sort="recency" aria-current="true" '
             f'aria-label="{esc(source_label(source))} 排序">'
             f'{"".join(combined_options)}</select></label>'
         )

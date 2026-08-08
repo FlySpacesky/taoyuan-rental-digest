@@ -2002,6 +2002,9 @@ class CurrentListingDisplayTests(unittest.TestCase):
         self.assertIn("人氣低到高", rendered)
         self.assertEqual(rendered.count('<select class="sort-select"'), 16)
         self.assertEqual(rendered.count('data-combined-sort="true"'), 2)
+        self.assertEqual(rendered.count('value="recency:asc" selected'), 2)
+        self.assertNotIn('value="order:asc" selected', rendered)
+        self.assertEqual(rendered.count('data-sort="recency" aria-current="true"'), 2)
         self.assertNotIn('class="sort-button', rendered)
         self.assertIn("justify-content:flex-end", rendered)
         self.assertEqual(rendered.count('class="status-primary"'), 6)
@@ -2093,6 +2096,18 @@ class CurrentListingDisplayTests(unittest.TestCase):
         self.assertIn(
             "empty.textContent = cards.length",
             rendered,
+        )
+
+    def test_workflow_runs_three_daily_line_delivery_windows(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "rental-digest.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('cron: "30 9,16,22 * * *"', workflow)
+        self.assertIn('timezone: "Asia/Taipei"', workflow)
+        self.assertIn(
+            'LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}',
+            workflow,
         )
 
 
