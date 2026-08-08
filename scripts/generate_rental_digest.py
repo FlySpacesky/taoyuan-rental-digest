@@ -320,13 +320,39 @@ class BrowserFetcher:
         url: str,
         wait_ms: int = 2200,
         click_button_text: str = "",
+        wait_selector: str = "",
     ) -> str:
         if not self.start():
             return ""
         page = self._context.new_page()
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=50000)
-            page.wait_for_timeout(wait_ms)
+            if wait_selector:
+                selector_timeout = max(wait_ms, 15000)
+                try:
+                    page.wait_for_selector(
+                        wait_selector,
+                        state="attached",
+                        timeout=selector_timeout,
+                    )
+                except Exception:
+                    # Angular 在 GitHub Runner 偶爾只先回傳頁面框架；重載一次並等待
+                    # 真正的物件卡片，避免把「尚未渲染」誤判成零筆。
+                    page.reload(wait_until="domcontentloaded", timeout=50000)
+                    try:
+                        page.wait_for_selector(
+                            wait_selector,
+                            state="attached",
+                            timeout=selector_timeout,
+                        )
+                    except Exception:
+                        print(
+                            f"[WARN] Browser selector not ready: {url}: {wait_selector}",
+                            file=sys.stderr,
+                        )
+                page.wait_for_timeout(500)
+            else:
+                page.wait_for_timeout(wait_ms)
             if click_button_text:
                 button = page.get_by_role("button", name=click_button_text)
                 if button.count() == 1:
@@ -399,6 +425,7 @@ def fetch_html(
     browser_first: bool = False,
     browser_wait_ms: int = 2200,
     browser_click_text: str = "",
+    browser_wait_selector: str = "",
 ) -> tuple[requests.Response | None, str]:
     """取得 HTML。
 
@@ -411,6 +438,7 @@ def fetch_html(
             url,
             wait_ms=browser_wait_ms,
             click_button_text=browser_click_text,
+            wait_selector=browser_wait_selector,
         )
         if rendered and not looks_blocked(rendered):
             return None, rendered
@@ -428,6 +456,7 @@ def fetch_html(
             url,
             wait_ms=browser_wait_ms,
             click_button_text=browser_click_text,
+            wait_selector=browser_wait_selector,
         )
         if rendered:
             if not looks_blocked(rendered):
@@ -2022,6 +2051,7 @@ def crawl_yungching_candidates(source_stats: dict[str, Any]) -> dict[str, Listin
                 url,
                 browser_first=True,
                 browser_wait_ms=6000,
+                browser_wait_selector='a[href*="/house/"]' if page_no == 1 else "",
             )
             if not raw or looks_blocked(raw):
                 source_stats["errors"].append(
@@ -2030,6 +2060,17 @@ def crawl_yungching_candidates(source_stats: dict[str, Any]) -> dict[str, Listin
                 break
             pages_read += 1
             cards = extract_yungching_list_cards(raw, url, category)
+            if page_no == 1 or not cards:
+                source_stats.setdefault("page_diagnostics", []).append(
+                    {
+                        "category": category,
+                        "page": page_no,
+                        "html_chars": len(raw),
+                        "house_href_count": raw.count("/house/"),
+                        "card_count": len(cards),
+                        "angular_shell": "<app-root" in raw,
+                    }
+                )
             new_ids = set(cards) - category_ids
             category_ids.update(cards)
             for source_id, item in cards.items():

@@ -1610,6 +1610,46 @@ class SinyiAndYungchingTests(unittest.TestCase):
         self.assertEqual(item.layout, "4房(室)2廳2衛")
         self.assertEqual(item.rent, 58_500)
 
+    def test_yungching_first_page_waits_for_rendered_house_cards(self) -> None:
+        card_html = """
+        <html><body>
+          <a class="link" href="//rent.yungching.com.tw/house/2410499">
+            <div class="caseName">青埔景觀4房雙車</div>
+            <span class="address">桃園市中壢區領航北路二段</span>
+            <span class="purpose">住宅</span>
+            <span class="regArea">83.56坪</span>
+            <span class="room">4房(室)2廳2衛</span>
+            <div class="price">58,500</div>
+          </a>
+        </body></html>
+        """ + f"<!--{'x' * 900}-->"
+        empty_html = f"<html><body>{'尚無其他結果' * 100}</body></html>"
+        calls: list[tuple[str, dict[str, object]]] = []
+
+        def fake_fetch(url: str, **kwargs: object) -> tuple[None, str]:
+            calls.append((url, kwargs))
+            return None, card_html if "pg=1" in url else empty_html
+
+        stats: dict[str, object] = {"errors": [], "notices": []}
+        with patch.object(DIGEST, "fetch_html", side_effect=fake_fetch):
+            items = DIGEST.crawl_yungching_candidates(stats)
+
+        first_page_calls = [kwargs for url, kwargs in calls if "pg=1" in url]
+        later_page_calls = [kwargs for url, kwargs in calls if "pg=1" not in url]
+        self.assertEqual(list(items), ["2410499"])
+        self.assertEqual(len(first_page_calls), 2)
+        self.assertTrue(
+            all(
+                kwargs.get("browser_wait_selector") == 'a[href*="/house/"]'
+                for kwargs in first_page_calls
+            )
+        )
+        self.assertTrue(
+            all(kwargs.get("browser_wait_selector") == "" for kwargs in later_page_calls)
+        )
+        self.assertEqual(stats["category_counts"], {"all": 1, "new": 1})
+        self.assertEqual(stats["page_diagnostics"][0]["card_count"], 1)
+
     def test_yungching_detail_requires_detail_update_date_and_collects_photos(self) -> None:
         candidate = DIGEST.Listing(
             source="永慶房屋",
