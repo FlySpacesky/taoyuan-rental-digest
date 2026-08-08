@@ -1,0 +1,69 @@
+name: 部署 Cloudflare LINE 備援監看器
+
+on:
+  pull_request:
+    paths:
+      - "cloudflare-worker/**"
+      - ".github/workflows/cloudflare-watchdog.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "cloudflare-worker/**"
+      - ".github/workflows/cloudflare-watchdog.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-line-watchdog-deploy
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 下載專案程式碼
+        uses: actions/checkout@v6
+
+      - name: 設定 Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: 測試 Worker
+        working-directory: cloudflare-worker
+        run: node --test tests/*.test.mjs
+
+  deploy:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 下載專案程式碼
+        uses: actions/checkout@v6
+
+      - name: 設定 Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: 驗證 Cloudflare 部署 Secret
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          test -n "${CLOUDFLARE_ACCOUNT_ID}" || (echo "缺少 CLOUDFLARE_ACCOUNT_ID" >&2; exit 1)
+          test -n "${CLOUDFLARE_API_TOKEN}" || (echo "缺少 CLOUDFLARE_API_TOKEN" >&2; exit 1)
+
+      - name: 部署 Worker 與 Cron Triggers
+        working-directory: cloudflare-worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx --yes wrangler@4.120.0 deploy

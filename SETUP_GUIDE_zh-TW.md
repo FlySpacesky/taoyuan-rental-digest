@@ -130,8 +130,9 @@ LINE訊息也會帶入此次部署真正產生的Pages網址，不需要手動�
 
 預設排程：
 
-- 台灣時間08:17
-- 台灣時間20:17
+- 台灣時間09:30
+- 台灣時間16:00
+- 台灣時間22:00
 
 設定位置：
 
@@ -139,19 +140,34 @@ LINE訊息也會帶入此次部署真正產生的Pages網址，不需要手動�
 
 ```yaml
 schedule:
-  - cron: "17 8,20 * * *"
+  - cron: "30 9 * * *"
+    timezone: "Asia/Taipei"
+  - cron: "0 16 * * *"
+    timezone: "Asia/Taipei"
+  - cron: "0 22 * * *"
     timezone: "Asia/Taipei"
 ```
 
-選17分而不是整點，是為了降低GitHub Actions整點高負載造成延遲的機率。
+GitHub排程可能因平台負載延遲，因此另有 Cloudflare Worker 作為備援監看器。
+它不直接發送LINE，而是在各時段後約5到30分鐘檢查正式工作流程；只有正常排程
+沒有成功時才補觸發。正常流程與備援流程使用同一個LINE Retry Key，因此即使
+兩者短暫重疊，同一時段也不會重複廣播。
 
-要改成10:00與22:00：
+### Cloudflare備援部署設定
 
-```yaml
-schedule:
-  - cron: "0 10,22 * * *"
-    timezone: "Asia/Taipei"
-```
+GitHub repository 的 Actions Secrets 需要：
+
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN`：Cloudflare帳戶的 `Workers Scripts Write` 與
+  `Account Settings Read` 權限
+
+Worker 本身另需 Secret：
+
+- `GITHUB_TOKEN`：只授權 `FlySpacesky/taoyuan-rental-digest`，Repository
+  permissions 的 Actions 設為 Read and write
+
+Worker程式、三個UTC Cron Triggers與測試都在 `cloudflare-worker/`。正式main
+更新後，由 `.github/workflows/cloudflare-watchdog.yml` 自動部署。
 
 ## 9. 兩個專案如何完全分離
 
@@ -297,7 +313,8 @@ Token只能放在GitHub Actions secret，不要寫入程式、README、Issue或c
 1. Secret名稱必須完全是 `LINE_CHANNEL_ACCESS_TOKEN`。
 2. Token不可有前後空白。
 3. 查看Actions的 `發送LINE` 步驟。
-4. 如果本次48小時去重後沒有新物件，程式會刻意不發LINE。
+4. 查看記錄中的投遞時段；若顯示LINE先前已接受相同 Retry Key，代表備援成功
+   阻止重複發送，不是錯誤。
 
 ### 定時排程沒有執行
 
@@ -305,3 +322,5 @@ Token只能放在GitHub Actions secret，不要寫入程式、README、Issue或c
 2. 到Actions確認工作流程未被停用。
 3. 公開儲存庫60天無活動時，GitHub可能自動停用排程；手動啟用或提交一次更新即可。
 4. GitHub排程可能延遲，不保證精確到秒。
+5. 到Cloudflare確認 `taoyuan-rental-line-watchdog` 的Cron Triggers與
+   `GITHUB_TOKEN` Secret仍存在，並查看Observability是否有錯誤。
