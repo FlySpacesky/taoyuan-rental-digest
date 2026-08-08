@@ -296,18 +296,25 @@ class BrowserFetcher:
             self._pw = sync_playwright().start()
             self._browser = self._pw.chromium.launch(
                 headless=True,
+                channel="chromium",
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
                 ],
             )
+            browser_major = self._browser.version.split(".", 1)[0]
+            browser_ua = re.sub(r"Chrome/\d+", f"Chrome/{browser_major}", UA)
             self._context = self._browser.new_context(
                 locale="zh-TW",
                 timezone_id="Asia/Taipei",
-                user_agent=UA,
+                user_agent=browser_ua,
                 viewport={"width": 1440, "height": 1800},
             )
+            self._context.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            )
+            print(f"[Browser] Chromium {self._browser.version} ready")
             return True
         except Exception as exc:
             print(f"[WARN] Chromium 啟動失敗：{exc}", file=sys.stderr)
@@ -2061,16 +2068,20 @@ def crawl_yungching_candidates(source_stats: dict[str, Any]) -> dict[str, Listin
             pages_read += 1
             cards = extract_yungching_list_cards(raw, url, category)
             if page_no == 1 or not cards:
-                source_stats.setdefault("page_diagnostics", []).append(
-                    {
-                        "category": category,
-                        "page": page_no,
-                        "html_chars": len(raw),
-                        "house_href_count": raw.count("/house/"),
-                        "card_count": len(cards),
-                        "angular_shell": "<app-root" in raw,
-                    }
-                )
+                diagnostic = {
+                    "category": category,
+                    "page": page_no,
+                    "html_chars": len(raw),
+                    "house_href_count": raw.count("/house/"),
+                    "card_count": len(cards),
+                    "angular_shell": "<app-root" in raw,
+                }
+                if not cards:
+                    diagnostic["text_excerpt"] = clean(
+                        BeautifulSoup(raw, "html.parser").get_text(" "),
+                        240,
+                    )
+                source_stats.setdefault("page_diagnostics", []).append(diagnostic)
             new_ids = set(cards) - category_ids
             category_ids.update(cards)
             for source_id, item in cards.items():
