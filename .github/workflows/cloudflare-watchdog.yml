@@ -1,6 +1,10 @@
 name: 部署 Cloudflare LINE 備援監看器
 
 on:
+  pull_request:
+    paths:
+      - "cloudflare-worker/**"
+      - ".github/workflows/cloudflare-watchdog.yml"
   push:
     branches:
       - main
