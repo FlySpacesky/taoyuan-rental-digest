@@ -140,14 +140,21 @@ export default {
     );
   },
 
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
-      return Response.json({
-        status: "ok",
-        service: "taoyuan-rental-line-watchdog",
-        backupCronsUtc: Object.keys(CRON_TO_SLOT),
-      });
+      const githubTokenConfigured = Boolean(
+        String(env.GITHUB_TOKEN || "").trim(),
+      );
+      return Response.json(
+        {
+          status: githubTokenConfigured ? "ok" : "degraded",
+          service: "taoyuan-rental-line-watchdog",
+          githubTokenConfigured,
+          backupCronsUtc: Object.keys(CRON_TO_SLOT),
+        },
+        { status: githubTokenConfigured ? 200 : 503 },
+      );
     }
     return new Response("Not found", { status: 404 });
   },

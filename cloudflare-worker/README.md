@@ -14,6 +14,9 @@ LINE 發送程式會由 `delivery_slot` 產生固定 `X-Line-Retry-Key`。即使
 三個備援窗口各只占用一個 Cron Trigger，可與同一免費 Cloudflare 帳戶內既有的
 科技新聞 Worker 共存，不超過免費方案每帳戶 5 個 Cron Triggers 的限制。
 
+部署後可開啟 `/health`。HTTP 200 且 `githubTokenConfigured: true` 代表 Worker
+程式與必要 Secret 均已載入；缺少 Secret 時會回傳HTTP 503，且不會洩漏權杖值。
+
 ## Cloudflare Secret
 
 Worker 需要一個 Secret：

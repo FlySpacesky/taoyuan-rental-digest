@@ -6,6 +6,7 @@ import {
   deliverySlotFor,
   handleScheduled,
 } from "../src/index.js";
+import worker from "../src/index.js";
 
 
 const scheduledTime = Date.parse("2026-08-09T01:35:00Z");
@@ -118,4 +119,21 @@ test("retries a failed run at the next backup check", async () => {
 
   assert.equal(result.result, "retry");
   assert.equal(result.dispatched, true);
+});
+
+
+test("health reports whether the GitHub secret is configured", async () => {
+  const healthy = await worker.fetch(
+    new Request("https://watchdog.example/health"),
+    { GITHUB_TOKEN: "configured" },
+  );
+  const degraded = await worker.fetch(
+    new Request("https://watchdog.example/health"),
+    {},
+  );
+
+  assert.equal(healthy.status, 200);
+  assert.equal((await healthy.json()).githubTokenConfigured, true);
+  assert.equal(degraded.status, 503);
+  assert.equal((await degraded.json()).githubTokenConfigured, false);
 });
