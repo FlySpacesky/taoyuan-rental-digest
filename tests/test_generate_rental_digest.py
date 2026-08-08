@@ -1712,6 +1712,86 @@ class SinyiAndYungchingTests(unittest.TestCase):
         self.assertIn("來源未提供可讀取照片", rendered)
         self.assertIn('data-photo-count="0"', rendered)
 
+    def test_yungching_primary_photo_is_archived_and_loaded_first(self) -> None:
+        item = DIGEST.Listing(
+            source="永慶房屋",
+            source_id="2410994",
+            url="https://rent.yungching.com.tw/house/2410994",
+            title="青埔四房",
+            image="https://yccdn.yungching.com.tw/photo-1.jpg",
+            images=["https://yccdn.yungching.com.tw/photo-2.jpg"],
+        )
+        response = SimpleNamespace(
+            status_code=200,
+            headers={"Content-Type": "image/jpeg"},
+            content=b"real-yungching-photo" * 100,
+        )
+        stats: dict[str, object] = {}
+
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
+            DIGEST, "YUNGCHING_ASSET_DIR", Path(temp_dir)
+        ), patch.object(DIGEST.requests, "get", return_value=response):
+            DIGEST.prepare_yungching_images([item], stats)
+            archived_path = Path(temp_dir) / Path(item.image).name
+            self.assertTrue(archived_path.exists())
+
+        self.assertTrue(item.image.startswith("assets/yungching/2410994-"))
+        self.assertEqual(
+            item.images,
+            ["https://yccdn.yungching.com.tw/photo-2.jpg"],
+        )
+        self.assertEqual(stats["listings_with_source_images"], 1)
+        self.assertEqual(stats["primary_images_local"], 1)
+        rendered = DIGEST.render_card(item)
+        self.assertIn('loading="eager"', rendered)
+        self.assertIn('fetchpriority="high"', rendered)
+        self.assertIn('loading="lazy"', rendered)
+        self.assertIn('fetchpriority="low"', rendered)
+
+        status = DIGEST.render_status(
+            {
+                "sources": {
+                    "永慶房屋": {
+                        "candidate_links": 1,
+                        "validated": 1,
+                        "published": 1,
+                        "errors": [],
+                        "notices": [],
+                        **stats,
+                    }
+                }
+            },
+            "永慶房屋",
+        )
+        self.assertIn("有來源照片 1 筆", status)
+        self.assertIn("無來源照片 0 筆", status)
+        self.assertIn("首圖本站保存 1 筆", status)
+
+    def test_yungching_archive_failure_keeps_true_remote_photo(self) -> None:
+        item = DIGEST.Listing(
+            source="永慶房屋",
+            source_id="2410994",
+            url="https://rent.yungching.com.tw/house/2410994",
+            image="",
+            images=["https://yccdn.yungching.com.tw/photo-1.jpg"],
+        )
+        stats: dict[str, object] = {}
+
+        with patch.object(
+            DIGEST.requests,
+            "get",
+            side_effect=DIGEST.requests.RequestException("blocked"),
+        ):
+            DIGEST.prepare_yungching_images([item], stats)
+
+        self.assertEqual(
+            item.image,
+            "https://yccdn.yungching.com.tw/photo-1.jpg",
+        )
+        self.assertEqual(item.images, [])
+        self.assertEqual(stats["primary_images_remote_only"], 1)
+        self.assertEqual(stats["primary_image_download_failures"], 1)
+
 
 class CurrentListingDisplayTests(unittest.TestCase):
     @staticmethod

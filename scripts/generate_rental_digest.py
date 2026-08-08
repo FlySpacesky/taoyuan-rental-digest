@@ -67,6 +67,8 @@ THREADS_ASSET_DIR = DOCS / "assets" / "threads"
 THREADS_ASSET_PUBLIC_BASE = (
     "https://flyspacesky.github.io/taoyuan-rental-digest/assets/threads"
 )
+YUNGCHING_ASSET_DIR = DOCS / "assets" / "yungching"
+YUNGCHING_ASSET_PUBLIC_BASE = "assets/yungching"
 THREADS_SEARCH_PLANS = (
     ("KEYWORD", "桃園"),
     ("KEYWORD", "桃園市"),
@@ -1588,6 +1590,106 @@ def is_yungching_photo_url(url: str) -> bool:
         parsed.scheme in {"http", "https"}
         and (parsed.hostname or "").lower() == "yccdn.yungching.com.tw"
     )
+
+
+def archive_yungching_primary_image(
+    item: Listing,
+    source_stats: dict[str, Any],
+) -> str:
+    """保存永慶物件首圖，避免大量CDN圖片同時跨站載入時整批空白。"""
+    image_url = str(item.image or "").strip()
+    safe_source_id = re.sub(r"[^A-Za-z0-9_-]", "", item.source_id or "")[:100]
+    if not safe_source_id or not is_yungching_photo_url(image_url):
+        return ""
+
+    url_key = hashlib.sha256(image_url.encode("utf-8")).hexdigest()[:12]
+    stem = f"{safe_source_id}-{url_key}"
+    for extension in ("jpg", "png", "webp", "gif"):
+        existing = YUNGCHING_ASSET_DIR / f"{stem}.{extension}"
+        if existing.exists() and existing.stat().st_size > 500:
+            source_stats["primary_images_reused"] = (
+                source_stats.get("primary_images_reused", 0) + 1
+            )
+            return f"{YUNGCHING_ASSET_PUBLIC_BASE}/{existing.name}"
+
+    try:
+        response = requests.get(
+            image_url,
+            headers={
+                "User-Agent": UA,
+                "Accept": "image/avif,image/webp,image/png,image/jpeg,image/*",
+                "Referer": item.url,
+            },
+            timeout=35,
+            allow_redirects=True,
+        )
+    except requests.RequestException:
+        source_stats["primary_image_download_failures"] = (
+            source_stats.get("primary_image_download_failures", 0) + 1
+        )
+        return ""
+
+    content_type = response.headers.get("Content-Type", "").split(";", 1)[0].lower()
+    extension = {
+        "image/jpeg": "jpg",
+        "image/jpg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+        "image/gif": "gif",
+    }.get(content_type, "")
+    content = response.content
+    if (
+        response.status_code != 200
+        or not extension
+        or not (500 < len(content) <= 20_000_000)
+    ):
+        source_stats["primary_image_download_failures"] = (
+            source_stats.get("primary_image_download_failures", 0) + 1
+        )
+        return ""
+
+    YUNGCHING_ASSET_DIR.mkdir(parents=True, exist_ok=True)
+    target = YUNGCHING_ASSET_DIR / f"{stem}.{extension}"
+    target.write_bytes(content)
+    source_stats["primary_images_archived"] = (
+        source_stats.get("primary_images_archived", 0) + 1
+    )
+    return f"{YUNGCHING_ASSET_PUBLIC_BASE}/{target.name}"
+
+
+def prepare_yungching_images(
+    items: list[Listing],
+    source_stats: dict[str, Any],
+) -> None:
+    """有真實照片時保存並優先顯示首圖；沒有照片時保持空值顯示缺圖說明。"""
+    source_stats["listings_with_source_images"] = 0
+    source_stats["listings_without_source_images"] = 0
+    source_stats["primary_images_local"] = 0
+    source_stats["primary_images_remote_only"] = 0
+    for item in items:
+        source_photos = list(
+            dict.fromkeys(
+                value
+                for value in [item.image, *list(item.images or [])]
+                if is_yungching_photo_url(value)
+            )
+        )
+        if not source_photos:
+            source_stats["listings_without_source_images"] += 1
+            item.image = ""
+            item.images = []
+            continue
+
+        item.image = source_photos[0]
+        item.images = source_photos[1:]
+        source_stats["listings_with_source_images"] += 1
+        archived = archive_yungching_primary_image(item, source_stats)
+        if archived:
+            item.image = archived
+            source_stats["primary_images_local"] += 1
+        else:
+            # 下載失敗時保留永慶原始CDN網址；不把有照片的物件誤標為無照片。
+            source_stats["primary_images_remote_only"] += 1
 
 
 def source_snapshot_item_valid(item: Listing, source: str) -> bool:
@@ -3993,6 +4095,9 @@ def render_card(item: Listing, order: int = 0) -> str:
         <a class="photo gallery-photo" href="{esc(item.url)}" target="_blank"
            rel="noopener noreferrer" aria-label="{esc(item.title)} 照片 {index}/{len(images)}">
           <img src="{esc(image_url)}" alt="{esc(item.title)} 照片 {index}"
+               loading="{'eager' if index == 1 else 'lazy'}"
+               fetchpriority="{'high' if index == 1 else 'low'}"
+               decoding="async"
                referrerpolicy="no-referrer"
                onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
           <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
@@ -4271,10 +4376,18 @@ def render_status(stats: dict[str, Any], source: str) -> str:
             if source == "永慶房屋"
             else ""
         )
+        image_html = (
+            f"<span>有來源照片 {row.get('listings_with_source_images', 0)} 筆</span>"
+            f"<span>無來源照片 {row.get('listings_without_source_images', 0)} 筆</span>"
+            f"<span>首圖本站保存 {row.get('primary_images_local', 0)} 筆</span>"
+            if source == "永慶房屋"
+            else ""
+        )
         diagnostics = (
             f"{snapshot_html}{source_total_html}"
             f"<span>讀取列表 {row.get('pages_read', 0)} 頁</span>"
             f"{detail_html}"
+            f"{image_html}"
         )
 
     return f"""
@@ -4753,7 +4866,9 @@ def main() -> int:
         candidates.extend(load_facebook_import(stats["sources"]["FB"]))
         candidates.extend(load_threads_listings(stats["sources"]["Threads"]))
         candidates.extend(collect_sinyi_listings(stats["sources"]["信義房屋"]))
-        candidates.extend(collect_yungching_listings(stats["sources"]["永慶房屋"]))
+        yungching_items = collect_yungching_listings(stats["sources"]["永慶房屋"])
+        prepare_yungching_images(yungching_items, stats["sources"]["永慶房屋"])
+        candidates.extend(yungching_items)
 
     finally:
         browser.close()
