@@ -1,41 +1,6 @@
 {
   "sent": [
     {
-      "source_key": "591:21799387",
-      "fingerprint": "f1357180dd9b6bcbde5a95a1",
-      "sent_at": "2026-08-09T22:06:15.954794+08:00",
-      "title": "藝文經國區，漂亮四房",
-      "url": "https://rent.591.com.tw/21799387"
-    },
-    {
-      "source_key": "591:21799738",
-      "fingerprint": "b773c988d5cce5a7fe03f2a1",
-      "sent_at": "2026-08-09T22:06:15.954794+08:00",
-      "title": "近交流道含車管大四房可寵家具可談",
-      "url": "https://rent.591.com.tw/21799738"
-    },
-    {
-      "source_key": "樂屋網:0abcb735029086a",
-      "fingerprint": "ca9cb5221eb5babd3d279496",
-      "sent_at": "2026-08-09T22:06:15.954794+08:00",
-      "title": "[樂屋網] 桃園市桃園區龍華街-藝文區溪畔☆五房透天",
-      "url": "https://rent.rakuya.com.tw/item/0abcb735029086a"
-    },
-    {
-      "source_key": "樂屋網:00580035015895d",
-      "fingerprint": "2325598a0270d4a01d006b80",
-      "sent_at": "2026-08-09T22:06:15.954794+08:00",
-      "title": "[樂屋網] 桃園市桃園區民光路-G09站旁電梯4+1房",
-      "url": "https://community.rakuya.com.tw/67482/rent/00580035015895d"
-    },
-    {
-      "source_key": "信義房屋:C357230",
-      "fingerprint": "bf3f1a003eb09e4116891c85",
-      "sent_at": "2026-08-09T22:06:15.954794+08:00",
-      "title": "諾貝爾庭院透天",
-      "url": "https://www.sinyi.com.tw/rent/houseno/C357230"
-    },
-    {
       "source_key": "591:21791697",
       "fingerprint": "7bbda58de77450489f7cadb0",
       "sent_at": "2026-08-10T11:28:57.316549+08:00",
@@ -2624,6 +2589,41 @@
       "sent_at": "2026-08-11T22:05:55.582285+08:00",
       "title": "❣️翡翠新都❣️八德廣豐一街4房車❣️",
       "url": "https://rent.591.com.tw/21676850"
+    },
+    {
+      "source_key": "591:21799387",
+      "fingerprint": "f1357180dd9b6bcbde5a95a1",
+      "sent_at": "2026-08-11T22:53:50.566982+08:00",
+      "title": "藝文經國區，漂亮四房",
+      "url": "https://rent.591.com.tw/21799387"
+    },
+    {
+      "source_key": "591:21799738",
+      "fingerprint": "b773c988d5cce5a7fe03f2a1",
+      "sent_at": "2026-08-11T22:53:50.566982+08:00",
+      "title": "近交流道含車管大四房可寵家具可談",
+      "url": "https://rent.591.com.tw/21799738"
+    },
+    {
+      "source_key": "樂屋網:0abcb735029086a",
+      "fingerprint": "ca9cb5221eb5babd3d279496",
+      "sent_at": "2026-08-11T22:53:50.566982+08:00",
+      "title": "[樂屋網] 桃園市桃園區龍華街-藝文區溪畔☆五房透天",
+      "url": "https://rent.rakuya.com.tw/item/0abcb735029086a"
+    },
+    {
+      "source_key": "樂屋網:00580035015895d",
+      "fingerprint": "2325598a0270d4a01d006b80",
+      "sent_at": "2026-08-11T22:53:50.566982+08:00",
+      "title": "[樂屋網] 桃園市桃園區民光路-G09站旁電梯4+1房",
+      "url": "https://community.rakuya.com.tw/67482/rent/00580035015895d"
+    },
+    {
+      "source_key": "信義房屋:C357230",
+      "fingerprint": "bf3f1a003eb09e4116891c85",
+      "sent_at": "2026-08-11T22:53:50.566982+08:00",
+      "title": "諾貝爾庭院透天",
+      "url": "https://www.sinyi.com.tw/rent/houseno/C357230"
     }
   ],
   "prices": {
