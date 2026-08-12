@@ -159,7 +159,8 @@ GitHub repository 的 Actions Secrets 需要：
 
 - `CLOUDFLARE_ACCOUNT_ID`
 - `CLOUDFLARE_API_TOKEN`：Cloudflare帳戶的 `Workers Scripts Write` 與
-  `Workers KV Storage Write`、`Account Settings Read` 權限
+  `Account Settings Read` 權限。`FB_INBOX` KV已在Dashboard一次性建立並以ID綁定，
+  部署權杖不需要建立KV的額外權限
 - `FB_INBOX_WRITE_TOKEN`：私人收件匣唯寫權杖
 - `FB_INBOX_READ_TOKEN`：私人收件匣唯讀權杖
 

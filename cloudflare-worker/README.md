@@ -55,8 +55,9 @@ Worker 需要三個 Secret：
 若使用 repository 內的自動部署流程，需建立：
 
 - `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_API_TOKEN`：授權 Workers Scripts Edit、Workers KV Storage Edit 與
-  Account Settings Read。
+- `CLOUDFLARE_API_TOKEN`：授權 Workers Scripts Edit 與 Account Settings Read。
+  `FB_INBOX` KV namespace 已由 Cloudflare Dashboard 一次性建立並以ID綁定，部署權杖
+  不需要建立KV的額外權限。
 - `FB_INBOX_WRITE_TOKEN`
 - `FB_INBOX_READ_TOKEN`
 
