@@ -1595,6 +1595,46 @@ class SinyiAndYungchingTests(unittest.TestCase):
         self.assertEqual(stats["transport"], "cloudflare_browser_run")
         self.assertEqual(stats["category_counts"], {"all": 1, "new": 1})
 
+    def test_cloudflare_yungching_feed_retries_temporary_failure(self) -> None:
+        payload = {
+            "generated_at": "2026-08-12T10:00:00Z",
+            "candidate_count": 1,
+            "items": [
+                {
+                    "source_id": "2411508",
+                    "url": "https://rent.yungching.com.tw/house/2411508",
+                    "title": "四房整層住家",
+                    "address": "桃園市桃園區大有路",
+                    "layout": "4房2廳2衛",
+                    "size": "50.63坪",
+                    "rent": 26000,
+                    "updated": "2026年08月12日",
+                    "images": ["https://yccdn.yungching.com.tw/a.jpg"],
+                    "filter_tags": ["new"],
+                }
+            ],
+        }
+        temporary = Mock(status_code=503)
+        temporary.raise_for_status.side_effect = DIGEST.requests.HTTPError(
+            "503 Service Unavailable"
+        )
+        success = SimpleNamespace(
+            status_code=200,
+            raise_for_status=lambda: None,
+            json=lambda: payload,
+        )
+        stats: dict[str, object] = {"errors": [], "notices": []}
+
+        with patch.object(
+            DIGEST.session, "get", side_effect=[temporary, success]
+        ) as request_get, patch.object(DIGEST.time, "sleep"):
+            items = DIGEST.load_yungching_browser_feed(stats)
+
+        self.assertEqual(list(items), ["2411508"])
+        self.assertEqual(request_get.call_count, 2)
+        self.assertEqual(stats["browser_feed_attempts"], 2)
+        self.assertEqual(stats["notices"], [])
+
     def test_yungching_prefers_cloudflare_browser_feed_over_blocked_runner(self) -> None:
         item = DIGEST.Listing(
             source="永慶房屋",

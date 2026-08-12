@@ -2073,12 +2073,25 @@ def load_yungching_browser_feed(source_stats: dict[str, Any]) -> dict[str, Listi
     GitHub Runner 的出口 IP 目前會被永慶的 CloudFront 規則回應 403；此摘要
     只瀏覽固定的永慶公開搜尋／詳細頁，不使用帳號、Cookie 或私人資料。
     """
-    try:
-        response = session.get(YUNGCHING_FEED_URL, timeout=100)
-        response.raise_for_status()
-        payload = response.json()
-    except (requests.RequestException, ValueError) as exc:
-        source_stats["notices"].append(f"Cloudflare永慶公開摘要暫時無法讀取：{exc}")
+    payload: Any = None
+    last_error: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            response = session.get(YUNGCHING_FEED_URL, timeout=100)
+            response.raise_for_status()
+            payload = response.json()
+            source_stats["browser_feed_attempts"] = attempt
+            break
+        except (requests.RequestException, ValueError) as exc:
+            last_error = exc
+            if attempt < 3:
+                time.sleep(2.5 * attempt)
+
+    if payload is None:
+        source_stats["browser_feed_attempts"] = 3
+        source_stats["notices"].append(
+            f"Cloudflare永慶公開摘要暫時無法讀取：{last_error}"
+        )
         return {}
 
     rows = payload.get("items") if isinstance(payload, dict) else None
