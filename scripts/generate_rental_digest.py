@@ -194,6 +194,11 @@ FB_GROUPS = [
     "https://www.facebook.com/groups/768849317151214",
     "https://www.facebook.com/groups/4091621327828556",
 ]
+FB_DISCOVERY_LABELS = {
+    "https://www.facebook.com/groups/1925073351142915": "中壢租屋網",
+    "https://www.facebook.com/groups/1167119493432173": "520租屋快訊網",
+}
+FB_MARKETPLACE_URL = "https://www.facebook.com/marketplace/category/propertyrentals/"
 INVALID_MARKERS = (
     "很抱歉，您查詢的物件不存在，可能已關閉或者被刪除",
     "您查詢的物件不存在",
@@ -275,6 +280,55 @@ SOCIAL_OWNER_EXEMPT_PHRASES = (
     "免仲介費",
 )
 
+# FB 的目標是找「屋主出租且可能需要管理協助」的房源。單獨出現
+# 「包租代管」不一定是同業廣告，也可能是屋主在徵求服務，因此要先辨識語境。
+FB_OWNER_MANAGEMENT_PATTERNS = (
+    r"(?:找|尋找|徵求|需要|想找|考慮|求推薦|請推薦).{0,12}(?:包租代管|代租代管|代管)",
+    r"(?:房東|屋主)?人在外地",
+    r"(?:沒有|沒|無暇|沒空).{0,6}(?:時間)?管理",
+    r"不想再?處理租客",
+)
+FB_OWNER_REFUSAL_PHRASES = (
+    "包租代管勿擾",
+    "代租代管勿擾",
+    "代管勿擾",
+    "不要包租代管",
+    "不找包租代管",
+)
+FB_STRONG_INDUSTRY_MARKERS = (
+    "租賃住宅服務業",
+    "租賃住宅管理人員",
+    "不動產經紀人",
+    "不動產經紀營業員",
+    "房屋仲介",
+    "租屋仲介",
+    "仲介服務費",
+    "成交後收取",
+    "成交後將收取",
+    "歡迎房東委託",
+    "委託招租",
+    "指定業務",
+    "核准登記文號",
+    "包租代管公司",
+    "代租代管公司",
+)
+FB_VACANCY_MARKERS = (
+    "空屋",
+    "房客剛搬走",
+    "前房客剛搬走",
+    "剛退租",
+    "急租",
+    "急出租",
+    "急著出租",
+    "待租",
+)
+FB_WHOLE_HOME_MARKERS = (
+    "整層出租",
+    "整層住家",
+    "透天出租",
+    "長期出租",
+)
+
 session = requests.Session()
 session.headers.update(
     {
@@ -316,6 +370,7 @@ class Listing:
     first_seen_at: str = ""
     new_listing: bool = False
     social_score: int = 0
+    fb_lead_grade: str = ""
     social_notes: list[str] = field(default_factory=list)
     raw_text: str = field(default="", repr=False)
     filter_tags: list[str] = field(default_factory=list, repr=False)
@@ -627,6 +682,121 @@ def social_industry_listing(text: str, publisher: str = "") -> bool:
     for phrase in SOCIAL_OWNER_EXEMPT_PHRASES:
         value = value.replace(phrase, "")
     return any(marker in value for marker in SOCIAL_INDUSTRY_MARKERS)
+
+
+def facebook_owner_management_signal(text: str) -> bool:
+    """辨識屋主主動尋求代管或描述管理痛點的語境。"""
+    value = clean_multiline(text, 32000)
+    return any(re.search(pattern, value) for pattern in FB_OWNER_MANAGEMENT_PATTERNS)
+
+
+def facebook_industry_listing(text: str, publisher: str = "") -> bool:
+    """排除 FB 同業廣告，同時保留屋主徵求包租代管服務的真實房源。
+
+    公司／證照／服務費／招攬委託等強訊號永遠視為同業；只有泛稱
+    「包租代管／代租代管」時，屋主求助或明確拒絕同業的語境可以豁免。
+    """
+    value = clean_multiline(f"{publisher}\n{text}", 32000)
+    for phrase in SOCIAL_OWNER_EXEMPT_PHRASES:
+        value = value.replace(phrase, "")
+
+    if any(marker in value for marker in FB_STRONG_INDUSTRY_MARKERS):
+        return True
+
+    generic_markers = ("包租代管", "代租代管", "社宅代管")
+    if not any(marker in value for marker in generic_markers):
+        return False
+    if facebook_owner_management_signal(value):
+        return False
+    if any(phrase in value for phrase in FB_OWNER_REFUSAL_PHRASES):
+        return False
+    return True
+
+
+def facebook_lead_screening(
+    *,
+    text: str,
+    size: str,
+    rent: int,
+    has_image: bool,
+    activity: datetime | None,
+) -> tuple[str, int, list[str], list[str]]:
+    """用可解釋規則將已通過硬條件的 FB 房源分成 A／B／C 級。
+
+    三房以上及指定四區仍由前置驗證把關；這裡只評估屋主身分、空屋／急租、
+    管理痛點、整層住宅、坪數、租金、照片與時效，不推測未提供的資料。
+    """
+    value = clean_multiline(text, 32000)
+    rooms = room_count(value)
+    area_match = re.search(r"\d+(?:\.\d+)?", size or "")
+    area = float(area_match.group(0)) if area_match else 0.0
+    owner = any(marker in value for marker in PRIORITY_MARKERS)
+    management = facebook_owner_management_signal(value)
+    vacant = any(marker in value for marker in FB_VACANCY_MARKERS)
+    whole_home = any(marker in value for marker in FB_WHOLE_HOME_MARKERS)
+
+    score = 30 if rooms >= 4 else 25
+    notes = [f"{rooms}房"]
+    tags: list[str] = []
+
+    if owner:
+        score += 25
+        notes.append("屋主訊號")
+        tags.append("owner")
+    if management:
+        score += 25
+        notes.append("尋求代管／管理痛點")
+        tags.append("management_need")
+    if vacant:
+        score += 15
+        notes.append("空屋／急租訊號")
+        tags.append("vacant")
+    if whole_home:
+        score += 10
+        notes.append("整層／透天／長租")
+        tags.append("whole_home")
+
+    if area >= 35:
+        score += 10
+        notes.append("35坪以上")
+        tags.append("spacious")
+    elif area >= 30:
+        score += 7
+        notes.append("30坪以上")
+        tags.append("spacious")
+    elif area:
+        notes.append("坪數低於30坪")
+    else:
+        notes.append("坪數待補")
+
+    if rent:
+        score += 5
+        notes.append("租金完整")
+    else:
+        notes.append("租金待補")
+    if has_image:
+        score += 5
+        notes.append("照片可讀")
+    else:
+        notes.append("照片待補")
+    if activity and NOW - activity <= SOCIAL_ONGOING_WINDOW:
+        score += 10
+        notes.append("兩天內活動")
+    else:
+        score += 5
+        notes.append("首次回溯期")
+
+    score = min(score, 100)
+    if owner and (management or vacant) and score >= 75:
+        grade = "A"
+    elif owner and score >= 60:
+        grade = "B"
+    else:
+        grade = "C"
+    tags.append(f"lead_{grade.lower()}")
+    if not rent or not area or not has_image:
+        tags.append("needs_info")
+    return grade, score, list(dict.fromkeys(tags)), notes
 
 
 def parse_social_activity_time(value: Any) -> datetime | None:
@@ -3319,7 +3489,7 @@ def facebook_row_reject_reasons(
         reasons.append("invalid_permanent_url")
     if not has_three_or_more_rooms(text):
         reasons.append("not_three_rooms")
-    if social_industry_listing(text, str(row.get("publisher", ""))):
+    if facebook_industry_listing(text, str(row.get("publisher", ""))):
         reasons.append("excluded_industry")
     if proxy_listing(text, str(row.get("publisher", ""))):
         reasons.append("excluded_proxy")
@@ -3364,7 +3534,7 @@ def parse_social_row(
     title = clean(row.get("title") or text.split("。")[0], 180)
     rent = money(str(row.get("rent", "")))
     activity = activity or social_activity_from_row(row)
-    score, social_tags, social_notes = social_screening(
+    lead_grade, score, social_tags, social_notes = facebook_lead_screening(
         text=text,
         size=clean(row.get("size", ""), 30),
         rent=rent,
@@ -3399,6 +3569,7 @@ def parse_social_row(
         summary=clean(row.get("summary", ""), 500),
         category_hint="priority" if any(marker in text for marker in PRIORITY_MARKERS) else "general",
         social_score=score,
+        fb_lead_grade=lead_grade,
         social_notes=social_notes,
         raw_text=text,
         validated_at=NOW.isoformat(),
@@ -3538,13 +3709,19 @@ def load_facebook_import(
     source_stats["window_candidates"] = window_candidates
     source_stats["missing_rent_accepted"] = sum(not item.rent for item in result)
     source_stats["missing_photo_accepted"] = sum(not item.image for item in result)
+    source_stats["lead_grades"] = {
+        grade: sum(item.fb_lead_grade == grade for item in result)
+        for grade in ("A", "B", "C")
+    }
     source_stats["rejects"] = dict(sorted(rejects.items()))
     source_stats["notices"].append(
         f"FB目前合併檔案、Secret、HTTPS feed與GitHub公開投稿；"
         "接受任何可匿名驗證的公開社團永久貼文，既有11個社團連結只作為人工查找入口。"
         f"本輪為{'首次' if source_stats['collection_mode'] == 'initial' else '後續'}收集，"
-        f"讀取最近{source_stats['window_days']}天；指定四區、至少3房與非包租代管／仲介同業為硬條件，"
-        "坪數、租金、照片與屋主訊號只用於自動評分，不會因單一選填欄位缺少而捏造或誤殺。"
+        f"讀取最近{source_stats['window_days']}天；指定四區、至少3房與非包租代管／仲介同業為硬條件。"
+        "屋主尋求代管、人在外地或沒時間管理會保留並提高房源等級；"
+        "公司、證照、服務費及招攬委託等業者訊號仍會排除。"
+        "坪數、租金與照片只用於評分，不會因單一選填欄位缺少而捏造或誤殺。"
         "Facebook未向未登入訪客提供完整社團貼文清單，"
         "因此候選數代表已取得且可匿名驗證的永久貼文，不是社團全部貼文數。"
     )
@@ -4851,7 +5028,14 @@ def listing_filter_tokens(item: Listing) -> list[str]:
     if item.source == "信義房屋":
         return ["all"]
 
-    if item.source in {"FB", "Threads"}:
+    if item.source == "FB":
+        tags = set(item.filter_tags)
+        return [
+            "all",
+            *(key for key in ("lead_a", "lead_b", "lead_c") if key in tags),
+        ]
+
+    if item.source == "Threads":
         tags = set(item.filter_tags)
         return [
             "all",
@@ -4920,7 +5104,17 @@ def card_badges(item: Listing) -> list[str]:
             badges.append("屋主")
         if "friendly" in tokens:
             badges.append("友善房源")
-    elif item.source in {"FB", "Threads"}:
+    elif item.source == "FB":
+        if item.fb_lead_grade:
+            badges.append(f"{item.fb_lead_grade}級房源")
+        social_tags = set(item.filter_tags)
+        if "management_need" in social_tags:
+            badges.append("屋主尋求代管")
+        elif "owner" in social_tags:
+            badges.append("屋主訊號")
+        if "vacant" in social_tags:
+            badges.append("空屋／急租")
+    elif item.source == "Threads":
         social_tags = set(item.filter_tags)
         if "recommended" in social_tags:
             badges.append("高符合")
@@ -4961,7 +5155,11 @@ def render_card(item: Listing, order: int = 0) -> str:
         for value in card_badges(item)
     )
     activity_values = [v for v in (item.updated, item.views) if v]
-    if item.source in {"FB", "Threads"} and item.social_score:
+    if item.source == "FB" and item.social_score:
+        activity_values.append(
+            f"{item.fb_lead_grade or 'C'}級房源・潛力 {item.social_score}/100"
+        )
+    elif item.source == "Threads" and item.social_score:
         activity_values.append(f"自動符合度 {item.social_score}/100")
     activity = "・".join(activity_values)
     categories = " ".join(listing_filter_tokens(item))
@@ -5219,10 +5417,15 @@ def render_status(stats: dict[str, Any], source: str) -> str:
             f"<details><summary>591排除診斷</summary><div>{esc(reject_text)}</div></details>"
         )
     elif source == "FB":
+        lead_grades = row.get("lead_grades", {}) or {}
         diagnostics = (
-            f"<span>人工查找入口 {row.get('discovery_groups', len(FB_GROUPS))} 個</span>"
+            f"<span>公開社團入口 {row.get('discovery_groups', len(FB_GROUPS))} 個</span>"
+            f"<span>Marketplace入口 1 個</span>"
             f"<span>匿名驗證貼文 "
             f"{row.get('anonymous_verified_posts', row.get('validated', 0))} 筆</span>"
+            f"<span>🔥 A級 {lead_grades.get('A', 0)} 筆</span>"
+            f"<span>🟡 B級 {lead_grades.get('B', 0)} 筆</span>"
+            f"<span>⚪ C級 {lead_grades.get('C', 0)} 筆</span>"
             f"<span>公開投稿 {row.get('issue_submissions_seen', 0)} 筆</span>"
             f"<span>自動補齊 {row.get('public_metadata_enriched', 0)} 筆</span>"
             f"<span>{'首次回溯' if row.get('collection_mode') == 'initial' else '後續更新'} "
@@ -5318,8 +5521,13 @@ def render_status(stats: dict[str, Any], source: str) -> str:
 
 def render_html(items: list[Listing], stats: dict[str, Any]) -> str:
     fb_buttons = "".join(
-        f'<a href="{esc(url)}" target="_blank" rel="noopener noreferrer">FB社團 {idx:02d} ↗</a>'
+        f'<a href="{esc(url)}" target="_blank" rel="noopener noreferrer">'
+        f'{esc(FB_DISCOVERY_LABELS.get(url, f"公開租屋來源 {idx:02d}"))} ↗</a>'
         for idx, url in enumerate(FB_GROUPS, 1)
+    )
+    fb_buttons += (
+        f'<a href="{esc(FB_MARKETPLACE_URL)}" target="_blank" '
+        'rel="noopener noreferrer">Facebook Marketplace ↗</a>'
     )
 
     return f"""<!doctype html>
@@ -5526,10 +5734,15 @@ h3 a{{text-decoration:none}}
   </div>
   {render_status(stats, 'FB')}
   <div class="social-note">
-    <strong>FB公開資料＋人工授權入口＋自動篩選：</strong>
-    接受任何可匿名驗證的公開社團永久貼文，並合併檔案、Secret、公開HTTPS feed與GitHub投稿。
-    桃園區、中壢區、平鎮區、八德區及至少3房是必要條件；包租代管與仲介同業會排除。
-    30至35坪以上、租金、照片與屋主訊號是加分條件，缺少選填資訊仍會誠實顯示，不補造資料或照片。
+    <strong>FB 屋主房源雷達：公開資料＋人工授權入口＋AI規則篩選</strong>
+    接受任何可匿名驗證的公開社團永久貼文，並合併檔案、Secret、公開HTTPS feed與GitHub投稿；
+    社團與Marketplace按鈕是人工發現入口，不會登入或大量模擬瀏覽。
+    桃園區、中壢區、平鎮區、八德區及至少3房是必要條件。
+    A級代表屋主身分明確，且另有尋求代管、人在外地、沒時間管理、空屋或急租訊號；
+    B級為屋主房源但管理需求較不明確；C級是其他通過硬條件的真實出租。
+    公司、證照、服務費、招攬委託等包租代管／仲介同業廣告會排除；
+    屋主自己提到「想找代管」不會再被誤判為同業。
+    30至35坪以上、租金與照片是加分條件，缺少選填資訊仍會誠實顯示，不補造資料或照片。
     首次回溯7天，後續只讀最近2天；「新房源」表示同一物件過去2天未曾出現。
     不需要、也請勿提供Facebook帳號、密碼、Cookie或Session；無法匿名讀取的私密貼文不會刊出。
   </div>
@@ -5538,7 +5751,7 @@ h3 a{{text-decoration:none}}
       items,
       stats,
       'FB',
-      (('all', '全部'), ('recommended', '高符合'), ('spacious', '30坪以上'), ('needs_info', '資訊待補')),
+      (('all', '全部'), ('lead_a', '🔥 A級房源'), ('lead_b', '🟡 B級房源'), ('lead_c', '⚪ C級房源')),
       (('recency', '最新'), ('total', '租金總費用'), ('rent', '租金'), ('area', '坪數')),
   )}
 </div>

@@ -971,6 +971,87 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
         self.assertIn("excluded_industry", DIGEST.facebook_row_reject_reasons(row))
         self.assertIsNone(DIGEST.parse_social_row(row, "FB", DIGEST.NOW))
 
+    def test_owner_seeking_management_is_kept_and_ranked_a(self) -> None:
+        row = {
+            "url": "https://www.facebook.com/groups/987654321/posts/1234567890125/",
+            "title": "中壢區四房屋主自租",
+            "district": "中壢區",
+            "layout": "4房2廳2衛",
+            "size": "38坪",
+            "rent": "28000",
+            "publisher": "屋主林先生",
+            "image": "https://scontent.ftpe8-1.fna.fbcdn.net/owner-home.jpg",
+            "post_text": (
+                "屋主自租，中壢區4房整層出租，前房客剛搬走，房東人在外地，"
+                "沒時間管理，想找包租代管協助。"
+            ),
+        }
+
+        self.assertFalse(
+            DIGEST.facebook_industry_listing(
+                row["post_text"],
+                row["publisher"],
+            )
+        )
+        self.assertEqual(DIGEST.facebook_row_reject_reasons(row), [])
+        item = DIGEST.parse_social_row(row, "FB", DIGEST.NOW)
+
+        self.assertIsNotNone(item)
+        assert item is not None
+        self.assertEqual(item.fb_lead_grade, "A")
+        self.assertIn("lead_a", item.filter_tags)
+        self.assertIn("management_need", item.filter_tags)
+        self.assertIn("vacant", item.filter_tags)
+        self.assertEqual(DIGEST.listing_filter_tokens(item), ["all", "lead_a"])
+        self.assertIn("A級房源", DIGEST.render_card(item))
+        self.assertIn("屋主尋求代管", DIGEST.render_card(item))
+
+    def test_fb_owner_without_management_pain_is_ranked_b(self) -> None:
+        row = {
+            "url": "https://www.facebook.com/groups/987654321/posts/1234567890126/",
+            "title": "平鎮區三房出租",
+            "district": "平鎮區",
+            "layout": "3房2廳",
+            "rent": "23000",
+            "publisher": "屋主陳小姐",
+            "image": "https://scontent.ftpe8-1.fna.fbcdn.net/owner-home-b.jpg",
+            "post_text": "屋主自租，平鎮區3房出租，仲介勿擾。",
+        }
+
+        item = DIGEST.parse_social_row(row, "FB", DIGEST.NOW)
+
+        self.assertIsNotNone(item)
+        assert item is not None
+        self.assertEqual(item.fb_lead_grade, "B")
+        self.assertEqual(DIGEST.listing_filter_tokens(item), ["all", "lead_b"])
+
+    def test_fb_non_owner_verified_rental_is_ranked_c(self) -> None:
+        row = {
+            "url": "https://www.facebook.com/groups/987654321/posts/1234567890127/",
+            "title": "八德區四房出租",
+            "district": "八德區",
+            "layout": "4房2廳",
+            "size": "35坪",
+            "rent": "26000",
+            "image": "https://scontent.ftpe8-1.fna.fbcdn.net/home-c.jpg",
+            "post_text": "八德區4房出租，近大湳商圈。",
+        }
+
+        item = DIGEST.parse_social_row(row, "FB", DIGEST.NOW)
+
+        self.assertIsNotNone(item)
+        assert item is not None
+        self.assertEqual(item.fb_lead_grade, "C")
+        self.assertEqual(DIGEST.listing_filter_tokens(item), ["all", "lead_c"])
+
+    def test_fb_company_signature_stays_excluded_even_with_management_words(self) -> None:
+        text = (
+            "桃園區4房出租，也可協助想找包租代管的房東。"
+            "歡迎房東委託，成交後收取服務費，不動產經紀營業員王先生。"
+        )
+
+        self.assertTrue(DIGEST.facebook_industry_listing(text, "安心房屋仲介"))
+
     def test_supplied_share_post_reports_every_rejection_reason(self) -> None:
         row = {
             "url": "https://www.facebook.com/share/p/1EDpLMRgBC/",
@@ -2393,17 +2474,27 @@ class CurrentListingDisplayTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(f"{DIGEST.NOW:%Y/%m/%d %H:%M}", rendered)
-        self.assertIn("人工查找入口 11 個", rendered)
+        self.assertIn("公開社團入口 11 個", rendered)
+        self.assertIn("Marketplace入口 1 個", rendered)
         self.assertIn("匿名驗證貼文 0 筆", rendered)
+        self.assertIn("🔥 A級 0 筆", rendered)
+        self.assertIn("🟡 B級 0 筆", rendered)
+        self.assertIn("⚪ C級 0 筆", rendered)
         self.assertIn("公開投稿 0 筆", rendered)
         self.assertIn("自動補齊 0 筆", rendered)
         self.assertIn("提交FB永久貼文", rendered)
-        self.assertIn("FB公開資料＋人工授權入口＋自動篩選", rendered)
+        self.assertIn("FB 屋主房源雷達", rendered)
         self.assertIn(DIGEST.FB_ISSUE_TEMPLATE_URL, rendered)
+        self.assertIn(DIGEST.FB_MARKETPLACE_URL, rendered)
+        self.assertIn("520租屋快訊網", rendered)
+        self.assertIn("中壢租屋網", rendered)
         self.assertIn(DIGEST.THREADS_ISSUE_TEMPLATE_URL, rendered)
         self.assertIn("提交Threads永久貼文", rendered)
         self.assertIn("高符合", rendered)
         self.assertIn("資訊待補", rendered)
+        self.assertIn("🔥 A級房源", rendered)
+        self.assertIn("🟡 B級房源", rendered)
+        self.assertIn("⚪ C級房源", rendered)
         self.assertIn("優選好屋", rendered)
         self.assertIn("租金總費用", rendered)
         self.assertIn("室內坪數", rendered)
