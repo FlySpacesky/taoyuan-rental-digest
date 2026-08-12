@@ -21,6 +21,11 @@ on:
         required: false
         default: ""
         type: string
+      skip_line:
+        description: "只重建與部署電子報，不額外發送LINE（維護驗證用）"
+        required: false
+        default: false
+        type: boolean
   schedule:
     - cron: "30 9 * * *"
       timezone: "Asia/Taipei"
@@ -193,7 +198,7 @@ jobs:
 
       - name: 決定 LINE 投遞時段
         id: delivery-slot
-        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_line) }}
         shell: bash
         env:
           REQUESTED_SLOT: ${{ inputs.delivery_slot }}
@@ -216,7 +221,7 @@ jobs:
           echo "LINE delivery slot: ${SLOT}"
 
       - name: 發送 LINE
-        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_line) }}
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_DELIVERY_SLOT: ${{ steps.delivery-slot.outputs.slot }}
