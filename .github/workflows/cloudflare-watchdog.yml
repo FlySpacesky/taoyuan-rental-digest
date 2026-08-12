@@ -104,14 +104,22 @@ jobs:
           import urllib.request
 
           base = "https://taoyuan-rental-line-watchdog.flysky3345678.workers.dev"
+          common_headers = {"User-Agent": "taoyuan-rental-inbox-smoke/1.0"}
 
-          health = json.load(urllib.request.urlopen(f"{base}/health", timeout=30))
+          health_request = urllib.request.Request(
+              f"{base}/health",
+              headers=common_headers,
+          )
+          health = json.load(urllib.request.urlopen(health_request, timeout=30))
           assert health["status"] == "ok"
           assert health["facebookInboxConfigured"] is True
 
           read_request = urllib.request.Request(
               f"{base}/facebook-inbox-feed",
-              headers={"Authorization": f"Bearer {os.environ['FB_INBOX_READ_TOKEN']}"},
+              headers={
+                  **common_headers,
+                  "Authorization": f"Bearer {os.environ['FB_INBOX_READ_TOKEN']}",
+              },
           )
           feed = json.load(urllib.request.urlopen(read_request, timeout=30))
           assert isinstance(feed.get("posts"), list)
@@ -120,6 +128,7 @@ jobs:
               f"{base}/facebook-inbox",
               data=b"{}",
               headers={
+                  **common_headers,
                   "Authorization": f"Bearer {os.environ['FB_INBOX_WRITE_TOKEN']}",
                   "Content-Type": "application/json",
               },
