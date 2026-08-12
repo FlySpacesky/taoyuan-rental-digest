@@ -91,3 +91,46 @@ jobs:
         run: |
           printf '%s' "${FB_INBOX_WRITE_TOKEN}" | npx --yes wrangler@4.120.0 secret put FB_INBOX_WRITE_TOKEN
           printf '%s' "${FB_INBOX_READ_TOKEN}" | npx --yes wrangler@4.120.0 secret put FB_INBOX_READ_TOKEN
+
+      - name: 驗證正式私人收件匣讀寫隔離
+        env:
+          FB_INBOX_WRITE_TOKEN: ${{ secrets.FB_INBOX_WRITE_TOKEN }}
+          FB_INBOX_READ_TOKEN: ${{ secrets.FB_INBOX_READ_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+
+          base = "https://taoyuan-rental-line-watchdog.flysky3345678.workers.dev"
+
+          health = json.load(urllib.request.urlopen(f"{base}/health", timeout=30))
+          assert health["status"] == "ok"
+          assert health["facebookInboxConfigured"] is True
+
+          read_request = urllib.request.Request(
+              f"{base}/facebook-inbox-feed",
+              headers={"Authorization": f"Bearer {os.environ['FB_INBOX_READ_TOKEN']}"},
+          )
+          feed = json.load(urllib.request.urlopen(read_request, timeout=30))
+          assert isinstance(feed.get("posts"), list)
+
+          write_request = urllib.request.Request(
+              f"{base}/facebook-inbox",
+              data=b"{}",
+              headers={
+                  "Authorization": f"Bearer {os.environ['FB_INBOX_WRITE_TOKEN']}",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          try:
+              urllib.request.urlopen(write_request, timeout=30)
+          except urllib.error.HTTPError as exc:
+              assert exc.code == 422, exc.code
+          else:
+              raise AssertionError("空白投稿不應被收件")
+
+          print(f"Private inbox smoke test passed; stored posts={len(feed['posts'])}")
+          PY
