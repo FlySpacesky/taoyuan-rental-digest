@@ -2677,6 +2677,8 @@ class CurrentListingDisplayTests(unittest.TestCase):
         self.assertEqual(workflow.count('timezone: "Asia/Taipei"'), 3)
         self.assertIn("LINE_DELIVERY_SLOT:", workflow)
         self.assertIn("manual:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}", workflow)
+        self.assertIn("skip_line:", workflow)
+        self.assertEqual(workflow.count("!inputs.skip_line"), 2)
         self.assertIn(
             'LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}',
             workflow,
