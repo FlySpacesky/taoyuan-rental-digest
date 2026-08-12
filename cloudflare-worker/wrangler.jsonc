@@ -3,7 +3,7 @@
   "name": "taoyuan-rental-line-watchdog",
   "main": "src/index.js",
   "compatibility_date": "2026-08-08",
-  "compatibility_flags": ["nodejs_compat_v2"],
+  "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "browser": {
     "binding": "BROWSER"
