@@ -618,7 +618,7 @@ class RakuyaFallbackTests(unittest.TestCase):
 
 
 class FacebookImportTests(unittest.TestCase):
-    def test_resolved_group_permalink_is_allowlisted(self) -> None:
+    def test_resolved_group_permalink_is_accepted_as_public_group_post(self) -> None:
         permalink = (
             "https://www.facebook.com/groups/4091621327828556/"
             "permalink/4623380861319264/?rdid=tracking"
@@ -850,29 +850,16 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
         self.assertEqual(item.total_cost, 28_000)
         self.assertEqual(item.category_hint, "general")
 
-    def test_repo_facebook_import_contains_supplied_real_post(self) -> None:
+    def test_repo_facebook_import_excludes_post_outside_initial_seven_days(self) -> None:
         stats = DIGEST.empty_source_stats()
 
         items = DIGEST.load_facebook_import(stats)
 
-        target = next(
-            (
-                item
-                for item in items
-                if item.url.endswith("/permalink/4623380861319264/")
-            ),
-            None,
-        )
-        self.assertIsNotNone(target)
-        assert target is not None
-        self.assertEqual(target.layout, "4房2廳2衛")
-        self.assertEqual(target.size, "46坪")
-        self.assertEqual(target.rent, 23_000)
-        self.assertEqual(target.publisher, "林思妤")
-        self.assertEqual(target.updated, "2026/07/13 21:43刊登")
+        self.assertEqual(items, [])
         self.assertEqual(stats["import_source"], "data/facebook_posts.json")
-        self.assertEqual(stats["allowed_groups"], len(DIGEST.FB_GROUPS))
-        self.assertEqual(stats["anonymous_verified_posts"], 1)
+        self.assertEqual(stats["discovery_groups"], len(DIGEST.FB_GROUPS))
+        self.assertEqual(stats["anonymous_verified_posts"], 0)
+        self.assertEqual(stats["rejects"]["outside_collection_window"], 1)
         self.assertIn("不是社團全部貼文數", stats["notices"][0])
 
     def test_file_and_actions_secret_are_merged_instead_of_shadowed(self) -> None:
@@ -886,7 +873,8 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
                 "layout": "4房2廳",
                 "rent": "32000",
                 "publisher": "屋主林先生",
-                "updated": "2026/07/30 08:00刊登",
+                "published_at": DIGEST.NOW.isoformat(),
+                "updated": "剛剛刊登",
                 "image": f"https://images.example.test/{post_id}.jpg",
                 "post_text": f"{district} 4房2廳 租金32000 屋主自租",
             }
@@ -952,6 +940,37 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
         self.assertEqual(item.views, "88人瀏覽")
         self.assertEqual(item.publisher, "屋主林先生")
 
+    def test_public_unlisted_group_three_room_post_is_accepted_without_optional_fields(
+        self,
+    ) -> None:
+        row = {
+            "url": "https://www.facebook.com/groups/987654321/posts/1234567890123/",
+            "title": "八德區三房整層出租",
+            "district": "八德區",
+            "layout": "3房2廳2衛",
+            "post_text": "八德區3房2廳2衛整層出租，仲介勿擾",
+        }
+
+        self.assertEqual(DIGEST.facebook_row_reject_reasons(row), [])
+        item = DIGEST.parse_social_row(row, "FB", DIGEST.NOW)
+        self.assertIsNotNone(item)
+        assert item is not None
+        self.assertEqual(item.rent, 0)
+        self.assertEqual(item.image, "")
+        self.assertIn("needs_info", item.filter_tags)
+
+    def test_facebook_property_management_industry_is_excluded(self) -> None:
+        row = {
+            "url": "https://www.facebook.com/groups/987654321/posts/1234567890124/",
+            "title": "桃園區四房出租",
+            "district": "桃園區",
+            "layout": "4房2廳2衛",
+            "post_text": "桃園區4房出租，包租代管公司，歡迎房東委託",
+        }
+
+        self.assertIn("excluded_industry", DIGEST.facebook_row_reject_reasons(row))
+        self.assertIsNone(DIGEST.parse_social_row(row, "FB", DIGEST.NOW))
+
     def test_supplied_share_post_reports_every_rejection_reason(self) -> None:
         row = {
             "url": "https://www.facebook.com/share/p/1EDpLMRgBC/",
@@ -968,10 +987,10 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
 
         reasons = set(DIGEST.facebook_row_reject_reasons(row))
 
-        self.assertIn("invalid_or_unlisted_group_url", reasons)
-        self.assertIn("not_four_rooms", reasons)
-        self.assertIn("excluded_management_or_broker", reasons)
-        self.assertIn("image_not_direct_public", reasons)
+        self.assertIn("invalid_permanent_url", reasons)
+        self.assertIn("not_three_rooms", reasons)
+        self.assertIn("excluded_industry", reasons)
+        self.assertNotIn("image_not_direct_public", reasons)
         self.assertIsNone(DIGEST.parse_social_row(row, "FB"))
 
         stats = DIGEST.empty_source_stats()
@@ -992,8 +1011,8 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
         self.assertEqual(items, [])
         self.assertEqual(stats["candidate_links"], 0)
         self.assertEqual(stats["input_rows"], 1)
-        self.assertEqual(stats["rejects"]["not_four_rooms"], 1)
-        self.assertEqual(stats["rejects"]["image_not_direct_public"], 1)
+        self.assertEqual(stats["rejects"]["not_three_rooms"], 1)
+        self.assertEqual(stats["rejects"]["excluded_industry"], 1)
         self.assertEqual(len(stats["errors"]), 1)
 
     def test_missing_file_and_secret_reports_actionable_error(self) -> None:
@@ -1074,10 +1093,19 @@ class ThreadsImportTests(unittest.TestCase):
 
     def test_missing_access_token_reports_actionable_error(self) -> None:
         stats = DIGEST.empty_source_stats()
-        with patch.dict(
-            os.environ,
-            {DIGEST.THREADS_ACCESS_TOKEN_ENV: ""},
-            clear=False,
+        with (
+            patch.object(DIGEST, "THREADS_IMPORT", ROOT / "data" / "__missing_threads__.json"),
+            patch.dict(
+                os.environ,
+                {
+                    DIGEST.THREADS_ACCESS_TOKEN_ENV: "",
+                    DIGEST.THREADS_IMPORT_ENV: "",
+                    DIGEST.THREADS_IMPORT_URL_ENV: "",
+                    DIGEST.GITHUB_REPOSITORY_ENV: "",
+                    DIGEST.GITHUB_TOKEN_ENV: "",
+                },
+                clear=False,
+            ),
         ):
             items = DIGEST.load_threads_listings(stats)
 
@@ -1086,6 +1114,123 @@ class ThreadsImportTests(unittest.TestCase):
         self.assertEqual(stats["validated"], 0)
         self.assertIn(DIGEST.THREADS_ACCESS_TOKEN_ENV, stats["errors"][0])
         self.assertIn("threads_keyword_search", stats["errors"][0])
+
+    def test_manual_public_threads_feed_accepts_three_rooms_without_rent_or_photo(
+        self,
+    ) -> None:
+        stats = DIGEST.empty_source_stats()
+        row = {
+            "permalink": "https://www.threads.com/@owner.home/post/THREE_ROOM",
+            "text": "中壢區整層出租，3房2廳2衛，室內約32坪，仲介勿擾",
+            "published_at": DIGEST.NOW.isoformat(),
+        }
+        with (
+            patch.object(DIGEST, "THREADS_IMPORT", ROOT / "data" / "__missing_threads__.json"),
+            patch.dict(
+                os.environ,
+                {
+                    DIGEST.THREADS_ACCESS_TOKEN_ENV: "",
+                    DIGEST.THREADS_IMPORT_ENV: json.dumps([row], ensure_ascii=False),
+                    DIGEST.THREADS_IMPORT_URL_ENV: "",
+                    DIGEST.GITHUB_REPOSITORY_ENV: "",
+                    DIGEST.GITHUB_TOKEN_ENV: "",
+                },
+                clear=False,
+            ),
+        ):
+            items = DIGEST.load_threads_listings(stats, {})
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].district, "中壢區")
+        self.assertEqual(items[0].layout, "3房2廳2衛")
+        self.assertEqual(items[0].rent, 0)
+        self.assertEqual(items[0].image, "")
+        self.assertIn("spacious", items[0].filter_tags)
+        self.assertIn("needs_info", items[0].filter_tags)
+        self.assertEqual(stats["missing_rent_accepted"], 1)
+        self.assertEqual(stats["missing_photo_accepted"], 1)
+
+    def test_manual_threads_feed_excludes_property_management_industry(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        row = {
+            "permalink": "https://www.threads.com/@agency/post/MANAGED_HOME",
+            "text": "八德區4房2廳出租，40坪，包租代管公司，歡迎房東委託",
+            "published_at": DIGEST.NOW.isoformat(),
+        }
+        with (
+            patch.object(DIGEST, "THREADS_IMPORT", ROOT / "data" / "__missing_threads__.json"),
+            patch.dict(
+                os.environ,
+                {
+                    DIGEST.THREADS_ACCESS_TOKEN_ENV: "",
+                    DIGEST.THREADS_IMPORT_ENV: json.dumps([row], ensure_ascii=False),
+                    DIGEST.THREADS_IMPORT_URL_ENV: "",
+                    DIGEST.GITHUB_REPOSITORY_ENV: "",
+                    DIGEST.GITHUB_TOKEN_ENV: "",
+                },
+                clear=False,
+            ),
+        ):
+            items = DIGEST.load_threads_listings(stats, {})
+
+        self.assertEqual(items, [])
+        self.assertEqual(stats["rejects"]["excluded_industry"], 1)
+
+    def test_threads_initial_window_is_seven_days_then_two_days(self) -> None:
+        row = {
+            "permalink": "https://www.threads.com/@owner.home/post/SIX_DAYS_OLD",
+            "text": "平鎮區3房2廳整層出租，35坪",
+            "published_at": (DIGEST.NOW - DIGEST.timedelta(days=6)).isoformat(),
+        }
+        state: dict[str, object] = {}
+        common_env = {
+            DIGEST.THREADS_ACCESS_TOKEN_ENV: "",
+            DIGEST.THREADS_IMPORT_ENV: json.dumps([row], ensure_ascii=False),
+            DIGEST.THREADS_IMPORT_URL_ENV: "",
+            DIGEST.GITHUB_REPOSITORY_ENV: "",
+            DIGEST.GITHUB_TOKEN_ENV: "",
+        }
+        with (
+            patch.object(DIGEST, "THREADS_IMPORT", ROOT / "data" / "__missing_threads__.json"),
+            patch.dict(os.environ, common_env, clear=False),
+        ):
+            first_stats = DIGEST.empty_source_stats()
+            first_items = DIGEST.load_threads_listings(first_stats, state)
+            second_stats = DIGEST.empty_source_stats()
+            second_items = DIGEST.load_threads_listings(second_stats, state)
+
+        self.assertEqual(len(first_items), 1)
+        self.assertEqual(first_stats["collection_mode"], "initial")
+        self.assertEqual(first_stats["window_days"], 7)
+        self.assertEqual(second_items, [])
+        self.assertEqual(second_stats["collection_mode"], "ongoing")
+        self.assertEqual(second_stats["window_days"], 2)
+        self.assertEqual(second_stats["rejects"]["outside_collection_window"], 1)
+
+    def test_threads_issue_form_creates_manual_public_candidate(self) -> None:
+        issue = {
+            "number": 21,
+            "title": "[Threads房源] 中壢三房",
+            "created_at": DIGEST.NOW.isoformat(),
+            "body": """
+### Threads 永久貼文網址
+
+https://www.threads.com/@owner.home/post/ISSUE_HOME
+
+### 完整貼文文字
+
+中壢區3房2廳出租，室內35坪
+
+### 貼文時間
+
+2026-08-12T09:30:00+08:00
+""",
+        }
+        row = DIGEST.parse_threads_issue_body(issue)
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(row["_submission_source"], "GitHub issue #21")
+        self.assertEqual(row["submitted_at"], DIGEST.NOW.isoformat())
 
     def test_search_uses_keyword_and_tag_plans_with_recent_and_top(self) -> None:
         stats = DIGEST.empty_source_stats()
@@ -1385,7 +1530,7 @@ class ThreadsImportTests(unittest.TestCase):
             items = DIGEST.load_threads_listings(stats)
 
         self.assertEqual(len(items), 1)
-        self.assertEqual(items[0].source_id, "root-100")
+        self.assertEqual(items[0].source_id, "real.home:ROOT_100")
         self.assertEqual(stats["search_reply_rows"], 1)
         self.assertEqual(stats["root_post_requests"], 1)
         self.assertEqual(stats["author_reply_rows"], 1)
@@ -1402,7 +1547,7 @@ class ThreadsImportTests(unittest.TestCase):
                     "permalink": "https://www.threads.com/@real.home/post/OLD_POST",
                     "username": "real.home",
                     "text": "桃園區四房出租\n4房2廳2衛",
-                    "timestamp": (DIGEST.NOW - DIGEST.timedelta(days=2)).isoformat(),
+                    "timestamp": (DIGEST.NOW - DIGEST.timedelta(days=8)).isoformat(),
                 }
             ]
         }
@@ -1420,9 +1565,9 @@ class ThreadsImportTests(unittest.TestCase):
             items = DIGEST.load_threads_listings(stats)
 
         self.assertEqual(items, [])
-        self.assertEqual(stats["rejects"]["outside_today_yesterday"], 1)
+        self.assertEqual(stats["rejects"]["outside_collection_window"], 1)
         self.assertIn(
-            "outside_today_yesterday",
+            "outside_collection_window",
             stats["candidate_diagnostics"][0]["reasons"],
         )
         archive.assert_not_called()
@@ -1474,7 +1619,7 @@ class ThreadsImportTests(unittest.TestCase):
         self.assertEqual(stats["reply_http_statuses"]["403"], 1)
         self.assertTrue(any("Meta官方" in notice for notice in stats["notices"]))
 
-    def test_non_taoyuan_or_under_four_rooms_is_rejected(self) -> None:
+    def test_outside_district_and_under_three_rooms_is_rejected(self) -> None:
         stats = DIGEST.empty_source_stats()
         response = Mock(status_code=200)
         response.json.return_value = {
@@ -1487,7 +1632,8 @@ class ThreadsImportTests(unittest.TestCase):
                         "https://www.threads.com/@real.home/post/NOT_TAOYUAN"
                     ),
                     "username": "real.home",
-                    "text": "中壢區三房出租\n租金：20,000元\n3房2廳1衛",
+                    "text": "龜山區兩房出租\n租金：20,000元\n2房2廳1衛",
+                    "timestamp": DIGEST.NOW.isoformat(),
                 }
             ]
         }
@@ -1505,8 +1651,8 @@ class ThreadsImportTests(unittest.TestCase):
         self.assertEqual(items, [])
         self.assertEqual(stats["candidate_links"], 1)
         self.assertEqual(stats["validated"], 0)
-        self.assertEqual(stats["rejects"]["not_taoyuan_district"], 1)
-        self.assertEqual(stats["rejects"]["not_four_rooms"], 1)
+        self.assertEqual(stats["rejects"]["invalid_district"], 1)
+        self.assertEqual(stats["rejects"]["not_three_rooms"], 1)
         archive.assert_not_called()
 
     def test_all_threads_images_are_archived(self) -> None:
@@ -2025,6 +2171,7 @@ class CurrentListingDisplayTests(unittest.TestCase):
                 DIGEST, "LAST_SUCCESS_YUNGCHING", Path("missing-yungching.json")
             ):
                 DIGEST.assign_first_seen(items, state)
+                DIGEST.assign_social_new_flags(items, state)
 
             self.assertFalse(DIGEST.is_new_listing(items[0]))
             self.assertTrue(all(DIGEST.is_new_listing(item) for item in items[1:]))
@@ -2047,12 +2194,12 @@ class CurrentListingDisplayTests(unittest.TestCase):
                 title="既有四房",
             )
             existing_payload = {
-                "generated_at": "2026-08-10T12:00:00+08:00",
+                "generated_at": "2026-08-11T12:00:00+08:00",
                 "items": [
                     {
                         "source": "FB",
                         "source_id": "existing",
-                        "validated_at": "2026-08-10T12:00:00+08:00",
+                        "validated_at": "2026-08-11T12:00:00+08:00",
                     }
                 ],
             }
@@ -2065,9 +2212,40 @@ class CurrentListingDisplayTests(unittest.TestCase):
                 ), patch.object(DIGEST, "LAST_SUCCESS_SINYI", missing), patch.object(
                     DIGEST, "LAST_SUCCESS_YUNGCHING", missing
                 ):
-                    DIGEST.assign_first_seen([item], {"sent": [], "prices": {}})
-            self.assertEqual(item.first_seen_at, "2026-08-10T12:00:00+08:00")
+                    state = {"sent": [], "prices": {}}
+                    DIGEST.assign_first_seen([item], state)
+                    DIGEST.assign_social_new_flags([item], state)
+            self.assertEqual(item.first_seen_at, "2026-08-11T12:00:00+08:00")
             self.assertFalse(DIGEST.is_new_listing(item))
+        finally:
+            DIGEST.NOW = old_now
+
+    def test_social_listing_is_new_only_after_two_days_without_appearance(self) -> None:
+        old_now = DIGEST.NOW
+        DIGEST.NOW = DIGEST.datetime(2026, 8, 12, 18, 0, tzinfo=DIGEST.TZ)
+        try:
+            recent = DIGEST.Listing(
+                source="FB",
+                source_id="recent",
+                url="https://example.test/recent",
+            )
+            absent = DIGEST.Listing(
+                source="Threads",
+                source_id="absent",
+                url="https://example.test/absent",
+            )
+            state = {
+                "social_last_seen": {
+                    "FB:recent": "2026-08-11T18:00:00+08:00",
+                    "Threads:absent": "2026-08-09T18:00:00+08:00",
+                }
+            }
+            with patch.object(DIGEST, "OUTPUT_JSON", Path("missing-output.json")):
+                DIGEST.assign_social_new_flags([recent, absent], state)
+
+            self.assertFalse(recent.new_listing)
+            self.assertTrue(absent.new_listing)
+            self.assertIn("過去2天未曾出現", DIGEST.render_card(absent))
         finally:
             DIGEST.NOW = old_now
 
@@ -2215,13 +2393,17 @@ class CurrentListingDisplayTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(f"{DIGEST.NOW:%Y/%m/%d %H:%M}", rendered)
-        self.assertIn("允許社團 11 個", rendered)
+        self.assertIn("人工查找入口 11 個", rendered)
         self.assertIn("匿名驗證貼文 0 筆", rendered)
         self.assertIn("公開投稿 0 筆", rendered)
         self.assertIn("自動補齊 0 筆", rendered)
         self.assertIn("提交FB永久貼文", rendered)
-        self.assertIn("GitHub Actions會以不含Cookie的匿名請求", rendered)
+        self.assertIn("FB公開資料＋人工授權入口＋自動篩選", rendered)
         self.assertIn(DIGEST.FB_ISSUE_TEMPLATE_URL, rendered)
+        self.assertIn(DIGEST.THREADS_ISSUE_TEMPLATE_URL, rendered)
+        self.assertIn("提交Threads永久貼文", rendered)
+        self.assertIn("高符合", rendered)
+        self.assertIn("資訊待補", rendered)
         self.assertIn("優選好屋", rendered)
         self.assertIn("租金總費用", rendered)
         self.assertIn("室內坪數", rendered)
@@ -2247,15 +2429,15 @@ class CurrentListingDisplayTests(unittest.TestCase):
         self.assertEqual(rendered.count('class="status-primary"'), 6)
         self.assertEqual(
             rendered.count('<div class="filter-group" data-filter-count="4"'),
-            2,
+            4,
         )
         self.assertEqual(
             rendered.count('<div class="filter-group" data-filter-count="3"'),
-            1,
+            0,
         )
         self.assertEqual(
             rendered.count('<div class="filter-group" data-filter-count="1"'),
-            2,
+            1,
         )
         self.assertEqual(
             rendered.count('<div class="filter-group" data-filter-count="2"'),
@@ -2324,12 +2506,12 @@ class CurrentListingDisplayTests(unittest.TestCase):
             rendered,
         )
         self.assertIn("桃園區、", rendered)
-        self.assertIn("原作者留言全部照片都已完整保存", rendered)
-        self.assertIn("租金可未提供", rendered)
+        self.assertIn("官方搜尋＋人工授權入口＋自動篩選", rendered)
+        self.assertIn("缺少租金或可讀照片仍可刊出", rendered)
         self.assertIn("留言權限 不可用", rendered)
-        self.assertIn(">Threads <b>0</b></button>", rendered)
+        self.assertIn(">全部 <b>0</b></button>", rendered)
         self.assertNotIn(">優選好屋 <b>0</b></button>", rendered)
-        self.assertIn("Threads 官方 API 驗證通過", rendered)
+        self.assertIn("Threads 官方搜尋或公開投稿驗證通過", rendered)
         self.assertIn(
             "empty.textContent = cards.length",
             rendered,

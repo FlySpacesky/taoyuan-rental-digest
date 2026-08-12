@@ -1,0 +1,55 @@
+name: 提交公開 Threads 三房以上租屋
+description: 提供 Threads 公開永久貼文，作為官方搜尋以外的人工授權入口。
+title: "[Threads房源] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        這個入口不會要求 Threads 帳號、密碼、Cookie 或 Session。
+        請只提交桃園區、中壢區、平鎮區或八德區，且明確為 3 房以上的真實出租貼文。
+        包租代管與仲介同業不收錄；30 至 35 坪以上、租金、照片與屋主訊號是加分條件。
+        房源失效後請關閉這筆 issue，系統便不再由人工入口讀取。
+
+  - type: input
+    id: permanent_url
+    attributes:
+      label: Threads 永久貼文網址
+      description: 必須是 threads.com/@帳號/post/貼文代碼 的公開永久網址。
+      placeholder: https://www.threads.com/@account/post/ABC123
+    validations:
+      required: true
+
+  - type: textarea
+    id: post_text
+    attributes:
+      label: 完整貼文文字
+      description: 請包含貼文與原作者補充留言中的地區、房數等真實內容，不要改寫或補造。
+      placeholder: 請貼上原始公開內容；至少需能確認指定行政區與 3 房以上。
+    validations:
+      required: true
+
+  - type: input
+    id: published_at
+    attributes:
+      label: 貼文時間
+      description: 必填；請填來源貼文或原作者補充留言的實際時間，用於7天／2天窗口驗證。
+      placeholder: 2026-08-12T09:30:00+08:00
+    validations:
+      required: true
+
+  - type: textarea
+    id: image_urls
+    attributes:
+      label: 公開圖片直連
+      description: 選填；每行一個可匿名直接讀取的 HTTPS 圖片網址。請勿填照片頁網址或挪用其他物件照片。
+      placeholder: https://scontent.xx.fbcdn.net/...jpg
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: 真實性確認
+      options:
+        - label: 我確認這是現存的真實 Threads 租屋貼文，且內容與圖片屬於同一物件。
+          required: true

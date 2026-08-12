@@ -83,6 +83,8 @@ jobs:
           FACEBOOK_POSTS_JSON: ${{ secrets.FACEBOOK_POSTS_JSON }}
           FACEBOOK_POSTS_JSON_URL: ${{ secrets.FACEBOOK_POSTS_JSON_URL || vars.FACEBOOK_POSTS_JSON_URL }}
           THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+          THREADS_POSTS_JSON: ${{ secrets.THREADS_POSTS_JSON }}
+          THREADS_POSTS_JSON_URL: ${{ secrets.THREADS_POSTS_JSON_URL || vars.THREADS_POSTS_JSON_URL }}
           GITHUB_TOKEN: ${{ github.token }}
         run: python scripts/generate_rental_digest.py
 
@@ -144,6 +146,8 @@ jobs:
           FACEBOOK_POSTS_JSON: ${{ secrets.FACEBOOK_POSTS_JSON }}
           FACEBOOK_POSTS_JSON_URL: ${{ secrets.FACEBOOK_POSTS_JSON_URL || vars.FACEBOOK_POSTS_JSON_URL }}
           THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+          THREADS_POSTS_JSON: ${{ secrets.THREADS_POSTS_JSON }}
+          THREADS_POSTS_JSON_URL: ${{ secrets.THREADS_POSTS_JSON_URL || vars.THREADS_POSTS_JSON_URL }}
           GITHUB_TOKEN: ${{ github.token }}
         run: python scripts/generate_rental_digest.py
 

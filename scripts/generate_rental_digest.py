@@ -4,12 +4,13 @@
 
 來源：
 - 591：桃園區、中壢區、平鎮區、八德區，整層住家、4房以上
-- Facebook：安全 JSON 匯入
+- Facebook：公開資料、人工授權入口與自動篩選
 - 樂屋網：中壢區、桃園區、平鎮區，4房及5房以上
-- Threads：官方關鍵字搜尋，收錄今天與昨天的桃園區、4房以上且全部照片可保存的物件
+- Threads：官方關鍵字搜尋、人工授權入口與自動篩選
 
 本版重點：
-1. Threads 使用官方 API，不使用帳號密碼、Cookie 或瀏覽器 Session。
+1. FB與Threads不使用帳號密碼、Cookie或瀏覽器Session；指定四區、3房以上與
+   非包租代管／仲介同業為硬條件，首次回溯7天、後續收集2天。
 2. 591 列表優先讀網站前端使用的官方 BFF；失效時才退回 SSR HTML / Chromium。
 3. 591 屋主只接受 role_name / 詳情聯絡人角色明確以「屋主」開頭的物件。
 4. 591 降價優先使用 BFF 官方 diff_price，詳情頁阻擋時使用同輪嚴格列表快照。
@@ -62,6 +63,9 @@ FB_ASSET_PUBLIC_BASE = (
     "https://flyspacesky.github.io/taoyuan-rental-digest/assets/facebook"
 )
 THREADS_ACCESS_TOKEN_ENV = "THREADS_ACCESS_TOKEN"
+THREADS_IMPORT = ROOT / "data" / "threads_posts.json"
+THREADS_IMPORT_ENV = "THREADS_POSTS_JSON"
+THREADS_IMPORT_URL_ENV = "THREADS_POSTS_JSON_URL"
 THREADS_GRAPH_BASE = "https://graph.threads.net"
 THREADS_ASSET_DIR = DOCS / "assets" / "threads"
 THREADS_ASSET_PUBLIC_BASE = (
@@ -70,22 +74,25 @@ THREADS_ASSET_PUBLIC_BASE = (
 YUNGCHING_ASSET_DIR = DOCS / "assets" / "yungching"
 YUNGCHING_ASSET_PUBLIC_BASE = "assets/yungching"
 THREADS_SEARCH_PLANS = (
-    ("KEYWORD", "桃園"),
-    ("KEYWORD", "桃園市"),
     ("KEYWORD", "桃園區"),
+    ("KEYWORD", "中壢區"),
+    ("KEYWORD", "平鎮區"),
+    ("KEYWORD", "八德區"),
     ("KEYWORD", "桃園租屋"),
-    ("KEYWORD", "桃園出租"),
+    ("KEYWORD", "中壢租屋"),
+    ("KEYWORD", "平鎮租屋"),
+    ("KEYWORD", "八德租屋"),
     ("KEYWORD", "租屋"),
     ("KEYWORD", "出租"),
+    ("KEYWORD", "三房"),
+    ("KEYWORD", "3房"),
     ("KEYWORD", "四房"),
     ("KEYWORD", "4房"),
-    ("KEYWORD", "大四房"),
-    ("KEYWORD", "四房2廳"),
-    ("KEYWORD", "4房2廳"),
     ("TAG", "桃園租屋"),
-    ("TAG", "桃園出租"),
-    ("TAG", "桃園"),
-    ("TAG", "租屋"),
+    ("TAG", "中壢租屋"),
+    ("TAG", "平鎮租屋"),
+    ("TAG", "八德租屋"),
+    ("TAG", "三房"),
     ("TAG", "四房"),
 )
 THREADS_SEARCH_TYPES = ("RECENT", "TOP")
@@ -105,6 +112,11 @@ FB_ISSUE_TEMPLATE_URL = (
     "https://github.com/FlySpacesky/taoyuan-rental-digest/issues/new"
     "?template=facebook-listing.yml"
 )
+THREADS_ISSUE_TITLE_PREFIX = "[Threads房源]"
+THREADS_ISSUE_TEMPLATE_URL = (
+    "https://github.com/FlySpacesky/taoyuan-rental-digest/issues/new"
+    "?template=threads-listing.yml"
+)
 GITHUB_REPOSITORY_ENV = "GITHUB_REPOSITORY"
 GITHUB_TOKEN_ENV = "GITHUB_TOKEN"
 FB_PUBLIC_CRAWLER_UA = (
@@ -117,6 +129,10 @@ _591_SNAPSHOT_MAX_AGE = timedelta(hours=72)
 SOURCE_REFRESH_COOLDOWN = _591_REFRESH_COOLDOWN
 SOURCE_SNAPSHOT_MAX_AGE = _591_SNAPSHOT_MAX_AGE
 FIRST_SEEN_REGISTRY_LIMIT = 20_000
+SOCIAL_INITIAL_WINDOW = timedelta(days=7)
+SOCIAL_ONGOING_WINDOW = timedelta(days=2)
+SOCIAL_NEW_WINDOW = timedelta(days=2)
+SOCIAL_LAST_SEEN_REGISTRY_LIMIT = 20_000
 
 SINYI_SEARCH_TEMPLATE = (
     "https://www.sinyi.com.tw/rent/list/Taoyuan-city/"
@@ -178,11 +194,6 @@ FB_GROUPS = [
     "https://www.facebook.com/groups/768849317151214",
     "https://www.facebook.com/groups/4091621327828556",
 ]
-FB_GROUP_IDS = frozenset(
-    urllib.parse.urlparse(group_url).path.strip("/").split("/", 1)[1]
-    for group_url in FB_GROUPS
-)
-
 INVALID_MARKERS = (
     "很抱歉，您查詢的物件不存在，可能已關閉或者被刪除",
     "您查詢的物件不存在",
@@ -240,6 +251,30 @@ PRIORITY_MARKERS = (
     "社宅勿擾",
 )
 
+SOCIAL_INDUSTRY_MARKERS = (
+    "包租代管",
+    "代租代管",
+    "社宅代管",
+    "租賃住宅服務業",
+    "租賃住宅管理人員",
+    "不動產經紀人",
+    "不動產經紀營業員",
+    "房屋仲介",
+    "租屋仲介",
+    "仲介服務費",
+    "成交後收取",
+    "成交後將收取",
+    "歡迎房東委託",
+    "委託招租",
+)
+
+SOCIAL_OWNER_EXEMPT_PHRASES = (
+    "仲介勿擾",
+    "房仲勿擾",
+    "社宅勿擾",
+    "免仲介費",
+)
+
 session = requests.Session()
 session.headers.update(
     {
@@ -279,6 +314,9 @@ class Listing:
     fingerprint: str = ""
     validated_at: str = ""
     first_seen_at: str = ""
+    new_listing: bool = False
+    social_score: int = 0
+    social_notes: list[str] = field(default_factory=list)
     raw_text: str = field(default="", repr=False)
     filter_tags: list[str] = field(default_factory=list, repr=False)
 
@@ -553,6 +591,190 @@ def normalize_item_url(url: str) -> str:
 
 def has_four_rooms(text: str) -> bool:
     return any(int(v) >= 4 for v in re.findall(r"(\d+)\s*房", text or ""))
+
+
+def room_count(text: str) -> int:
+    """從房源文字讀取最大房數，支援阿拉伯與常見中文數字。"""
+    value = text or ""
+    counts = [int(raw) for raw in re.findall(r"(?<!\d)(\d{1,2})\s*房", value)]
+    chinese = {
+        "一": 1,
+        "二": 2,
+        "兩": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+        "十": 10,
+    }
+    counts.extend(
+        chinese[raw]
+        for raw in re.findall(r"([一二兩三四五六七八九十])\s*房", value)
+    )
+    return max(counts, default=0)
+
+
+def has_three_or_more_rooms(text: str) -> bool:
+    return room_count(text) >= 3
+
+
+def social_industry_listing(text: str, publisher: str = "") -> bool:
+    """排除包租代管與仲介同業，但不誤殺「仲介勿擾／免仲介費」。"""
+    value = clean_multiline(f"{publisher}\n{text}", 32000)
+    for phrase in SOCIAL_OWNER_EXEMPT_PHRASES:
+        value = value.replace(phrase, "")
+    return any(marker in value for marker in SOCIAL_INDUSTRY_MARKERS)
+
+
+def parse_social_activity_time(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=TZ)
+        return parsed.astimezone(TZ)
+    except ValueError:
+        pass
+    if "剛剛" in raw:
+        return NOW
+    relative = re.search(r"(\d+)\s*(分鐘|小時|天)前", raw)
+    if relative:
+        amount = int(relative.group(1))
+        unit = relative.group(2)
+        delta = {
+            "分鐘": timedelta(minutes=amount),
+            "小時": timedelta(hours=amount),
+            "天": timedelta(days=amount),
+        }[unit]
+        return NOW - delta
+    for pattern, date_format in (
+        (r"\d{4}/\d{1,2}/\d{1,2}\s+\d{1,2}:\d{2}", "%Y/%m/%d %H:%M"),
+        (r"\d{4}/\d{1,2}/\d{1,2}", "%Y/%m/%d"),
+        (r"\d{4}年\d{1,2}月\d{1,2}日", "%Y年%m月%d日"),
+    ):
+        match = re.search(pattern, raw)
+        if not match:
+            continue
+        try:
+            return datetime.strptime(match.group(0), date_format).replace(tzinfo=TZ)
+        except ValueError:
+            continue
+    return None
+
+
+def social_activity_from_row(row: dict[str, Any]) -> datetime | None:
+    authoritative_values = (
+        row.get("latest_activity"),
+        row.get("published_at"),
+        row.get("timestamp"),
+        row.get("updated"),
+    )
+    authoritative = [
+        value
+        for raw in authoritative_values
+        if (value := parse_social_activity_time(raw))
+    ]
+    if authoritative:
+        return max(authoritative)
+    fallback_values = (
+        row.get("updated_at"),
+        row.get("submitted_at"),
+    )
+    parsed = [
+        value
+        for raw in fallback_values
+        if (value := parse_social_activity_time(raw))
+    ]
+    return max(parsed, default=None)
+
+
+def social_collection_window(
+    state: dict[str, Any],
+    source: str,
+    source_stats: dict[str, Any],
+) -> timedelta:
+    social_sources = state.get("social_sources", {})
+    source_state = social_sources.get(source, {}) if isinstance(social_sources, dict) else {}
+    initialized = parse_social_activity_time(
+        source_state.get("initialized_at", "") if isinstance(source_state, dict) else ""
+    )
+    window = SOCIAL_ONGOING_WINDOW if initialized else SOCIAL_INITIAL_WINDOW
+    source_stats["collection_mode"] = "ongoing" if initialized else "initial"
+    source_stats["window_days"] = int(window.total_seconds() // 86400)
+    source_stats["window_cutoff"] = (NOW - window).isoformat()
+    return window
+
+
+def mark_social_source_initialized(state: dict[str, Any], source: str) -> None:
+    sources = state.setdefault("social_sources", {})
+    source_state = sources.setdefault(source, {})
+    source_state.setdefault("initialized_at", NOW.isoformat())
+
+
+def within_social_window(value: datetime | None, window: timedelta) -> bool:
+    if value is None:
+        return False
+    return NOW - window <= value <= NOW + timedelta(minutes=10)
+
+
+def social_screening(
+    *,
+    text: str,
+    size: str,
+    rent: int,
+    has_image: bool,
+    activity: datetime | None,
+) -> tuple[int, list[str], list[str]]:
+    """以可解釋規則評分；硬條件由呼叫端先驗證，不臆測缺漏欄位。"""
+    rooms = room_count(text)
+    area_match = re.search(r"\d+(?:\.\d+)?", size or "")
+    area = float(area_match.group(0)) if area_match else 0.0
+    owner = any(marker in text for marker in PRIORITY_MARKERS)
+    score = 30 if rooms >= 4 else 25
+    notes = [f"{rooms}房"]
+    tags: list[str] = []
+
+    if area >= 35:
+        score += 20
+        notes.append("35坪以上")
+        tags.append("spacious")
+    elif area >= 30:
+        score += 16
+        notes.append("30坪以上")
+        tags.append("spacious")
+    elif area:
+        score += 6
+        notes.append("坪數低於30坪")
+    else:
+        notes.append("坪數待補")
+
+    if owner:
+        score += 15
+        notes.append("屋主訊號")
+        tags.append("owner")
+    if rent:
+        score += 10
+        notes.append("租金完整")
+    if has_image:
+        score += 10
+        notes.append("照片可讀")
+    if activity and NOW - activity <= SOCIAL_ONGOING_WINDOW:
+        score += 15
+        notes.append("兩天內活動")
+    else:
+        score += 8
+        notes.append("首次回溯期")
+
+    if score >= 70:
+        tags.append("recommended")
+    if not rent or not area or not has_image:
+        tags.append("needs_info")
+    return min(score, 100), list(dict.fromkeys(tags)), notes
 
 
 def district_from_text(text: str) -> str:
@@ -2593,7 +2815,7 @@ def parse_rakuya_detail(url: str, hints: set[str]) -> Listing | None:
 
 
 def normalize_facebook_post_url(url: str) -> str:
-    """只接受設定清單內社團的單篇貼文網址，並移除追蹤參數。"""
+    """接受任何公開社團的單篇永久網址，並移除追蹤參數。"""
     try:
         parsed = urllib.parse.urlparse(str(url).strip())
     except ValueError:
@@ -2612,7 +2834,7 @@ def normalize_facebook_post_url(url: str) -> str:
     if (
         len(parts) < 4
         or parts[0] != "groups"
-        or parts[1] not in FB_GROUP_IDS
+        or not re.fullmatch(r"[A-Za-z0-9._-]+", parts[1])
         or parts[2] not in {"posts", "permalink"}
         or not re.fullmatch(r"[A-Za-z0-9._-]+", parts[3])
     ):
@@ -2942,7 +3164,7 @@ def enrich_facebook_row(
         100,
     )
     enriched["house_type"] = clean(
-        enriched.get("house_type") or ("整層住家" if has_four_rooms(text) else ""),
+        enriched.get("house_type") or ("整層住家" if has_three_or_more_rooms(text) else ""),
         30,
     )
     enriched["building_type"] = clean(
@@ -3038,6 +3260,8 @@ def parse_facebook_issue_body(issue: dict[str, Any]) -> dict[str, Any] | None:
         "url": url,
         "post_text": value_containing("完整貼文文字", "貼文內容"),
         "image": value_containing("照片網址", "圖片網址"),
+        "submitted_at": clean(issue.get("created_at", ""), 80),
+        "updated_at": clean(issue.get("updated_at", ""), 80),
         "_submission_source": f"GitHub issue #{number}" if number else "GitHub issue",
     }
 
@@ -3083,34 +3307,52 @@ def load_github_facebook_issue_rows(source_stats: dict[str, Any]) -> list[dict[s
     return rows
 
 
-def facebook_row_reject_reasons(row: dict[str, Any]) -> list[str]:
+def facebook_row_reject_reasons(
+    row: dict[str, Any],
+    window: timedelta | None = None,
+) -> list[str]:
     """回傳一筆 FB JSON 的所有可操作拒絕原因。"""
     text = clean(" ".join(str(row.get(k, "")) for k in row), 8000)
     reasons: list[str] = []
 
     if not normalize_facebook_post_url(str(row.get("url", ""))):
-        reasons.append("invalid_or_unlisted_group_url")
-    if not has_four_rooms(text):
-        reasons.append("not_four_rooms")
-    if excluded(text):
-        reasons.append("excluded_management_or_broker")
-    if "代理人" in text:
+        reasons.append("invalid_permanent_url")
+    if not has_three_or_more_rooms(text):
+        reasons.append("not_three_rooms")
+    if social_industry_listing(text, str(row.get("publisher", ""))):
+        reasons.append("excluded_industry")
+    if proxy_listing(text, str(row.get("publisher", ""))):
         reasons.append("excluded_proxy")
+    if not (
+        money(str(row.get("rent", "")))
+        or clean(row.get("house_type", ""), 40) == "整層住家"
+        or any(
+            marker in text
+            for marker in ("租屋", "出租", "招租", "月租", "租金", "房屋出租")
+        )
+    ):
+        reasons.append("not_rental_post")
 
     district = clean(row.get("district") or district_from_text(text), 20)
     if district not in ALLOWED_DISTRICTS:
         reasons.append("invalid_district")
-    if not money(str(row.get("rent", ""))):
-        reasons.append("missing_rent")
     if not clean(row.get("title") or text.split("。")[0], 180):
         reasons.append("missing_title")
-    if not is_direct_public_image_url(str(row.get("image", "")).strip()):
-        reasons.append("image_not_direct_public")
+    if window is not None:
+        activity = social_activity_from_row(row)
+        if activity is None:
+            reasons.append("missing_activity_time")
+        elif not within_social_window(activity, window):
+            reasons.append("outside_collection_window")
 
     return list(dict.fromkeys(reasons))
 
 
-def parse_social_row(row: dict[str, Any], source: str) -> Listing | None:
+def parse_social_row(
+    row: dict[str, Any],
+    source: str,
+    activity: datetime | None = None,
+) -> Listing | None:
     if facebook_row_reject_reasons(row):
         return None
 
@@ -3121,6 +3363,14 @@ def parse_social_row(row: dict[str, Any], source: str) -> Listing | None:
     image = str(row.get("image", "")).strip()
     title = clean(row.get("title") or text.split("。")[0], 180)
     rent = money(str(row.get("rent", "")))
+    activity = activity or social_activity_from_row(row)
+    score, social_tags, social_notes = social_screening(
+        text=text,
+        size=clean(row.get("size", ""), 30),
+        rent=rent,
+        has_image=bool(image),
+        activity=activity,
+    )
 
     item = Listing(
         source=source,
@@ -3139,21 +3389,32 @@ def parse_social_row(row: dict[str, Any], source: str) -> Listing | None:
         old_rent=money(str(row.get("old_rent", ""))),
         total_cost=money(str(row.get("total_cost", ""))) or rent,
         min_lease=clean(row.get("min_lease", ""), 30),
-        updated=clean(row.get("updated", ""), 50),
+        updated=(
+            clean(row.get("updated", ""), 50)
+            or (activity.strftime("%Y/%m/%d %H:%M刊登") if activity else "")
+        ),
         views=clean(row.get("views", ""), 50),
         publisher=clean(row.get("publisher", ""), 80),
         image=image,
         summary=clean(row.get("summary", ""), 500),
         category_hint="priority" if any(marker in text for marker in PRIORITY_MARKERS) else "general",
+        social_score=score,
+        social_notes=social_notes,
         raw_text=text,
         validated_at=NOW.isoformat(),
+        filter_tags=social_tags,
     )
     item.fingerprint = fingerprint(item)
     return item
 
 
-def load_facebook_import(source_stats: dict[str, Any]) -> list[Listing]:
-    source_stats["allowed_groups"] = len(FB_GROUPS)
+def load_facebook_import(
+    source_stats: dict[str, Any],
+    state: dict[str, Any] | None = None,
+) -> list[Listing]:
+    state = state if state is not None else {}
+    window = social_collection_window(state, "FB", source_stats)
+    source_stats["discovery_groups"] = len(FB_GROUPS)
     source_payloads: list[tuple[str, str]] = []
 
     if FB_IMPORT.exists():
@@ -3236,17 +3497,20 @@ def load_facebook_import(source_stats: dict[str, Any]) -> list[Listing]:
 
     result: list[Listing] = []
     seen_keys: set[str] = set()
+    window_candidates = 0
     for row in rows:
         if not isinstance(row, dict):
             reject("invalid_row")
             continue
 
         enriched_row = enrich_facebook_row(row, source_stats)
-        reasons = facebook_row_reject_reasons(enriched_row)
+        if within_social_window(social_activity_from_row(enriched_row), window):
+            window_candidates += 1
+        reasons = facebook_row_reject_reasons(enriched_row, window)
         url = normalize_facebook_post_url(str(enriched_row.get("url", "")))
         key = facebook_post_key(url)
         if not url or not key:
-            for reason in reasons or ["invalid_or_unlisted_group_url"]:
+            for reason in reasons or ["invalid_permanent_url"]:
                 reject(reason)
             continue
         if key in seen_keys:
@@ -3261,7 +3525,8 @@ def load_facebook_import(source_stats: dict[str, Any]) -> list[Listing]:
 
         normalized_row = dict(enriched_row)
         normalized_row["url"] = url
-        item = parse_social_row(normalized_row, "FB")
+        activity = social_activity_from_row(normalized_row)
+        item = parse_social_row(normalized_row, "FB", activity)
         if item:
             result.append(item)
         else:
@@ -3270,18 +3535,25 @@ def load_facebook_import(source_stats: dict[str, Any]) -> list[Listing]:
     source_stats["candidate_links"] = len(seen_keys)
     source_stats["validated"] = len(result)
     source_stats["anonymous_verified_posts"] = len(result)
+    source_stats["window_candidates"] = window_candidates
+    source_stats["missing_rent_accepted"] = sum(not item.rent for item in result)
+    source_stats["missing_photo_accepted"] = sum(not item.image for item in result)
     source_stats["rejects"] = dict(sorted(rejects.items()))
     source_stats["notices"].append(
         f"FB目前合併檔案、Secret、HTTPS feed與GitHub公開投稿；"
-        f"允許社團共{len(FB_GROUPS)}個。投稿只有在永久網址、公開貼文內容、"
-        "照片、4房、地區與租金都能匿名驗證後才刊出。"
+        "接受任何可匿名驗證的公開社團永久貼文，既有11個社團連結只作為人工查找入口。"
+        f"本輪為{'首次' if source_stats['collection_mode'] == 'initial' else '後續'}收集，"
+        f"讀取最近{source_stats['window_days']}天；指定四區、至少3房與非包租代管／仲介同業為硬條件，"
+        "坪數、租金、照片與屋主訊號只用於自動評分，不會因單一選填欄位缺少而捏造或誤殺。"
         "Facebook未向未登入訪客提供完整社團貼文清單，"
         "因此候選數代表已取得且可匿名驗證的永久貼文，不是社團全部貼文數。"
     )
+    if import_sources or source_stats.get("issue_source_enabled"):
+        mark_social_source_initialized(state, "FB")
     if rows and not result:
         source_stats["errors"].append(
-            "FB匯入有資料列，但沒有資料通過社團永久網址、4房、地區、租金、"
-            "直接圖片網址與排除條件驗證；請查看 rejects 的精確原因。"
+            "FB匯入有資料列，但沒有資料通過公開永久網址、最近收集時間窗、"
+            "指定四區、至少3房與非包租代管／仲介同業驗證；請查看rejects。"
         )
     return result
 
@@ -3309,6 +3581,185 @@ def normalize_threads_post_url(url: str) -> str:
     if not re.fullmatch(r"/@[A-Za-z0-9._-]+/post/[A-Za-z0-9_-]+", path):
         return ""
     return f"https://www.threads.com{path}"
+
+
+def threads_post_key(url: str) -> str:
+    normalized = normalize_threads_post_url(url)
+    if not normalized:
+        return ""
+    path = urllib.parse.urlparse(normalized).path
+    match = re.fullmatch(r"/@([A-Za-z0-9._-]+)/post/([A-Za-z0-9_-]+)", path)
+    return f"{match.group(1).casefold()}:{match.group(2)}" if match else ""
+
+
+def parse_threads_issue_body(issue: dict[str, Any]) -> dict[str, Any] | None:
+    title = clean(issue.get("title", ""), 200)
+    if not title.startswith(THREADS_ISSUE_TITLE_PREFIX):
+        return None
+    body = str(issue.get("body", ""))[:30_000]
+    fields: dict[str, str] = {}
+    for match in re.finditer(
+        r"^###\s+(.+?)\s*$\r?\n([\s\S]*?)(?=^###\s+|\Z)",
+        body,
+        re.M,
+    ):
+        label = clean(match.group(1), 120)
+        value = clean_multiline(match.group(2), 16000)
+        if value not in {"", "_No response_", "No response"}:
+            fields[label] = value
+
+    def value_containing(*needles: str) -> str:
+        for label, value in fields.items():
+            if any(needle in label for needle in needles):
+                return value
+        return ""
+
+    url = value_containing("Threads 永久貼文網址", "Threads永久貼文網址")
+    if not url:
+        return None
+    number = int(issue.get("number") or 0)
+    return {
+        "permalink": url,
+        "text": value_containing("完整貼文文字", "貼文文字"),
+        "image_urls": value_containing("公開圖片直連", "公開照片網址"),
+        "published_at": value_containing("貼文時間", "刊登時間"),
+        "submitted_at": clean(issue.get("created_at", ""), 80),
+        "updated_at": clean(issue.get("updated_at", ""), 80),
+        "_submission_source": f"GitHub issue #{number}" if number else "GitHub issue",
+        "_manual_submission": True,
+    }
+
+
+def load_github_threads_issue_rows(source_stats: dict[str, Any]) -> list[dict[str, Any]]:
+    repository = os.environ.get(GITHUB_REPOSITORY_ENV, "").strip()
+    token = os.environ.get(GITHUB_TOKEN_ENV, "").strip()
+    if (
+        not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository)
+        or not token
+    ):
+        source_stats["issue_source_enabled"] = False
+        return []
+    source_stats["issue_source_enabled"] = True
+    try:
+        response = requests.get(
+            f"https://api.github.com/repos/{repository}/issues",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token}",
+                "User-Agent": "taoyuan-rental-digest",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            params={
+                "state": "open",
+                "sort": "updated",
+                "direction": "desc",
+                "per_page": 100,
+            },
+            timeout=30,
+        )
+        payload = response.json() if response.status_code == 200 else []
+    except (requests.RequestException, ValueError):
+        payload = []
+    if not isinstance(payload, list):
+        source_stats["notices"].append(
+            "GitHub Threads公開投稿目前無法讀取；官方API與其他已設定入口仍會繼續。"
+        )
+        return []
+
+    rows = [
+        row
+        for issue in payload
+        if isinstance(issue, dict)
+        and not issue.get("pull_request")
+        and (row := parse_threads_issue_body(issue)) is not None
+    ]
+    source_stats["issue_submissions_seen"] = len(rows)
+    return rows
+
+
+def load_threads_import_rows(source_stats: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+    """讀取人工授權的公開 Threads 貼文，不要求帳密、Cookie 或 Session。"""
+    payloads: list[tuple[str, str]] = []
+    if THREADS_IMPORT.exists():
+        try:
+            payloads.append(
+                ("data/threads_posts.json", THREADS_IMPORT.read_text(encoding="utf-8"))
+            )
+        except OSError as exc:
+            source_stats["errors"].append(f"threads_posts.json 無法讀取：{exc}")
+
+    secret_json = os.environ.get(THREADS_IMPORT_ENV, "").strip()
+    if secret_json:
+        payloads.append((f"GitHub Actions secret {THREADS_IMPORT_ENV}", secret_json))
+
+    feed_url = os.environ.get(THREADS_IMPORT_URL_ENV, "").strip()
+    parsed_feed = urllib.parse.urlparse(feed_url)
+    if feed_url and parsed_feed.scheme == "https" and parsed_feed.netloc:
+        response, feed_text = get_requests(feed_url)
+        if (
+            response is not None
+            and response.status_code == 200
+            and 0 < len(feed_text) <= 2_000_000
+        ):
+            payloads.append((f"HTTPS feed {THREADS_IMPORT_URL_ENV}", feed_text))
+        else:
+            source_stats["errors"].append(
+                f"{THREADS_IMPORT_URL_ENV} 無法取得有效JSON，或內容超過2MB。"
+            )
+    elif feed_url:
+        source_stats["errors"].append(
+            f"{THREADS_IMPORT_URL_ENV} 必須是可匿名讀取的HTTPS網址。"
+        )
+
+    rows: list[dict[str, Any]] = []
+    sources: list[str] = []
+    for source_name, raw_json in payloads:
+        try:
+            payload = json.loads(raw_json)
+        except json.JSONDecodeError as exc:
+            source_stats["errors"].append(f"{source_name} 不是有效JSON：{exc}")
+            continue
+        payload_rows = payload.get("posts") if isinstance(payload, dict) else payload
+        if not isinstance(payload_rows, list):
+            source_stats["errors"].append(
+                f"{source_name} 最外層必須是陣列，或包含posts陣列。"
+            )
+            continue
+        sources.append(source_name)
+        for raw_row in payload_rows:
+            if isinstance(raw_row, dict):
+                row = dict(raw_row)
+                row.setdefault("permalink", row.get("url", ""))
+                row.setdefault("text", row.get("post_text", ""))
+                row.setdefault("timestamp", row.get("published_at", ""))
+                row.setdefault("_submission_source", source_name)
+                row["_manual_submission"] = True
+                rows.append(row)
+
+    issue_rows = load_github_threads_issue_rows(source_stats)
+    if issue_rows:
+        sources.append("GitHub公開Issue投稿")
+        rows.extend(issue_rows)
+    source_stats["import_sources"] = sources
+    source_stats["import_rows"] = len(rows)
+    return rows, sources
+
+
+def threads_explicit_media_urls(row: dict[str, Any]) -> list[str]:
+    values: list[Any] = []
+    for key in ("image_urls", "images", "image", "media_url"):
+        value = row.get(key)
+        if isinstance(value, list):
+            values.extend(value)
+        elif value:
+            values.extend(re.split(r"[\s,]+", str(value)))
+    return list(
+        dict.fromkeys(
+            clean(value, 2000)
+            for value in values
+            if is_public_http_url(clean(value, 2000))
+        )
+    )
 
 
 def threads_nested_children(row: dict[str, Any]) -> list[dict[str, Any]]:
@@ -3351,7 +3802,7 @@ def threads_media_urls(row: dict[str, Any], token: str) -> list[str]:
         if not any(clean(child.get("media_url"), 2000) for child in media_rows):
             media_rows.extend(fetch_threads_children(clean(row.get("id"), 100), token))
 
-    urls: list[str] = []
+    urls: list[str] = threads_explicit_media_urls(row)
     for media in media_rows:
         child_type = clean(media.get("media_type"), 40).upper()
         url = clean(media.get("media_url"), 2000)
@@ -3741,7 +4192,12 @@ def fetch_threads_search_rows(
     return rows
 
 
-def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
+def load_threads_listings(
+    source_stats: dict[str, Any],
+    state: dict[str, Any] | None = None,
+) -> list[Listing]:
+    state = state if state is not None else {}
+    window = social_collection_window(state, "Threads", source_stats)
     token = os.environ.get(THREADS_ACCESS_TOKEN_ENV, "").strip()
     source_stats["search_queries"] = len(THREADS_SEARCH_PLANS)
     source_stats["search_modes"] = sorted(
@@ -3750,28 +4206,30 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
     source_stats["search_types"] = list(THREADS_SEARCH_TYPES)
     source_stats["search_requests"] = (
         len(THREADS_SEARCH_PLANS) * len(THREADS_SEARCH_TYPES)
-    )
-    today = NOW.astimezone(TZ).date()
-    yesterday = today - timedelta(days=1)
+    ) if token else 0
     source_stats["target"] = (
-        f"桃園區、4房以上、全部照片完整、活動日期為{yesterday}或{today}；租金可未提供"
+        f"桃園區、中壢區、平鎮區、八德區，至少3房；最近{source_stats['window_days']}天活動，"
+        "排除包租代管與仲介同業；坪數30至35坪以上、租金、照片及屋主訊號為加分條件"
     )
-    source_stats["notices"].append(
-        "Threads只使用官方keyword_search；以官方預設完整索引搜尋桃園、"
-        "租屋、出租與四房相關單一關鍵字及主題標籤的RECENT與TOP後，"
-        "逐筆合併API可讀取的原作者本人留言，驗證桃園區、4房以上及今天／"
-        "昨天的活動時間，並保存主貼文與原作者留言中的全部照片；租金可未提供。"
-    )
-    if not token:
-        source_stats["errors"].append(
-            f"Threads官方搜尋尚未啟用：請在GitHub Actions設定"
-            f"{THREADS_ACCESS_TOKEN_ENV} secret；Token需具備threads_keyword_search權限；"
-            "若要讀取權杖帳號自己貼文的留言，另需threads_read_replies權限。"
-        )
-        return []
 
-    probe_threads_reply_access(token, source_stats)
-    raw_rows = fetch_threads_search_rows(token, source_stats)
+    manual_rows, import_sources = load_threads_import_rows(source_stats)
+    raw_rows: list[dict[str, Any]] = []
+    if token:
+        probe_threads_reply_access(token, source_stats)
+        raw_rows = fetch_threads_search_rows(token, source_stats)
+    else:
+        source_stats["notices"].append(
+            f"未設定{THREADS_ACCESS_TOKEN_ENV}，本輪不執行官方keyword_search；"
+            "仍會處理檔案、Secret、公開HTTPS feed與GitHub公開投稿。"
+        )
+
+    source_stats["notices"].append(
+        "Threads合併官方keyword_search與人工授權的公開永久貼文入口；官方結果會合併"
+        "API可讀取且username與主貼文相同的原作者留言。硬條件是指定四區、至少3房、"
+        "最近收集時間窗且非包租代管／仲介同業；30至35坪以上、租金、照片及屋主訊號"
+        "只用於可解釋的自動評分。首次讀取7天，成功初始化後每次只讀最近2天。"
+    )
+
     unique_rows: dict[str, dict[str, Any]] = {}
     search_replies: dict[str, list[dict[str, Any]]] = {}
     for row in raw_rows:
@@ -3786,17 +4244,59 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
                 )
             continue
         permalink = normalize_threads_post_url(str(row.get("permalink", "")))
-        key = post_id or permalink
+        permalink_key = threads_post_key(permalink)
+        key = (
+            f"url:{permalink_key}"
+            if permalink_key
+            else (f"id:{post_id}" if post_id else "")
+        )
         if key:
             unique_rows[key] = row
 
+    for row in manual_rows:
+        permalink = normalize_threads_post_url(str(row.get("permalink", "")))
+        key = threads_post_key(permalink)
+        if not key:
+            continue
+        normalized = dict(row)
+        normalized["permalink"] = permalink
+        normalized.setdefault("id", urllib.parse.urlparse(permalink).path.rsplit("/", 1)[-1])
+        if not normalized.get("username"):
+            username_match = re.match(r"/@([^/]+)/post/", urllib.parse.urlparse(permalink).path)
+            normalized["username"] = username_match.group(1) if username_match else ""
+        candidate_key = f"url:{key}"
+        existing = unique_rows.get(candidate_key)
+        if existing:
+            merged = dict(existing)
+            manual_text = clean_multiline(normalized.get("text"), 16000)
+            official_text = clean_multiline(existing.get("text"), 16000)
+            if manual_text and manual_text not in official_text:
+                merged["text"] = clean_multiline(
+                    f"{official_text}\n人工授權補充：{manual_text}",
+                    32000,
+                )
+            for field_name in (
+                "image_urls",
+                "published_at",
+                "submitted_at",
+                "updated_at",
+                "_submission_source",
+            ):
+                if normalized.get(field_name):
+                    merged[field_name] = normalized[field_name]
+            unique_rows[candidate_key] = merged
+        else:
+            unique_rows[candidate_key] = normalized
+
     # keyword_search 可能直接命中留言；取得其 root_post 後，仍以主貼文為物件單位。
     for root_id in search_replies:
-        if root_id in unique_rows:
+        if any(clean(row.get("id"), 100) == root_id for row in unique_rows.values()):
             continue
         root_row = fetch_threads_post(root_id, token, source_stats)
         if root_row:
-            unique_rows[root_id] = root_row
+            root_permalink = normalize_threads_post_url(str(root_row.get("permalink", "")))
+            root_key = threads_post_key(root_permalink)
+            unique_rows[f"url:{root_key}" if root_key else f"id:{root_id}"] = root_row
 
     source_stats["search_reply_rows"] = sum(len(rows) for rows in search_replies.values())
     source_stats["candidate_links"] = len(unique_rows)
@@ -3812,8 +4312,9 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
         post_id = clean(row.get("id"), 100)
         url = normalize_threads_post_url(str(row.get("permalink", "")))
         original_username = clean(row.get("username"), 80)
+        manual_submission = bool(row.get("_manual_submission"))
         candidate_replies = list(search_replies.get(post_id, []))
-        if threads_truthy(row.get("has_replies")):
+        if token and not manual_submission and threads_truthy(row.get("has_replies")):
             candidate_replies.extend(
                 fetch_threads_conversation(post_id, token, source_stats)
             )
@@ -3868,9 +4369,10 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
         activities = [
             value
             for media_row in [row, *author_replies]
-            if (value := threads_parse_timestamp(media_row.get("timestamp")))
+            if (value := social_activity_from_row(media_row))
         ]
         latest_activity = max(activities) if activities else None
+        size = facebook_size_from_text(text)
 
         reasons: list[str] = []
         if not post_id or not url:
@@ -3880,14 +4382,18 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
             for marker in ("租屋", "出租", "招租", "月租", "租金", "房屋出租")
         ):
             reasons.append("not_rental_post")
-        if district != "桃園區":
-            reasons.append("not_taoyuan_district")
-        if not has_four_rooms(text):
-            reasons.append("not_four_rooms")
-        if not media_urls:
-            reasons.append("missing_photos")
-        if not threads_is_today_or_yesterday(latest_activity):
-            reasons.append("outside_today_yesterday")
+        if district not in ALLOWED_DISTRICTS:
+            reasons.append("invalid_district")
+        if not has_three_or_more_rooms(text):
+            reasons.append("not_three_rooms")
+        if social_industry_listing(text, original_username):
+            reasons.append("excluded_industry")
+        if proxy_listing(text, original_username):
+            reasons.append("excluded_proxy")
+        if latest_activity is None:
+            reasons.append("missing_activity_time")
+        elif not within_social_window(latest_activity, window):
+            reasons.append("outside_collection_window")
 
         if len(candidate_diagnostics) < 100:
             candidate_diagnostics.append(
@@ -3902,7 +4408,9 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
                     "has_replies": threads_truthy(row.get("has_replies")),
                     "author_reply_rows": len(author_replies),
                     "district": district,
-                    "four_rooms": has_four_rooms(text),
+                    "room_count": room_count(text),
+                    "size": size,
+                    "industry": social_industry_listing(text, original_username),
                     "rent_provided": bool(rent),
                     "photo_count": len(media_urls),
                     "reasons": list(reasons),
@@ -3915,9 +4423,11 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
             continue
 
         archived_images = archive_threads_images(post_id, media_urls, source_stats)
-        if len(archived_images) != len(media_urls):
-            reject("incomplete_photo_archive")
-            continue
+        if media_urls and len(archived_images) != len(media_urls):
+            source_stats["incomplete_photo_archives"] = (
+                source_stats.get("incomplete_photo_archives", 0) + 1
+            )
+            archived_images = []
 
         management = facebook_labeled_money(text, "管理費")
         parking = facebook_labeled_money(text, "停車位", "車位")
@@ -3925,17 +4435,28 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
             source_stats["missing_rent_accepted"] = (
                 source_stats.get("missing_rent_accepted", 0) + 1
             )
+        if not archived_images:
+            source_stats["missing_photo_accepted"] = (
+                source_stats.get("missing_photo_accepted", 0) + 1
+            )
+        score, social_tags, social_notes = social_screening(
+            text=text,
+            size=size,
+            rent=rent,
+            has_image=bool(archived_images),
+            activity=latest_activity,
+        )
         item = Listing(
             source="Threads",
-            source_id=post_id,
+            source_id=threads_post_key(url) or post_id,
             url=url,
-            title=facebook_title_from_text(text) or "桃園區四房以上出租",
-            district="桃園區",
+            title=facebook_title_from_text(text) or f"{district}三房以上出租",
+            district=district,
             address=facebook_address_from_text(text),
             house_type="整層住家",
             building_type="電梯大樓" if "電梯" in text else "",
             layout=facebook_layout_from_text(text),
-            size=facebook_size_from_text(text),
+            size=size,
             equipment=facebook_equipment_from_text(text),
             rent=rent,
             total_cost=(rent + management + parking) if rent else 0,
@@ -3945,13 +4466,16 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
                 if original_username
                 else ""
             ),
-            image=archived_images[0],
+            image=archived_images[0] if archived_images else "",
             images=archived_images,
             summary=clean(text, 500),
             category_hint="general",
             category="general",
             raw_text=text,
             validated_at=NOW.isoformat(),
+            filter_tags=social_tags,
+            social_score=score,
+            social_notes=social_notes,
         )
         item.fingerprint = fingerprint(item)
         result.append(item)
@@ -3967,9 +4491,19 @@ def load_threads_listings(source_stats: dict[str, Any]) -> list[Listing]:
         )
     if unique_rows and not result:
         source_stats["errors"].append(
-            "Threads有搜尋候選貼文，但沒有物件同時通過桃園區、4房以上、"
-            "今天／昨天活動日期與全部照片保存驗證；租金不是必要欄位。"
+            "Threads有候選貼文，但沒有物件同時通過指定四區、至少3房、"
+            "最近收集時間窗及非包租代管／仲介同業驗證；"
+            "租金、坪數與照片不是必要欄位。"
             "請查看rejects。"
+        )
+    if import_sources or source_stats.get("api_pages", 0) > 0:
+        mark_social_source_initialized(state, "Threads")
+    if not token and not import_sources and not source_stats.get("issue_source_enabled"):
+        source_stats["errors"].append(
+            "Threads沒有可用資料入口：可設定官方THREADS_ACCESS_TOKEN、"
+            "threads_keyword_search權限、"
+            "data/threads_posts.json、THREADS_POSTS_JSON、THREADS_POSTS_JSON_URL，"
+            "或使用頁面上的GitHub公開投稿。"
         )
     return result
 
@@ -4074,6 +4608,78 @@ def assign_first_seen(items: list[Listing], state: dict[str, Any]) -> list[Listi
         keep = current_keys | set(ordered[:FIRST_SEEN_REGISTRY_LIMIT])
         registry = {key: value for key, value in registry.items() if key in keep}
     state["first_seen"] = registry
+    return items
+
+
+def seed_social_last_seen_registry(state: dict[str, Any]) -> dict[str, str]:
+    """遷移社群來源最後出現時間，避免功能上線時把既有貼文全部誤標為新房源。"""
+    raw_registry = state.get("social_last_seen", {})
+    registry: dict[str, str] = {}
+    if isinstance(raw_registry, dict):
+        registry = {
+            str(key): str(value)
+            for key, value in raw_registry.items()
+            if parse_state_time(value)
+        }
+
+    def remember(source_key: str, value: Any) -> None:
+        if not source_key.startswith(("FB:", "Threads:")):
+            return
+        parsed = parse_state_time(value)
+        if parsed is None:
+            return
+        current = parse_state_time(registry.get(source_key, ""))
+        if current is None or parsed > current:
+            registry[source_key] = parsed.isoformat()
+
+    for row in state.get("sent", []):
+        if isinstance(row, dict):
+            remember(str(row.get("source_key", "")), row.get("sent_at"))
+
+    try:
+        payload = json.loads(OUTPUT_JSON.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = {}
+    generated_at = payload.get("generated_at", "") if isinstance(payload, dict) else ""
+    rows = payload.get("items", []) if isinstance(payload, dict) else []
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            source = str(row.get("source", ""))
+            source_id = str(row.get("source_id", ""))
+            if source in {"FB", "Threads"} and source_id:
+                remember(
+                    f"{source}:{source_id}",
+                    row.get("validated_at") or generated_at,
+                )
+    return registry
+
+
+def assign_social_new_flags(
+    items: list[Listing],
+    state: dict[str, Any],
+) -> list[Listing]:
+    registry = seed_social_last_seen_registry(state)
+    current_keys: set[str] = set()
+    for item in items:
+        if item.source not in {"FB", "Threads"}:
+            continue
+        source_key = f"{item.source}:{item.source_id}"
+        current_keys.add(source_key)
+        previous = parse_state_time(registry.get(source_key, ""))
+        item.new_listing = previous is None or NOW - previous > SOCIAL_NEW_WINDOW
+        registry[source_key] = NOW.isoformat()
+
+    if len(registry) > SOCIAL_LAST_SEEN_REGISTRY_LIMIT:
+        ordered = sorted(
+            registry,
+            key=lambda key: parse_state_time(registry[key]) or datetime.min.replace(tzinfo=TZ),
+            reverse=True,
+        )
+        keep = current_keys | set(ordered[:SOCIAL_LAST_SEEN_REGISTRY_LIMIT])
+        registry = {key: value for key, value in registry.items() if key in keep}
+    state["social_last_seen"] = registry
     return items
 
 
@@ -4245,9 +4851,14 @@ def listing_filter_tokens(item: Listing) -> list[str]:
     if item.source == "信義房屋":
         return ["all"]
 
+    if item.source in {"FB", "Threads"}:
+        tags = set(item.filter_tags)
+        return [
+            "all",
+            *(key for key in ("recommended", "spacious", "needs_info") if key in tags),
+        ]
+
     tokens = ["all"]
-    if item.source == "Threads":
-        return tokens
     tokens.append("priority" if item.category == "priority" else "general")
     return tokens
 
@@ -4291,6 +4902,8 @@ def recency_minutes(item: Listing) -> int:
 
 
 def is_new_listing(item: Listing) -> bool:
+    if item.source in {"FB", "Threads"}:
+        return item.new_listing
     first_seen = parse_state_time(item.first_seen_at)
     return bool(first_seen and first_seen.date() == NOW.astimezone(TZ).date())
 
@@ -4307,8 +4920,14 @@ def card_badges(item: Listing) -> list[str]:
             badges.append("屋主")
         if "friendly" in tokens:
             badges.append("友善房源")
-    elif item.source == "FB" and item.category == "priority":
-        badges.append("優先物件")
+    elif item.source in {"FB", "Threads"}:
+        social_tags = set(item.filter_tags)
+        if "recommended" in social_tags:
+            badges.append("高符合")
+        if "spacious" in social_tags:
+            badges.append("30坪以上")
+        if "owner" in social_tags:
+            badges.append("屋主訊號")
     elif item.source == "信義房屋":
         badges.append("40坪以上")
     elif item.source == "永慶房屋" and "new" in listing_filter_tokens(item):
@@ -4341,7 +4960,10 @@ def render_card(item: Listing, order: int = 0) -> str:
         f'<span class="tag highlight">{esc(value)}</span>'
         for value in card_badges(item)
     )
-    activity = "・".join(v for v in (item.updated, item.views) if v)
+    activity_values = [v for v in (item.updated, item.views) if v]
+    if item.source in {"FB", "Threads"} and item.social_score:
+        activity_values.append(f"自動符合度 {item.social_score}/100")
+    activity = "・".join(activity_values)
     categories = " ".join(listing_filter_tokens(item))
     area = numeric_value(item.size)
     popularity = int(numeric_value(item.views))
@@ -4371,7 +4993,7 @@ def render_card(item: Listing, order: int = 0) -> str:
                onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
           <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
           {f'<span class="source-badge">{esc(source_label(item.source))}</span>' if index == 1 else ''}
-          {f'<span class="new-listing-badge" title="本日首次收錄">新房源</span>' if index == 1 and is_new_listing(item) else ''}
+          {f'<span class="new-listing-badge" title="{esc("過去2天未曾出現" if item.source in {"FB", "Threads"} else "本日首次收錄")}">新房源</span>' if index == 1 and is_new_listing(item) else ''}
           {f'<span class="photo-index">{index}/{len(images)}</span>' if len(images) > 1 else ''}
         </a>
         """
@@ -4383,7 +5005,7 @@ def render_card(item: Listing, order: int = 0) -> str:
            rel="noopener noreferrer" aria-label="{esc(item.title)} 來源頁">
           <div class="photo-fallback no-photo">來源未提供可讀取照片<br>點擊前往來源頁</div>
           <span class="source-badge">{esc(source_label(item.source))}</span>
-          {f'<span class="new-listing-badge" title="本日首次收錄">新房源</span>' if is_new_listing(item) else ''}
+          {f'<span class="new-listing-badge" title="{esc("過去2天未曾出現" if item.source in {"FB", "Threads"} else "本日首次收錄")}">新房源</span>' if is_new_listing(item) else ''}
         </a>
         """
 
@@ -4391,7 +5013,8 @@ def render_card(item: Listing, order: int = 0) -> str:
     <article class="card" data-categories="{esc(categories)}"
              data-order="{order}" data-recency="{recency_minutes(item)}"
              data-total="{total_cost}" data-rent="{item.rent}"
-             data-area="{area}" data-popularity="{popularity}">
+             data-area="{area}" data-popularity="{popularity}"
+             data-social-score="{item.social_score}">
       <div class="photo-gallery" data-photo-count="{len(images)}">{photo_html}</div>
       <div class="body">
         <div class="body-main">
@@ -4419,7 +5042,7 @@ def empty_message(stats: dict[str, Any], source: str, category: str) -> str:
 
     if source == "Threads" and validated == 0:
         return (
-            "本次沒有經 Threads 官方 API 驗證通過的桃園區4房以上物件；"
+            "本次沒有經 Threads 官方搜尋或公開投稿驗證通過的指定四區、至少3房物件；"
             "請查看上方來源訊息。"
         )
     if category == "discount":
@@ -4597,11 +5220,13 @@ def render_status(stats: dict[str, Any], source: str) -> str:
         )
     elif source == "FB":
         diagnostics = (
-            f"<span>允許社團 {row.get('allowed_groups', len(FB_GROUPS))} 個</span>"
+            f"<span>人工查找入口 {row.get('discovery_groups', len(FB_GROUPS))} 個</span>"
             f"<span>匿名驗證貼文 "
             f"{row.get('anonymous_verified_posts', row.get('validated', 0))} 筆</span>"
             f"<span>公開投稿 {row.get('issue_submissions_seen', 0)} 筆</span>"
             f"<span>自動補齊 {row.get('public_metadata_enriched', 0)} 筆</span>"
+            f"<span>{'首次回溯' if row.get('collection_mode') == 'initial' else '後續更新'} "
+            f"{row.get('window_days', 0)} 天</span>"
         )
     elif source == "Threads":
         reply_permission = (
@@ -4616,7 +5241,9 @@ def render_status(stats: dict[str, Any], source: str) -> str:
             f"活動 {esc(candidate.get('latest_activity', '') or '未知')}｜"
             f"原作者留言 {candidate.get('author_reply_rows', 0)} 則｜"
             f"地區 {esc(candidate.get('district', '') or '未辨識')}｜"
-            f"4房 {'是' if candidate.get('four_rooms') else '否'}｜"
+            f"房數 {candidate.get('room_count', 0)}｜"
+            f"坪數 {esc(candidate.get('size', '') or '未提供')}｜"
+            f"同業 {'是' if candidate.get('industry') else '否'}｜"
             f"照片 {candidate.get('photo_count', 0)} 張｜"
             f"排除 {esc('、'.join(candidate.get('reasons', [])) or '無')}"
             "</li>"
@@ -4625,6 +5252,9 @@ def render_status(stats: dict[str, Any], source: str) -> str:
         diagnostics = (
             f"<span>搜尋查詢 {row.get('search_queries', 0)} 組</span>"
             f"<span>API頁面 {row.get('api_pages', 0)} 頁</span>"
+            f"<span>人工投稿／feed {row.get('import_rows', 0)} 筆</span>"
+            f"<span>{'首次回溯' if row.get('collection_mode') == 'initial' else '後續更新'} "
+            f"{row.get('window_days', 0)} 天</span>"
             f"<span>原作者留言 {row.get('author_reply_rows', 0)} 則</span>"
             f"<span>留言權限 {reply_permission}</span>"
             f"<span>找到照片 {row.get('images_found', 0)} 張</span>"
@@ -4735,6 +5365,7 @@ main{{padding:22px 0 48px}}
 .source-heading a{{font-size:14px;color:#555;text-underline-offset:3px}}
 .source-actions{{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}}
 .source-actions .submission-link{{color:#fff;background:var(--fb);padding:7px 10px;border-radius:6px;text-decoration:none;font-weight:850}}
+.source-actions .threads-submission{{background:var(--threads)}}
 .source-status{{display:flex;flex-direction:column;align-items:flex-end;background:#fff;padding:12px 14px;border:1px solid var(--line);border-radius:10px}}
 .status-primary{{width:75%;align-self:flex-start;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));align-items:center;direction:ltr}}
 .status-primary>*{{min-width:0;padding:2px 10px;direction:ltr;text-align:center}}
@@ -4871,7 +5502,7 @@ h3 a{{text-decoration:none}}
 </div></div>
 
 <main class="wrap">
-<div class="notice">頁面顯示本輪所有驗證通過的有效物件；近48小時紀錄只提供重複診斷，不會再把仍有效的房源從頁面隱藏。首圖右上角的「新房源」表示該來源物件編號於本日第一次被電子報收錄，會跨分類共用同一判斷，不會把單純更新或舊快照誤標為新上架。來源被阻擋或FB資料來源未設定時會直接顯示原因。</div>
+<div class="notice">頁面顯示本輪所有驗證通過的有效物件；近48小時紀錄只提供重複診斷，不會再把仍有效的房源從頁面隱藏。591、樂屋網、信義與永慶首圖的「新房源」代表本日第一次收錄；FB與Threads則代表同一來源物件過去2天沒有出現。社群來源首次啟用回溯7天，成功初始化後每次只收最近2天。</div>
 
 <div id="source-591" class="source-block">
   <div class="source-heading"><h2>591</h2><a href="https://rent.591.com.tw/list?kind=1&layout=4&region=6" target="_blank">開啟591搜尋 ↗</a></div>
@@ -4895,20 +5526,19 @@ h3 a{{text-decoration:none}}
   </div>
   {render_status(stats, 'FB')}
   <div class="social-note">
-    <strong>Facebook真實資料自動處理：</strong>
-    點選「提交FB永久貼文」後，只要提供允許社團的單篇永久網址；完整貼文文字與照片頁可選填。
-    GitHub Actions會以不含Cookie的匿名請求讀取公開中繼資料，自動補齊貼文內容、照片、刊登者、
-    刊登時間、租金、格局、坪數與地區，並把真實照片保存到本站後再驗證刊出。
-    檔案、Secret與匿名HTTPS JSON feed現在會合併處理，不會因既有JSON存在而忽略其他來源。
-    不需要、也請勿提供Facebook帳號、密碼、Cookie或Session；社團首頁、分享短網址或無法匿名讀取的私密貼文仍不會刊出。
-    在不登入的限制下，Facebook不提供完整社團貼文清單；本頁只顯示已取得永久網址且可匿名驗證的真實物件。
+    <strong>FB公開資料＋人工授權入口＋自動篩選：</strong>
+    接受任何可匿名驗證的公開社團永久貼文，並合併檔案、Secret、公開HTTPS feed與GitHub投稿。
+    桃園區、中壢區、平鎮區、八德區及至少3房是必要條件；包租代管與仲介同業會排除。
+    30至35坪以上、租金、照片與屋主訊號是加分條件，缺少選填資訊仍會誠實顯示，不補造資料或照片。
+    首次回溯7天，後續只讀最近2天；「新房源」表示同一物件過去2天未曾出現。
+    不需要、也請勿提供Facebook帳號、密碼、Cookie或Session；無法匿名讀取的私密貼文不會刊出。
   </div>
   <div class="social-links">{fb_buttons}</div>
   {render_listing_browser(
       items,
       stats,
       'FB',
-      (('all', '全部'), ('priority', '屋主自租／仲介勿擾／社宅勿擾'), ('general', '其他符合物件')),
+      (('all', '全部'), ('recommended', '高符合'), ('spacious', '30坪以上'), ('needs_info', '資訊待補')),
       (('recency', '最新'), ('total', '租金總費用'), ('rent', '租金'), ('area', '坪數')),
   )}
 </div>
@@ -4928,22 +5558,25 @@ h3 a{{text-decoration:none}}
 <div id="source-threads" class="source-block">
   <div class="source-heading">
     <h2>Threads</h2>
-    <a href="https://www.threads.com/" target="_blank" rel="noopener noreferrer">開啟Threads ↗</a>
+    <div class="source-actions">
+      <a class="submission-link threads-submission" href="{THREADS_ISSUE_TEMPLATE_URL}" target="_blank" rel="noopener noreferrer">提交Threads永久貼文 ↗</a>
+      <a href="https://www.threads.com/" target="_blank" rel="noopener noreferrer">開啟Threads ↗</a>
+    </div>
   </div>
   {render_status(stats, 'Threads')}
   <div class="social-note">
-    <strong>Threads真實物件：</strong>
-    本區只使用Threads官方API，會合併API可讀取且username與主貼文相同的
-    原作者留言；只刊出今天或昨天有活動、可確認為桃園區、4房以上，且主貼文
-    與原作者留言全部照片都已完整保存的出租物件。租金可未提供，會顯示租金洽詢。
-    不使用帳號密碼、Cookie或瀏覽器Session；未設定官方Access Token、
-    貼文資料不足或任一照片無法保存時，會保留0筆與來源原因，不會加入假物件。
+    <strong>Threads官方搜尋＋人工授權入口＋自動篩選：</strong>
+    官方API會搜尋公開貼文並合併可讀取的原作者留言；人工入口可補入已知的公開永久貼文。
+    桃園區、中壢區、平鎮區、八德區及至少3房是必要條件；包租代管與仲介同業會排除。
+    30至35坪以上、租金、照片與屋主訊號只用於自動符合度評分；缺少租金或可讀照片仍可刊出，
+    並顯示「租金洽詢」或「來源未提供可讀取照片」。首次回溯7天，後續只讀最近2天；
+    「新房源」表示過去2天未曾出現。不使用帳號密碼、Cookie或瀏覽器Session，也不加入假物件。
   </div>
   {render_listing_browser(
       items,
       stats,
       'Threads',
-      (('all', 'Threads'),),
+      (('all', '全部'), ('recommended', '高符合'), ('spacious', '30坪以上'), ('needs_info', '資訊待補')),
       (('recency', '最新'), ('total', '租金總費用'), ('rent', '租金'), ('area', '坪數')),
   )}
 </div>
@@ -5109,6 +5742,7 @@ def empty_source_stats() -> dict[str, Any]:
 
 def main() -> int:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    state = load_state()
     stats: dict[str, Any] = {
         "sources": {
             "591": empty_source_stats(),
@@ -5120,8 +5754,8 @@ def main() -> int:
         }
     }
     stats["sources"]["Threads"]["notices"].append(
-        "Threads只顯示官方API驗證通過、今天或昨天有活動的桃園區4房以上出租物件；"
-        "租金可未提供，主貼文與原作者留言中的全部照片都必須成功保存。"
+        "Threads會合併官方API與人工授權公開入口，依指定四區、至少3房、"
+        "非包租代管／仲介同業及最近7天／2天時間窗驗證。"
     )
     candidates: list[Listing] = []
 
@@ -5143,8 +5777,8 @@ def main() -> int:
                 valid_rakuya += 1
         stats["sources"]["樂屋網"]["validated"] = valid_rakuya
 
-        candidates.extend(load_facebook_import(stats["sources"]["FB"]))
-        candidates.extend(load_threads_listings(stats["sources"]["Threads"]))
+        candidates.extend(load_facebook_import(stats["sources"]["FB"], state))
+        candidates.extend(load_threads_listings(stats["sources"]["Threads"], state))
         candidates.extend(collect_sinyi_listings(stats["sources"]["信義房屋"]))
         yungching_items = collect_yungching_listings(stats["sources"]["永慶房屋"])
         prepare_yungching_images(yungching_items, stats["sources"]["永慶房屋"])
@@ -5158,8 +5792,8 @@ def main() -> int:
         unique[f"{item.source}:{item.source_id}"] = item
     candidates = list(unique.values())
 
-    state = load_state()
     candidates = assign_first_seen(candidates, state)
+    candidates = assign_social_new_flags(candidates, state)
     candidates = apply_categories(candidates, state)
     published, duplicate_count = filter_recent_duplicates(candidates, state)
 
