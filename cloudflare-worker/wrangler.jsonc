@@ -10,7 +10,8 @@
   },
   "kv_namespaces": [
     {
-      "binding": "FB_INBOX"
+      "binding": "FB_INBOX",
+      "id": "e1c7e0c965134908bfdf294d0bd833ae"
     }
   ],
   "observability": {
