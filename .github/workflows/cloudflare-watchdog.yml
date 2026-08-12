@@ -65,9 +65,13 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          FB_INBOX_WRITE_TOKEN: ${{ secrets.FB_INBOX_WRITE_TOKEN }}
+          FB_INBOX_READ_TOKEN: ${{ secrets.FB_INBOX_READ_TOKEN }}
         run: |
           test -n "${CLOUDFLARE_ACCOUNT_ID}" || (echo "缺少 CLOUDFLARE_ACCOUNT_ID" >&2; exit 1)
           test -n "${CLOUDFLARE_API_TOKEN}" || (echo "缺少 CLOUDFLARE_API_TOKEN" >&2; exit 1)
+          test -n "${FB_INBOX_WRITE_TOKEN}" || (echo "缺少 FB_INBOX_WRITE_TOKEN" >&2; exit 1)
+          test -n "${FB_INBOX_READ_TOKEN}" || (echo "缺少 FB_INBOX_READ_TOKEN" >&2; exit 1)
 
       - name: 部署 Worker 與 Cron Triggers
         working-directory: cloudflare-worker
@@ -75,3 +79,15 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npx --yes wrangler@4.120.0 deploy
+
+      - name: 同步私人收件匣 Secret
+        working-directory: cloudflare-worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          FB_INBOX_WRITE_TOKEN: ${{ secrets.FB_INBOX_WRITE_TOKEN }}
+          FB_INBOX_READ_TOKEN: ${{ secrets.FB_INBOX_READ_TOKEN }}
+        shell: bash
+        run: |
+          printf '%s' "${FB_INBOX_WRITE_TOKEN}" | npx --yes wrangler@4.120.0 secret put FB_INBOX_WRITE_TOKEN
+          printf '%s' "${FB_INBOX_READ_TOKEN}" | npx --yes wrangler@4.120.0 secret put FB_INBOX_READ_TOKEN

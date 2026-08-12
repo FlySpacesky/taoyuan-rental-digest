@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>FB 私人社團授權投稿｜桃園租屋快報</title>
+  <style>
+    :root{--brand:#6b35c4;--ink:#202124;--muted:#667085;--line:#d8dbe2;--bg:#f6f4fb;--ok:#147a42;--bad:#a92f27}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif}
+    main{width:min(820px,calc(100% - 28px));margin:28px auto 56px}
+    .hero,.panel{background:#fff;border:1px solid var(--line);border-radius:15px;padding:22px;box-shadow:0 8px 28px #39226012}
+    .hero{border-top:5px solid var(--brand);margin-bottom:16px}
+    h1{font-size:clamp(25px,5vw,36px);margin:0 0 10px}
+    h2{font-size:20px;margin:0 0 12px}
+    p{line-height:1.7;margin:8px 0;color:#424854}
+    .guard{background:#fff7df;border-left:5px solid #e6a000;padding:12px 15px;border-radius:8px;color:#5f4510}
+    .token-row{display:grid;grid-template-columns:1fr auto;gap:9px}
+    form{display:grid;gap:16px}
+    label{display:grid;gap:7px;font-weight:800}
+    label small{font-weight:500;color:var(--muted);line-height:1.5}
+    input,textarea,select,button{font:inherit}
+    input,textarea,select{width:100%;border:1px solid #bcc2cc;border-radius:8px;padding:11px 12px;background:#fff;color:var(--ink)}
+    input:focus,textarea:focus,select:focus{outline:3px solid #6b35c42b;border-color:var(--brand)}
+    textarea{min-height:220px;resize:vertical;line-height:1.55}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+    .check{display:flex;align-items:flex-start;gap:10px;font-weight:650;line-height:1.55}
+    .check input{width:20px;height:20px;margin-top:2px;flex:0 0 auto}
+    button{border:0;border-radius:9px;background:var(--brand);color:#fff;padding:12px 18px;font-weight:900;cursor:pointer}
+    button.secondary{background:#555b66}
+    button:disabled{opacity:.6;cursor:wait}
+    #status{display:none;padding:13px 15px;border-radius:9px;font-weight:750;line-height:1.55}
+    #status.ok{display:block;background:#e9f7ef;color:var(--ok);border:1px solid #a7dec0}
+    #status.bad{display:block;background:#fff0ee;color:var(--bad);border:1px solid #efb4ae}
+    .back{display:inline-block;margin-top:18px;color:var(--brand);font-weight:800}
+    @media(max-width:640px){.grid,.token-row{grid-template-columns:1fr}.hero,.panel{padding:17px}}
+  </style>
+</head>
+<body>
+<main>
+  <section class="hero">
+    <h1>FB 私人社團授權投稿</h1>
+    <p>請先由您本人在 Facebook 瀏覽器中登入並加入社團，再手動開啟單篇房源。這個頁面只接收房源內容，不會接觸或記憶 Facebook 登入資料。</p>
+    <p class="guard"><strong>重要：</strong>私人社團貼文會顯示於公開租屋電子報。只有已取得貼文作者或社團管理員同意再公開的內容才能提交。</p>
+  </section>
+
+  <section class="panel" id="token-panel">
+    <h2>1. 啟用私人收件匣</h2>
+    <p>第一次請使用專屬投稿連結，或貼上「投稿權杖」。它只能寫入房源，不能讀取收件匣，也不是 Facebook 權杖。</p>
+    <div class="token-row">
+      <input id="inbox-token" type="password" autocomplete="off" aria-label="私人收件匣投稿權杖" placeholder="貼上投稿權杖">
+      <button class="secondary" id="save-token" type="button">儲存在這台裝置</button>
+    </div>
+  </section>
+
+  <section class="panel" style="margin-top:16px">
+    <h2>2. 貼上真實房源</h2>
+    <form id="listing-form">
+      <label>Facebook 單篇永久網址
+        <small>必須是 /groups/{社團}/posts/{貼文}/ 或 /groups/{社團}/permalink/{貼文}/，分享短網址不適用。</small>
+        <input name="url" type="url" required placeholder="https://www.facebook.com/groups/社團/posts/貼文/">
+      </label>
+
+      <label>原始貼文刊登時間
+        <small>只收最近 7 天；系統首次回溯 7 天，後續電子報只顯示最近 2 天。</small>
+        <input name="published_at" type="datetime-local" required>
+      </label>
+
+      <label>完整原始貼文文字
+        <small>請原樣貼上，不改寫、不補造。系統會從文字判斷四區、至少 3 房、坪數、租金及是否為同業。</small>
+        <textarea name="post_text" required placeholder="貼上完整原始貼文文字"></textarea>
+      </label>
+
+      <div class="grid">
+        <label>地區（選填）
+          <select name="district">
+            <option value="">由系統從文字判斷</option>
+            <option>桃園區</option><option>中壢區</option><option>平鎮區</option><option>八德區</option>
+          </select>
+        </label>
+        <label>房型（選填）
+          <input name="layout" placeholder="例如：4房2廳2衛">
+        </label>
+        <label>室內／房屋坪數（選填）
+          <input name="size" placeholder="例如：35坪">
+        </label>
+        <label>租金（選填）
+          <input name="rent" inputmode="numeric" placeholder="例如：28000">
+        </label>
+        <label>刊登者（選填）
+          <input name="publisher" placeholder="僅填貼文明示資訊">
+        </label>
+        <label>已授權的公開圖片直連（選填）
+          <input name="image" type="url" placeholder="https://.../photo.jpg">
+        </label>
+      </div>
+
+      <label class="check">
+        <input name="republish_authorized" type="checkbox" required>
+        <span>我確認已取得貼文作者或社團管理員同意，可將這筆貼文內容與提供的照片再公開於租屋電子報。</span>
+      </label>
+      <label class="check">
+        <input name="no_facebook_credentials" type="checkbox" required>
+        <span>我確認投稿內容不含 Facebook 帳號、密碼、Cookie、Session、Access Token 或其他登入憑證。</span>
+      </label>
+
+      <div id="status" role="status" aria-live="polite"></div>
+      <button id="submit-button" type="submit">安全送出房源</button>
+    </form>
+  </section>
+  <a class="back" href="./">← 回到桃園租屋快報</a>
+</main>
+<script>
+(() => {
+  'use strict';
+  const ENDPOINT = 'https://taoyuan-rental-line-watchdog.flysky3345678.workers.dev/facebook-inbox';
+  const TOKEN_KEY = 'taoyuanRentalFacebookInboxWriteToken';
+  const tokenInput = document.querySelector('#inbox-token');
+  const status = document.querySelector('#status');
+  const form = document.querySelector('#listing-form');
+  const submitButton = document.querySelector('#submit-button');
+
+  const fragment = new URLSearchParams(location.hash.replace(/^#/, ''));
+  const fragmentToken = fragment.get('token');
+  if (fragmentToken) {
+    localStorage.setItem(TOKEN_KEY, fragmentToken);
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+  tokenInput.value = localStorage.getItem(TOKEN_KEY) || '';
+  document.querySelector('#save-token').addEventListener('click', () => {
+    const token = tokenInput.value.trim();
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+    show(token ? '投稿權杖已儲存在這台裝置。' : '已移除這台裝置上的投稿權杖。', true);
+  });
+
+  function show(message, ok) {
+    status.textContent = message;
+    status.className = ok ? 'ok' : 'bad';
+  }
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const token = tokenInput.value.trim() || localStorage.getItem(TOKEN_KEY) || '';
+    if (!token) {
+      show('請先輸入私人收件匣投稿權杖。', false);
+      return;
+    }
+    const values = new FormData(form);
+    const localTime = String(values.get('published_at') || '');
+    const body = {
+      url: String(values.get('url') || '').trim(),
+      post_text: String(values.get('post_text') || '').trim(),
+      published_at: localTime ? new Date(localTime).toISOString() : '',
+      republish_authorized: values.get('republish_authorized') === 'on',
+      no_facebook_credentials: values.get('no_facebook_credentials') === 'on',
+    };
+    ['district', 'layout', 'size', 'rent', 'publisher', 'image'].forEach((field) => {
+      const value = String(values.get(field) || '').trim();
+      if (value) body[field] = value;
+    });
+    submitButton.disabled = true;
+    show('正在安全送出…', true);
+    try {
+      const response = await fetch(ENDPOINT, {
+        method: 'POST',
+        headers: {'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || `收件失敗（HTTP ${response.status}）`);
+      show(`已收件（編號 ${payload.id}）。電子報會再依規則驗證，不代表一定刊出。`, true);
+      form.reset();
+    } catch (error) {
+      show(error.message || '暫時無法送出，請稍後再試。', false);
+    } finally {
+      submitButton.disabled = false;
+    }
+  });
+})();
+</script>
+</body>
+</html>

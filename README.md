@@ -18,10 +18,13 @@
   `data/threads_posts.json`、`THREADS_POSTS_JSON`、`THREADS_POSTS_JSON_URL` 與
   GitHub公開投稿。留言只合併與原貼文同一username的內容；硬條件為指定四區、
   3房以上、最近收集時間窗及非包租代管／仲介同業，租金、坪數與照片可未提供
-- Facebook：不登入、不使用帳密／Cookie／Session；資料來源為
+- Facebook：程式不登入、不使用帳密／Cookie／Session；資料來源為
   `data/facebook_posts.json`、`FACEBOOK_POSTS_JSON` Actions secret，或
   `FACEBOOK_POSTS_JSON_URL` HTTPS feed（Actions secret／repository variable），
-  以及電子報上的 GitHub 公開投稿表單。接受任何可匿名驗證的公開社團永久貼文，
+  電子報上的 GitHub 公開投稿表單，以及 Cloudflare KV 私人收件匣。公開貼文須可匿名
+  驗證；已加入的私人社團可由使用者在自己的瀏覽器手動開啟並投稿，但必須確認已取得
+  貼文作者或社團管理員的電子報再公開授權。私人收件匣使用分離的唯寫／唯讀權杖、
+  房源30天自動到期，且拒絕帳密、Cookie、Session與Access Token欄位。
   既有社團連結只作為人工查找入口；這些來源會合併、依永久貼文去重；
   公開投稿會匿名讀取 Facebook 單篇貼文的 Open Graph／公開中繼資料，
   自動補齊欄位並把真實照片保存到本站。硬條件同樣為指定四區、3房以上、

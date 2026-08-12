@@ -58,6 +58,14 @@ LAST_SUCCESS_YUNGCHING = DATA_DIR / "last-success-yungching.json"
 FB_IMPORT = ROOT / "data" / "facebook_posts.json"
 FB_IMPORT_ENV = "FACEBOOK_POSTS_JSON"
 FB_IMPORT_URL_ENV = "FACEBOOK_POSTS_JSON_URL"
+FB_PRIVATE_INBOX_TOKEN_ENV = "FACEBOOK_PRIVATE_INBOX_TOKEN"
+FB_PRIVATE_INBOX_URL = (
+    "https://taoyuan-rental-line-watchdog.flysky3345678.workers.dev/"
+    "facebook-inbox-feed"
+)
+FB_PRIVATE_SUBMISSION_URL = (
+    "https://flyspacesky.github.io/taoyuan-rental-digest/facebook-submit.html"
+)
 FB_ASSET_DIR = DOCS / "assets" / "facebook"
 FB_ASSET_PUBLIC_BASE = (
     "https://flyspacesky.github.io/taoyuan-rental-digest/assets/facebook"
@@ -3477,6 +3485,65 @@ def load_github_facebook_issue_rows(source_stats: dict[str, Any]) -> list[dict[s
     return rows
 
 
+def load_private_facebook_inbox_rows(
+    source_stats: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """讀取 Cloudflare 私人收件匣；權杖僅放在 Authorization header。"""
+    token = os.environ.get(FB_PRIVATE_INBOX_TOKEN_ENV, "").strip()
+    if not token:
+        source_stats["private_inbox_enabled"] = False
+        return []
+    source_stats["private_inbox_enabled"] = True
+    try:
+        response = requests.get(
+            FB_PRIVATE_INBOX_URL,
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"Bearer {token}",
+                "User-Agent": "taoyuan-rental-digest-private-inbox/1.0",
+            },
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        source_stats["errors"].append(
+            f"Cloudflare FB私人收件匣目前無法讀取：{type(exc).__name__}。"
+        )
+        return []
+    if response.status_code != 200:
+        source_stats["errors"].append(
+            "Cloudflare FB私人收件匣目前無法讀取；"
+            f"HTTP {response.status_code}，請檢查收件匣部署與讀取權杖。"
+        )
+        return []
+    if len(response.content) > 2_000_000:
+        source_stats["errors"].append("Cloudflare FB私人收件匣回應超過2MB，已拒絕匯入。")
+        return []
+    try:
+        payload = response.json()
+    except ValueError:
+        source_stats["errors"].append("Cloudflare FB私人收件匣沒有回傳有效JSON。")
+        return []
+    payload_rows = payload.get("posts") if isinstance(payload, dict) else None
+    if not isinstance(payload_rows, list):
+        source_stats["errors"].append("Cloudflare FB私人收件匣回應缺少posts陣列。")
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for row in payload_rows:
+        if not isinstance(row, dict) or row.get("republish_authorized") is not True:
+            continue
+        normalized = dict(row)
+        normalized["_import_source"] = "Cloudflare私人收件匣"
+        normalized.setdefault(
+            "_submission_source",
+            "Cloudflare 私人收件匣（人工授權）",
+        )
+        rows.append(normalized)
+    source_stats["private_inbox_reachable"] = True
+    source_stats["private_inbox_rows"] = len(rows)
+    return rows
+
+
 def facebook_row_reject_reasons(
     row: dict[str, Any],
     window: timedelta | None = None,
@@ -3649,10 +3716,16 @@ def load_facebook_import(
         import_sources.append("GitHub公開Issue投稿")
         rows.extend(issue_rows)
 
+    private_rows = load_private_facebook_inbox_rows(source_stats)
+    if source_stats.get("private_inbox_reachable"):
+        import_sources.append("Cloudflare私人收件匣")
+    rows.extend(private_rows)
+
     if not rows and not import_sources:
         source_stats["errors"].append(
             "FB沒有資料來源：請建立 data/facebook_posts.json，或設定GitHub Actions "
-            f"secret {FB_IMPORT_ENV}／{FB_IMPORT_URL_ENV}，或使用電子報的FB公開投稿入口。"
+            f"secret {FB_IMPORT_ENV}／{FB_IMPORT_URL_ENV}／"
+            f"{FB_PRIVATE_INBOX_TOKEN_ENV}，或使用電子報的FB投稿入口。"
             "在不使用Facebook帳號、密碼、Cookie或Session的限制下，程式不會假裝能"
             "匿名抓取受登入保護的社團貼文。"
         )
@@ -3706,6 +3779,7 @@ def load_facebook_import(
     source_stats["candidate_links"] = len(seen_keys)
     source_stats["validated"] = len(result)
     source_stats["anonymous_verified_posts"] = len(result)
+    source_stats["authorized_or_public_posts"] = len(result)
     source_stats["window_candidates"] = window_candidates
     source_stats["missing_rent_accepted"] = sum(not item.rent for item in result)
     source_stats["missing_photo_accepted"] = sum(not item.image for item in result)
@@ -3715,15 +3789,16 @@ def load_facebook_import(
     }
     source_stats["rejects"] = dict(sorted(rejects.items()))
     source_stats["notices"].append(
-        f"FB目前合併檔案、Secret、HTTPS feed與GitHub公開投稿；"
-        "接受任何可匿名驗證的公開社團永久貼文，既有11個社團連結只作為人工查找入口。"
+        f"FB目前合併檔案、Secret、HTTPS feed、GitHub公開投稿與Cloudflare私人收件匣；"
+        "公開貼文需可匿名驗證；私人社團貼文只能由已加入社團的使用者手動提交，"
+        "並確認已取得作者或社團管理員的電子報再公開授權。既有11個社團連結只作為人工查找入口。"
         f"本輪為{'首次' if source_stats['collection_mode'] == 'initial' else '後續'}收集，"
         f"讀取最近{source_stats['window_days']}天；指定四區、至少3房與非包租代管／仲介同業為硬條件。"
         "屋主尋求代管、人在外地或沒時間管理會保留並提高房源等級；"
         "公司、證照、服務費及招攬委託等業者訊號仍會排除。"
         "坪數、租金與照片只用於評分，不會因單一選填欄位缺少而捏造或誤殺。"
         "Facebook未向未登入訪客提供完整社團貼文清單，"
-        "因此候選數代表已取得且可匿名驗證的永久貼文，不是社團全部貼文數。"
+        "因此候選數代表已取得且可匿名驗證或人工授權的永久貼文，不是社團全部貼文數。"
     )
     if import_sources or source_stats.get("issue_source_enabled"):
         mark_social_source_initialized(state, "FB")
@@ -5421,12 +5496,13 @@ def render_status(stats: dict[str, Any], source: str) -> str:
         diagnostics = (
             f"<span>公開社團入口 {row.get('discovery_groups', len(FB_GROUPS))} 個</span>"
             f"<span>Marketplace入口 1 個</span>"
-            f"<span>匿名驗證貼文 "
-            f"{row.get('anonymous_verified_posts', row.get('validated', 0))} 筆</span>"
+            f"<span>公開／已授權貼文 "
+            f"{row.get('authorized_or_public_posts', row.get('validated', 0))} 筆</span>"
             f"<span>🔥 A級 {lead_grades.get('A', 0)} 筆</span>"
             f"<span>🟡 B級 {lead_grades.get('B', 0)} 筆</span>"
             f"<span>⚪ C級 {lead_grades.get('C', 0)} 筆</span>"
             f"<span>公開投稿 {row.get('issue_submissions_seen', 0)} 筆</span>"
+            f"<span>私人收件匣 {row.get('private_inbox_rows', 0)} 筆</span>"
             f"<span>自動補齊 {row.get('public_metadata_enriched', 0)} 筆</span>"
             f"<span>{'首次回溯' if row.get('collection_mode') == 'initial' else '後續更新'} "
             f"{row.get('window_days', 0)} 天</span>"
@@ -5573,6 +5649,7 @@ main{{padding:22px 0 48px}}
 .source-heading a{{font-size:14px;color:#555;text-underline-offset:3px}}
 .source-actions{{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}}
 .source-actions .submission-link{{color:#fff;background:var(--fb);padding:7px 10px;border-radius:6px;text-decoration:none;font-weight:850}}
+.source-actions .private-submission{{background:#6b35c4}}
 .source-actions .threads-submission{{background:var(--threads)}}
 .source-status{{display:flex;flex-direction:column;align-items:flex-end;background:#fff;padding:12px 14px;border:1px solid var(--line);border-radius:10px}}
 .status-primary{{width:75%;align-self:flex-start;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));align-items:center;direction:ltr}}
@@ -5728,6 +5805,7 @@ h3 a{{text-decoration:none}}
   <div class="source-heading">
     <h2>FB社團</h2>
     <div class="source-actions">
+      <a class="submission-link private-submission" href="{FB_PRIVATE_SUBMISSION_URL}" target="_blank" rel="noopener noreferrer">私人社團授權投稿 ↗</a>
       <a class="submission-link" href="{FB_ISSUE_TEMPLATE_URL}" target="_blank" rel="noopener noreferrer">提交FB永久貼文 ↗</a>
       <a href="https://www.facebook.com/groups/feed/" target="_blank" rel="noopener noreferrer">開啟Facebook社團 ↗</a>
     </div>
@@ -5735,7 +5813,10 @@ h3 a{{text-decoration:none}}
   {render_status(stats, 'FB')}
   <div class="social-note">
     <strong>FB 屋主房源雷達：公開資料＋人工授權入口＋AI規則篩選</strong>
-    接受任何可匿名驗證的公開社團永久貼文，並合併檔案、Secret、公開HTTPS feed與GitHub投稿；
+    接受可匿名驗證的公開社團永久貼文，並合併檔案、Secret、公開HTTPS feed與GitHub投稿；
+    已加入的私人社團則可由您在自己的Facebook瀏覽器中手動開啟貼文，再透過私人收件匣提交。
+    私人投稿只在您確認已取得貼文作者或社團管理員的電子報再公開授權後才會收件；
+    收件匣只保存房源資料30天，不接收也不保存Facebook帳號、密碼、Cookie、Session或Access Token。
     社團與Marketplace按鈕是人工發現入口，不會登入或大量模擬瀏覽。
     桃園區、中壢區、平鎮區、八德區及至少3房是必要條件。
     A級代表屋主身分明確，且另有尋求代管、人在外地、沒時間管理、空屋或急租訊號；
@@ -5744,7 +5825,7 @@ h3 a{{text-decoration:none}}
     屋主自己提到「想找代管」不會再被誤判為同業。
     30至35坪以上、租金與照片是加分條件，缺少選填資訊仍會誠實顯示，不補造資料或照片。
     首次回溯7天，後續只讀最近2天；「新房源」表示同一物件過去2天未曾出現。
-    不需要、也請勿提供Facebook帳號、密碼、Cookie或Session；無法匿名讀取的私密貼文不會刊出。
+    Facebook登入與加入社團狀態只留在您的瀏覽器；若Facebook登出，請由您本人重新登入。
   </div>
   <div class="social-links">{fb_buttons}</div>
   {render_listing_browser(

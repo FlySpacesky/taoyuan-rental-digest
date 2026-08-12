@@ -8,6 +8,11 @@
   "browser": {
     "binding": "BROWSER"
   },
+  "kv_namespaces": [
+    {
+      "binding": "FB_INBOX"
+    }
+  ],
   "observability": {
     "enabled": true
   },

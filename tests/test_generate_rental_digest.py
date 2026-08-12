@@ -818,6 +818,60 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
         headers = get.call_args.kwargs["headers"]
         self.assertEqual(headers["Authorization"], "Bearer test-github-token")
 
+    def test_private_inbox_uses_bearer_read_token_and_requires_republish_consent(
+        self,
+    ) -> None:
+        allowed = {
+            "url": "https://www.facebook.com/groups/987654321/posts/1234567890123/",
+            "post_text": "桃園區4房2廳屋主出租",
+            "published_at": DIGEST.NOW.isoformat(),
+            "republish_authorized": True,
+        }
+        denied = {
+            "url": "https://www.facebook.com/groups/987654321/posts/1234567890124/",
+            "post_text": "中壢區4房2廳屋主出租",
+            "published_at": DIGEST.NOW.isoformat(),
+            "republish_authorized": False,
+        }
+        payload = {"posts": [allowed, denied]}
+        response = Mock(status_code=200)
+        response.content = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        response.json.return_value = payload
+        stats = DIGEST.empty_source_stats()
+
+        with (
+            patch.dict(
+                os.environ,
+                {DIGEST.FB_PRIVATE_INBOX_TOKEN_ENV: "private-read-test-token"},
+                clear=False,
+            ),
+            patch.object(DIGEST.requests, "get", return_value=response) as get,
+        ):
+            rows = DIGEST.load_private_facebook_inbox_rows(stats)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["_import_source"], "Cloudflare私人收件匣")
+        self.assertEqual(stats["private_inbox_rows"], 1)
+        self.assertTrue(stats["private_inbox_reachable"])
+        self.assertEqual(
+            get.call_args.kwargs["headers"]["Authorization"],
+            "Bearer private-read-test-token",
+        )
+        self.assertNotIn("private-read-test-token", " ".join(stats["errors"]))
+
+    def test_private_inbox_is_optional_when_read_token_is_absent(self) -> None:
+        stats = DIGEST.empty_source_stats()
+        with patch.dict(
+            os.environ,
+            {DIGEST.FB_PRIVATE_INBOX_TOKEN_ENV: ""},
+            clear=False,
+        ):
+            rows = DIGEST.load_private_facebook_inbox_rows(stats)
+
+        self.assertEqual(rows, [])
+        self.assertFalse(stats["private_inbox_enabled"])
+        self.assertEqual(stats["errors"], [])
+
     def test_supplied_taoyuan_four_room_post_accepts_archived_public_image(
         self,
     ) -> None:
@@ -2476,15 +2530,18 @@ class CurrentListingDisplayTests(unittest.TestCase):
         self.assertIn(f"{DIGEST.NOW:%Y/%m/%d %H:%M}", rendered)
         self.assertIn("公開社團入口 11 個", rendered)
         self.assertIn("Marketplace入口 1 個", rendered)
-        self.assertIn("匿名驗證貼文 0 筆", rendered)
+        self.assertIn("公開／已授權貼文 0 筆", rendered)
         self.assertIn("🔥 A級 0 筆", rendered)
         self.assertIn("🟡 B級 0 筆", rendered)
         self.assertIn("⚪ C級 0 筆", rendered)
         self.assertIn("公開投稿 0 筆", rendered)
+        self.assertIn("私人收件匣 0 筆", rendered)
         self.assertIn("自動補齊 0 筆", rendered)
         self.assertIn("提交FB永久貼文", rendered)
         self.assertIn("FB 屋主房源雷達", rendered)
         self.assertIn(DIGEST.FB_ISSUE_TEMPLATE_URL, rendered)
+        self.assertIn(DIGEST.FB_PRIVATE_SUBMISSION_URL, rendered)
+        self.assertIn("私人社團授權投稿", rendered)
         self.assertIn(DIGEST.FB_MARKETPLACE_URL, rendered)
         self.assertIn("520租屋快訊網", rendered)
         self.assertIn("中壢租屋網", rendered)
@@ -2624,6 +2681,17 @@ class CurrentListingDisplayTests(unittest.TestCase):
             'LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}',
             workflow,
         )
+
+    def test_private_facebook_submission_page_never_requests_facebook_login(self) -> None:
+        page = (ROOT / "docs" / "facebook-submit.html").read_text(encoding="utf-8")
+
+        self.assertIn("/facebook-inbox", page)
+        self.assertIn("republish_authorized", page)
+        self.assertIn("no_facebook_credentials", page)
+        self.assertIn("localStorage", page)
+        self.assertNotIn('name="password"', page)
+        self.assertNotIn('name="cookie"', page)
+        self.assertNotIn('name="session"', page)
 
 
 if __name__ == "__main__":
