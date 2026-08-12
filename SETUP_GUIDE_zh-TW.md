@@ -159,7 +159,9 @@ GitHub repository 的 Actions Secrets 需要：
 
 - `CLOUDFLARE_ACCOUNT_ID`
 - `CLOUDFLARE_API_TOKEN`：Cloudflare帳戶的 `Workers Scripts Write` 與
-  `Account Settings Read` 權限
+  `Workers KV Storage Write`、`Account Settings Read` 權限
+- `FB_INBOX_WRITE_TOKEN`：私人收件匣唯寫權杖
+- `FB_INBOX_READ_TOKEN`：私人收件匣唯讀權杖
 
 Worker 本身另需 Secret：
 
@@ -197,6 +199,14 @@ Worker程式、三個UTC Cron Triggers與測試都在 `cloudflare-worker/`。正
 - Repository Actions secret：`FACEBOOK_POSTS_JSON`
 - Repository Actions secret 或 variable：`FACEBOOK_POSTS_JSON_URL`
   （可匿名讀取的HTTPS JSON feed；URL本身不敏感時建議用 variable）
+- Cloudflare私人收件匣：電子報的「私人社團授權投稿」入口。您本人可在自己的
+  Facebook瀏覽器手動登入、加入社團並開啟單篇貼文，但只有已取得作者或社團管理員
+  同意再公開的內容可提交。收件匣不接收Facebook登入資料。
+
+私人收件匣採兩把分離權杖：投稿頁只有寫入權，GitHub Actions的
+`FB_INBOX_READ_TOKEN`只有讀取權。房源30天自動到期；投稿頁把唯寫權杖保存在使用者
+自己的瀏覽器中，不會把它寫入GitHub Pages。Facebook的登入與入社狀態仍由Facebook
+管理，若Facebook登出，必須由使用者本人重新登入。
 
 格式參考：
 
@@ -206,21 +216,23 @@ Worker程式、三個UTC Cron Triggers與測試都在 `cloudflare-worker/`。正
 
 你可以直接提供每一筆真實房源的：
 
-1. 設定清單內社團的「單篇永久貼文網址」（不是社團首頁）。
+1. Facebook社團的「單篇永久貼文網址」（不是社團首頁或分享短網址）。
 2. 貼文文字，或你有權使用、內容清楚可辨識的貼文截圖。
-3. 租金、4房以上格局、桃園區／中壢區／平鎮區／八德區其中一區。
+3. 最近7天內的原始刊登時間、3房以上格局、桃園區／中壢區／平鎮區／八德區其中一區。
 4. 可公開讀取的原始照片HTTPS網址。
 5. 若貼文有提供，也可附上坪數、樓層、刊登者、更新時間、瀏覽人氣與原租金。
 
 收到上述資料後，Codex可以協助整理成 `data/facebook_posts.json`、執行驗證、
 更新GitHub並確認Actions結果。請勿提供Facebook帳號、密碼、Cookie或Session。
-只有私密社團首頁或登入後才可讀、且沒有貼文內容與公開照片網址的連結，無法安全轉成房源資料。
+私人社團貼文需由已加入社團的使用者手動貼上完整文字，並確認已取得再公開授權；
+只有社團首頁、沒有單篇永久網址或沒有授權的內容，不能刊登。
 
 `https://www.facebook.com/share/...` 分享短網址不能證明貼文來自允許清單內的社團；
 請從貼文選單複製可看出社團ID與貼文ID的永久網址，例如
 `https://www.facebook.com/groups/{社團ID}/posts/{貼文ID}/`。
 `https://www.facebook.com/photo?...` 是照片網頁而不是圖片檔，不能放在 `image`；
-請提供可直接顯示的公開圖片網址。貼文仍須明確包含4房以上，並通過代租代管／代理人等排除條件。
+請提供可直接顯示且已授權的公開圖片網址。貼文仍須明確包含3房以上，並通過
+包租代管／仲介同業等排除條件；租金、坪數與照片可缺少，但不會補造。
 
 ### 使用HTTPS feed持續更新
 
@@ -239,8 +251,8 @@ Codex可以協助把網址設定成Repository variable `FACEBOOK_POSTS_JSON_URL`
    workflow每次執行時會重新讀取，不必反覆commit資料檔。
 5. 手動執行workflow並在來源診斷確認 `candidate_links`、`validated` 與拒絕原因。
 
-程式只接受設定清單內社團的單篇貼文網址，並驗證4房以上、指定地區、租金與公開圖片；
-同時排除代租代管、包租代管、租管通、租賃服務業及代理人。未提供上述任一真實資料來源時，
+程式接受任何社團的單篇永久貼文網址，並驗證3房以上、指定地區、最近時間窗；
+同時排除代租代管與仲介同業廣告。未提供上述任一真實資料來源時，
 FB統計會維持0並顯示可操作的錯誤訊息，不會製造替代房源。
 
 ## 11. 設定Threads官方搜尋

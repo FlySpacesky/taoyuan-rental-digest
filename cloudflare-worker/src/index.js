@@ -11,12 +11,264 @@ const YUNGCHING_BASE =
   "整層住家_use/4-4_room";
 const YUNGCHING_FEED_CACHE_SECONDS = 2 * 60 * 60;
 const YUNGCHING_ALLOWED_DISTRICTS = ["桃園區", "中壢區", "平鎮區", "八德區"];
+const FACEBOOK_INBOX_PREFIX = "facebook:";
+const FACEBOOK_INBOX_TTL_SECONDS = 30 * 24 * 60 * 60;
+const FACEBOOK_INBOX_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const FACEBOOK_INBOX_MAX_BODY_BYTES = 64 * 1024;
+const FACEBOOK_INBOX_MAX_FEED_ROWS = 200;
+const FACEBOOK_SUBMISSION_ORIGIN =
+  "https://flyspacesky.github.io";
+const FACEBOOK_ALLOWED_FIELDS = new Set([
+  "url",
+  "post_text",
+  "published_at",
+  "publisher",
+  "title",
+  "district",
+  "address",
+  "house_type",
+  "building_type",
+  "floor",
+  "layout",
+  "size",
+  "equipment",
+  "rent",
+  "old_rent",
+  "total_cost",
+  "image",
+  "summary",
+  "republish_authorized",
+  "no_facebook_credentials",
+]);
+const FACEBOOK_FORBIDDEN_FIELD =
+  /(?:password|passwd|cookie|session|access.?token|authorization|credential|帳號|密碼|權杖)/i;
 
 export const CRON_TO_SLOT = Object.freeze({
   "35-59 1 * * *": "09:30",
   "5-30 8 * * *": "16:00",
   "5-30 14 * * *": "22:00",
 });
+
+function facebookCorsHeaders(request) {
+  const origin = request.headers.get("Origin") || "";
+  return origin === FACEBOOK_SUBMISSION_ORIGIN
+    ? {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Headers": "Authorization, Content-Type",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Max-Age": "86400",
+        Vary: "Origin",
+      }
+    : {};
+}
+
+function facebookJson(request, payload, status = 200) {
+  return Response.json(payload, {
+    status,
+    headers: {
+      ...facebookCorsHeaders(request),
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
+async function tokenMatches(request, expectedToken) {
+  const expected = String(expectedToken || "").trim();
+  const supplied = (request.headers.get("Authorization") || "")
+    .replace(/^Bearer\s+/i, "")
+    .trim();
+  if (!expected || !supplied) return false;
+  const encode = (value) => new TextEncoder().encode(value);
+  const [expectedDigest, suppliedDigest] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encode(expected)),
+    crypto.subtle.digest("SHA-256", encode(supplied)),
+  ]);
+  const left = new Uint8Array(expectedDigest);
+  const right = new Uint8Array(suppliedDigest);
+  if (left.length !== right.length) return false;
+  let mismatch = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    mismatch |= left[index] ^ right[index];
+  }
+  return mismatch === 0;
+}
+
+function normalizeFacebookPostUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    if (!["facebook.com", "www.facebook.com", "m.facebook.com"].includes(url.hostname)) {
+      return "";
+    }
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (
+      parts.length < 4 ||
+      parts[0] !== "groups" ||
+      !/^[A-Za-z0-9._-]+$/.test(parts[1]) ||
+      !["posts", "permalink"].includes(parts[2]) ||
+      !/^[A-Za-z0-9._-]+$/.test(parts[3])
+    ) {
+      return "";
+    }
+    return `https://www.facebook.com/groups/${parts[1]}/${parts[2]}/${parts[3]}/`;
+  } catch {
+    return "";
+  }
+}
+
+function hasForbiddenFacebookField(value) {
+  if (!value || typeof value !== "object") return false;
+  return Object.entries(value).some(
+    ([key, child]) =>
+      (key !== "no_facebook_credentials" && FACEBOOK_FORBIDDEN_FIELD.test(key)) ||
+      (child && typeof child === "object" && hasForbiddenFacebookField(child)),
+  );
+}
+
+function cleanFacebookValue(value, maxLength) {
+  return String(value ?? "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .trim()
+    .slice(0, maxLength);
+}
+
+async function normalizeFacebookInboxSubmission(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return { error: "投稿資料必須是 JSON 物件。" };
+  }
+  if (hasForbiddenFacebookField(payload)) {
+    return { error: "收件匣禁止接收帳密、Cookie、Session 或 Access Token。" };
+  }
+  const unknownFields = Object.keys(payload).filter(
+    (key) => !FACEBOOK_ALLOWED_FIELDS.has(key),
+  );
+  if (unknownFields.length) {
+    return { error: `投稿包含不支援的欄位：${unknownFields.slice(0, 5).join("、")}` };
+  }
+  if (payload.republish_authorized !== true) {
+    return { error: "必須確認已取得貼文作者或社團管理員的電子報再公開授權。" };
+  }
+  if (payload.no_facebook_credentials !== true) {
+    return { error: "必須確認投稿中不含 Facebook 帳密、Cookie 或 Session。" };
+  }
+  const url = normalizeFacebookPostUrl(payload.url);
+  if (!url) {
+    return { error: "請使用 /groups/{社團}/posts/{貼文}/ 或 /permalink/{貼文}/ 永久網址。" };
+  }
+  const postText = cleanFacebookValue(payload.post_text, 20_000);
+  if (!postText) return { error: "請貼上完整原始貼文文字。" };
+
+  const publishedAt = new Date(String(payload.published_at || ""));
+  const now = Date.now();
+  if (
+    !Number.isFinite(publishedAt.getTime()) ||
+    publishedAt.getTime() < now - FACEBOOK_INBOX_MAX_AGE_MS ||
+    publishedAt.getTime() > now + 10 * 60 * 1000
+  ) {
+    return { error: "原始貼文時間必須是最近 7 天內的有效時間。" };
+  }
+
+  const row = {
+    url,
+    post_text: postText,
+    published_at: publishedAt.toISOString(),
+    submitted_at: new Date(now).toISOString(),
+    republish_authorized: true,
+    _submission_source: "Cloudflare 私人收件匣（人工授權）",
+  };
+  const fieldLimits = {
+    publisher: 100,
+    title: 200,
+    district: 30,
+    address: 160,
+    house_type: 60,
+    building_type: 60,
+    floor: 60,
+    layout: 60,
+    size: 40,
+    equipment: 500,
+    rent: 30,
+    old_rent: 30,
+    total_cost: 30,
+    image: 2_000,
+    summary: 1_000,
+  };
+  Object.entries(fieldLimits).forEach(([field, limit]) => {
+    const value = cleanFacebookValue(payload[field], limit);
+    if (value) row[field] = value;
+  });
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(url));
+  const id = [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 32);
+  return { id, row };
+}
+
+async function submitFacebookInbox(request, env) {
+  if (!env.FB_INBOX || !String(env.FB_INBOX_WRITE_TOKEN || "").trim()) {
+    return facebookJson(request, { status: "error", message: "私人收件匣尚未完成設定。" }, 503);
+  }
+  if (!(await tokenMatches(request, env.FB_INBOX_WRITE_TOKEN))) {
+    return facebookJson(request, { status: "error", message: "投稿權杖無效。" }, 401);
+  }
+  const contentLength = Number(request.headers.get("Content-Length") || 0);
+  if (contentLength > FACEBOOK_INBOX_MAX_BODY_BYTES) {
+    return facebookJson(request, { status: "error", message: "投稿內容超過 64KB。" }, 413);
+  }
+  let payload;
+  try {
+    const raw = await request.text();
+    if (!raw || new TextEncoder().encode(raw).length > FACEBOOK_INBOX_MAX_BODY_BYTES) {
+      return facebookJson(request, { status: "error", message: "投稿內容為空或超過 64KB。" }, 413);
+    }
+    payload = JSON.parse(raw);
+  } catch {
+    return facebookJson(request, { status: "error", message: "投稿內容不是有效 JSON。" }, 400);
+  }
+  const normalized = await normalizeFacebookInboxSubmission(payload);
+  if (normalized.error) {
+    return facebookJson(request, { status: "error", message: normalized.error }, 422);
+  }
+  await env.FB_INBOX.put(
+    `${FACEBOOK_INBOX_PREFIX}${normalized.id}`,
+    JSON.stringify(normalized.row),
+    { expirationTtl: FACEBOOK_INBOX_TTL_SECONDS },
+  );
+  return facebookJson(request, {
+    status: "accepted",
+    id: normalized.id,
+    message: "已安全收件；電子報仍會套用地區、房數、日期與同業排除規則。",
+  }, 201);
+}
+
+async function readFacebookInbox(request, env) {
+  if (!env.FB_INBOX || !String(env.FB_INBOX_READ_TOKEN || "").trim()) {
+    return facebookJson(request, { status: "error", message: "私人 feed 尚未完成設定。" }, 503);
+  }
+  if (!(await tokenMatches(request, env.FB_INBOX_READ_TOKEN))) {
+    return facebookJson(request, { status: "error", message: "讀取權杖無效。" }, 401);
+  }
+  const posts = [];
+  let cursor;
+  do {
+    const listed = await env.FB_INBOX.list({
+      prefix: FACEBOOK_INBOX_PREFIX,
+      limit: Math.min(100, FACEBOOK_INBOX_MAX_FEED_ROWS - posts.length),
+      ...(cursor ? { cursor } : {}),
+    });
+    for (const key of listed.keys || []) {
+      if (posts.length >= FACEBOOK_INBOX_MAX_FEED_ROWS) break;
+      const row = await env.FB_INBOX.get(key.name, "json");
+      if (row && row.republish_authorized === true) posts.push(row);
+    }
+    cursor = listed.list_complete === false ? listed.cursor : undefined;
+  } while (cursor && posts.length < FACEBOOK_INBOX_MAX_FEED_ROWS);
+  posts.sort((left, right) =>
+    String(right.published_at || "").localeCompare(String(left.published_at || "")),
+  );
+  return facebookJson(request, { posts });
+}
 
 function githubHeaders(token) {
   return {
@@ -414,6 +666,15 @@ export default {
 
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (request.method === "OPTIONS" && url.pathname === "/facebook-inbox") {
+      return new Response(null, { status: 204, headers: facebookCorsHeaders(request) });
+    }
+    if (request.method === "POST" && url.pathname === "/facebook-inbox") {
+      return submitFacebookInbox(request, env);
+    }
+    if (request.method === "GET" && url.pathname === "/facebook-inbox-feed") {
+      return readFacebookInbox(request, env);
+    }
     if (request.method === "GET" && url.pathname === "/yungching-feed") {
       try {
         return await yungchingFeedResponse(request, env, ctx);
@@ -429,15 +690,21 @@ export default {
       const githubTokenConfigured = Boolean(
         String(env.GITHUB_TOKEN || "").trim(),
       );
+      const facebookInboxConfigured = Boolean(
+        env.FB_INBOX &&
+        String(env.FB_INBOX_WRITE_TOKEN || "").trim() &&
+        String(env.FB_INBOX_READ_TOKEN || "").trim(),
+      );
       return Response.json(
         {
-          status: githubTokenConfigured ? "ok" : "degraded",
+          status: githubTokenConfigured && facebookInboxConfigured ? "ok" : "degraded",
           service: "taoyuan-rental-line-watchdog",
           githubTokenConfigured,
           browserRunConfigured: Boolean(env.BROWSER),
+          facebookInboxConfigured,
           backupCronsUtc: Object.keys(CRON_TO_SLOT),
         },
-        { status: githubTokenConfigured ? 200 : 503 },
+        { status: githubTokenConfigured && facebookInboxConfigured ? 200 : 503 },
       );
     }
     return new Response("Not found", { status: 404 });

@@ -15,6 +15,68 @@ const controller = { cron: "35-59 1 * * *", scheduledTime };
 const env = { GITHUB_TOKEN: "test-token" };
 
 
+class MemoryKv {
+  constructor() {
+    this.values = new Map();
+  }
+
+  async put(key, value) {
+    this.values.set(key, value);
+  }
+
+  async get(key, type) {
+    const value = this.values.get(key);
+    if (value === undefined) return null;
+    return type === "json" ? JSON.parse(value) : value;
+  }
+
+  async list({ prefix = "", limit = 100 } = {}) {
+    const keys = [...this.values.keys()]
+      .filter((key) => key.startsWith(prefix))
+      .slice(0, limit)
+      .map((name) => ({ name }));
+    return { keys, list_complete: true };
+  }
+}
+
+
+function facebookEnv() {
+  return {
+    GITHUB_TOKEN: "configured",
+    FB_INBOX: new MemoryKv(),
+    FB_INBOX_WRITE_TOKEN: "write-only-test-token",
+    FB_INBOX_READ_TOKEN: "read-only-test-token",
+  };
+}
+
+
+function facebookRequest(path, token, body, origin = "https://flyspacesky.github.io") {
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    Origin: origin,
+  };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  return new Request(`https://watchdog.example${path}`, {
+    method: body === undefined ? "GET" : "POST",
+    headers,
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+}
+
+
+function validFacebookSubmission(overrides = {}) {
+  return {
+    url: "https://www.facebook.com/groups/987654321/posts/1234567890123/?tracking=1",
+    post_text: "桃園區屋主自租，4房2廳，35坪，租金 28000 元。",
+    published_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    publisher: "屋主林先生",
+    republish_authorized: true,
+    no_facebook_credentials: true,
+    ...overrides,
+  };
+}
+
+
 function response(status, body = "") {
   return new Response(
     body ? JSON.stringify(body) : null,
@@ -126,7 +188,7 @@ test("retries a failed run at the next backup check", async () => {
 test("health reports whether the GitHub secret is configured", async () => {
   const healthy = await worker.fetch(
     new Request("https://watchdog.example/health"),
-    { GITHUB_TOKEN: "configured" },
+    facebookEnv(),
   );
   const degraded = await worker.fetch(
     new Request("https://watchdog.example/health"),
@@ -137,8 +199,115 @@ test("health reports whether the GitHub secret is configured", async () => {
   assert.equal(healthy.status, 200);
   assert.equal(healthyBody.githubTokenConfigured, true);
   assert.equal(healthyBody.browserRunConfigured, false);
+  assert.equal(healthyBody.facebookInboxConfigured, true);
   assert.equal(degraded.status, 503);
   assert.equal((await degraded.json()).githubTokenConfigured, false);
+});
+
+
+test("private Facebook inbox stores an authorized post and exposes it only to read token", async () => {
+  const privateEnv = facebookEnv();
+  const submitted = await worker.fetch(
+    facebookRequest("/facebook-inbox", "write-only-test-token", validFacebookSubmission()),
+    privateEnv,
+  );
+  assert.equal(submitted.status, 201);
+  const receipt = await submitted.json();
+  assert.equal(receipt.status, "accepted");
+  assert.match(receipt.id, /^[a-f0-9]{32}$/);
+
+  const denied = await worker.fetch(
+    facebookRequest("/facebook-inbox-feed", "write-only-test-token"),
+    privateEnv,
+  );
+  assert.equal(denied.status, 401);
+
+  const feed = await worker.fetch(
+    facebookRequest("/facebook-inbox-feed", "read-only-test-token"),
+    privateEnv,
+  );
+  assert.equal(feed.status, 200);
+  const payload = await feed.json();
+  assert.equal(payload.posts.length, 1);
+  assert.equal(
+    payload.posts[0].url,
+    "https://www.facebook.com/groups/987654321/posts/1234567890123/",
+  );
+  assert.equal(payload.posts[0].republish_authorized, true);
+  assert.equal(payload.posts[0].no_facebook_credentials, undefined);
+});
+
+
+test("private Facebook inbox deduplicates the same permanent post URL", async () => {
+  const privateEnv = facebookEnv();
+  const first = await worker.fetch(
+    facebookRequest("/facebook-inbox", "write-only-test-token", validFacebookSubmission()),
+    privateEnv,
+  );
+  const second = await worker.fetch(
+    facebookRequest(
+      "/facebook-inbox",
+      "write-only-test-token",
+      validFacebookSubmission({ publisher: "更新後屋主名稱" }),
+    ),
+    privateEnv,
+  );
+  assert.equal(first.status, 201);
+  assert.equal(second.status, 201);
+  assert.equal(privateEnv.FB_INBOX.values.size, 1);
+  const feed = await worker.fetch(
+    facebookRequest("/facebook-inbox-feed", "read-only-test-token"),
+    privateEnv,
+  );
+  assert.equal((await feed.json()).posts[0].publisher, "更新後屋主名稱");
+});
+
+
+test("private Facebook inbox rejects missing consent, short links, old posts, and credential fields", async () => {
+  const cases = [
+    validFacebookSubmission({ republish_authorized: false }),
+    validFacebookSubmission({ url: "https://www.facebook.com/share/p/abc123/" }),
+    validFacebookSubmission({
+      published_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
+    }),
+    { ...validFacebookSubmission(), cookie: "forbidden" },
+  ];
+  for (const body of cases) {
+    const rejected = await worker.fetch(
+      facebookRequest("/facebook-inbox", "write-only-test-token", body),
+      facebookEnv(),
+    );
+    assert.equal(rejected.status, 422);
+  }
+});
+
+
+test("private Facebook inbox does not accept the read token for writing", async () => {
+  const rejected = await worker.fetch(
+    facebookRequest("/facebook-inbox", "read-only-test-token", validFacebookSubmission()),
+    facebookEnv(),
+  );
+  assert.equal(rejected.status, 401);
+});
+
+
+test("private Facebook inbox allows CORS only from the newsletter site", async () => {
+  const allowed = await worker.fetch(
+    new Request("https://watchdog.example/facebook-inbox", {
+      method: "OPTIONS",
+      headers: { Origin: "https://flyspacesky.github.io" },
+    }),
+    facebookEnv(),
+  );
+  const blocked = await worker.fetch(
+    new Request("https://watchdog.example/facebook-inbox", {
+      method: "OPTIONS",
+      headers: { Origin: "https://evil.example" },
+    }),
+    facebookEnv(),
+  );
+  assert.equal(allowed.headers.get("Access-Control-Allow-Origin"), "https://flyspacesky.github.io");
+  assert.equal(blocked.headers.get("Access-Control-Allow-Origin"), null);
 });
 
 

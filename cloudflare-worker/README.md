@@ -14,8 +14,18 @@ LINE 發送程式會由 `delivery_slot` 產生固定 `X-Line-Retry-Key`。即使
 三個備援窗口各只占用一個 Cron Trigger，可與同一免費 Cloudflare 帳戶內既有的
 科技新聞 Worker 共存，不超過免費方案每帳戶 5 個 Cron Triggers 的限制。
 
-部署後可開啟 `/health`。HTTP 200 且 `githubTokenConfigured: true` 代表 Worker
-程式與必要 Secret 均已載入；缺少 Secret 時會回傳HTTP 503，且不會洩漏權杖值。
+部署後可開啟 `/health`。HTTP 200 且 `githubTokenConfigured`、
+`facebookInboxConfigured` 皆為 `true` 代表 Worker 程式與必要 Secret 均已載入；
+缺少 Secret 時會回傳HTTP 503，且不會洩漏權杖值。
+
+## Facebook 私人收件匣
+
+- `POST /facebook-inbox`：只接受唯寫 Bearer Token。貼文必須是最近7天內的社團永久
+  網址、包含完整原文，並確認已取得作者或管理員的電子報再公開授權。
+- `GET /facebook-inbox-feed`：只接受另一把唯讀 Bearer Token，供 GitHub Actions 匯入。
+- 投稿資料存於 `FB_INBOX` KV，30天自動到期；相同永久網址會更新同一筆。
+- 端點拒絕帳號、密碼、Cookie、Session、Access Token等欄位。Facebook登入與社團
+  會員狀態只保留在使用者自己的瀏覽器，Worker不接觸也不保存。
 
 ## 永慶公開資料摘要
 
@@ -30,11 +40,13 @@ LINE 發送程式會由 `delivery_slot` 產生固定 `X-Line-Retry-Key`。即使
 
 ## Cloudflare Secret
 
-Worker 需要一個 Secret：
+Worker 需要三個 Secret：
 
 - `GITHUB_TOKEN`：GitHub fine-grained personal access token，只授權
   `FlySpacesky/taoyuan-rental-digest`，Repository permissions 的 Actions 設為
   Read and write。
+- `FB_INBOX_WRITE_TOKEN`：私人投稿頁的唯寫權杖。
+- `FB_INBOX_READ_TOKEN`：GitHub Actions讀取私人feed的唯讀權杖。
 
 不要將 Token 寫入 `wrangler.jsonc` 或 GitHub repository。
 
@@ -43,7 +55,10 @@ Worker 需要一個 Secret：
 若使用 repository 內的自動部署流程，需建立：
 
 - `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_API_TOKEN`：只授權 Workers Scripts Edit 與 Account Settings Read。
+- `CLOUDFLARE_API_TOKEN`：授權 Workers Scripts Edit、Workers KV Storage Edit 與
+  Account Settings Read。
+- `FB_INBOX_WRITE_TOKEN`
+- `FB_INBOX_READ_TOKEN`
 
 ## 測試
 
