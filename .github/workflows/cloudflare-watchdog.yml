@@ -34,6 +34,10 @@ jobs:
         with:
           node-version: "24"
 
+      - name: 安裝 Worker 套件
+        working-directory: cloudflare-worker
+        run: npm install --no-audit --no-fund
+
       - name: 測試 Worker
         working-directory: cloudflare-worker
         run: node --test tests/*.test.mjs
@@ -52,6 +56,10 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: "24"
+
+      - name: 安裝 Worker 套件
+        working-directory: cloudflare-worker
+        run: npm install --no-audit --no-fund
 
       - name: 驗證 Cloudflare 部署 Secret
         env:

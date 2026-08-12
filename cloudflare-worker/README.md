@@ -17,6 +17,17 @@ LINE 發送程式會由 `delivery_slot` 產生固定 `X-Line-Retry-Key`。即使
 部署後可開啟 `/health`。HTTP 200 且 `githubTokenConfigured: true` 代表 Worker
 程式與必要 Secret 均已載入；缺少 Secret 時會回傳HTTP 503，且不會洩漏權杖值。
 
+## 永慶公開資料摘要
+
+`/yungching-feed` 使用 Cloudflare Browser Run 瀏覽固定的永慶公開搜尋頁與每筆
+詳細頁，解決 GitHub Runner 出口被 CloudFront 回應403而使永慶區塊為0的問題。
+摘要只接受桃園區、中壢區、平鎮區、八德區、整層住家、4房以上、有租金與詳細頁
+更新日期的物件；照片只取該物件相簿的 `yccdn.yungching.com.tw` 真實圖片，不取
+地圖或其他推薦房源圖片。結果快取2小時以控制免費 Browser Run 用量。
+
+此功能不使用永慶帳號、密碼、Cookie或私人Session。`wrangler.jsonc` 中的
+`BROWSER` binding 由正式部署流程建立及更新。
+
 ## Cloudflare Secret
 
 Worker 需要一個 Secret：

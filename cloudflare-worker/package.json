@@ -5,5 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@cloudflare/puppeteer": "1.1.0"
   }
 }

@@ -5,6 +5,7 @@ import {
   assessWorkflowRuns,
   deliverySlotFor,
   handleScheduled,
+  normalizeYungchingWorkerItem,
 } from "../src/index.js";
 import worker from "../src/index.js";
 
@@ -132,8 +133,68 @@ test("health reports whether the GitHub secret is configured", async () => {
     {},
   );
 
+  const healthyBody = await healthy.json();
   assert.equal(healthy.status, 200);
-  assert.equal((await healthy.json()).githubTokenConfigured, true);
+  assert.equal(healthyBody.githubTokenConfigured, true);
+  assert.equal(healthyBody.browserRunConfigured, false);
   assert.equal(degraded.status, 503);
   assert.equal((await degraded.json()).githubTokenConfigured, false);
+});
+
+
+test("normalizes a verified Yungching Browser Run item and preserves official new tab", () => {
+  const item = normalizeYungchingWorkerItem(
+    {
+      source_id: "2411508",
+      title: "冠倫大國四房",
+      address: "桃園市桃園區大有路",
+      layout: "4房(室)2廳2衛",
+      size: "50.63坪",
+      floor: "9 / 17樓",
+      rent: "26,000元/月",
+      updated: "2026年08月12日",
+      images: [
+        "https://yccdn.yungching.com.tw/real-a.jpg",
+        "https://rent.yungching.com.tw/list/assets/rent_og.jpg",
+      ],
+    },
+    new Set(["2411508"]),
+  );
+
+  assert.equal(item.source_id, "2411508");
+  assert.equal(item.rent, 26_000);
+  assert.equal(item.floor, "9/17樓");
+  assert.deepEqual(item.filter_tags, ["new"]);
+  assert.deepEqual(item.images, ["https://yccdn.yungching.com.tw/real-a.jpg"]);
+});
+
+
+test("rejects Browser Run rows outside the requested districts or below four rooms", () => {
+  const base = {
+    source_id: "2411508",
+    title: "房源",
+    address: "桃園市桃園區大有路",
+    layout: "4房(室)2廳2衛",
+    rent: 26_000,
+    updated: "2026年08月12日",
+    images: [],
+  };
+  assert.equal(
+    normalizeYungchingWorkerItem({ ...base, address: "桃園市龜山區文化路" }),
+    null,
+  );
+  assert.equal(
+    normalizeYungchingWorkerItem({ ...base, layout: "3房(室)2廳2衛" }),
+    null,
+  );
+});
+
+
+test("Yungching feed fails honestly when the Browser Run binding is absent", async () => {
+  const response = await worker.fetch(
+    new Request("https://watchdog.example/yungching-feed"),
+    {},
+  );
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).status, "error");
 });

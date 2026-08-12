@@ -116,6 +116,7 @@ _591_REFRESH_COOLDOWN = timedelta(hours=2)
 _591_SNAPSHOT_MAX_AGE = timedelta(hours=72)
 SOURCE_REFRESH_COOLDOWN = _591_REFRESH_COOLDOWN
 SOURCE_SNAPSHOT_MAX_AGE = _591_SNAPSHOT_MAX_AGE
+FIRST_SEEN_REGISTRY_LIMIT = 20_000
 
 SINYI_SEARCH_TEMPLATE = (
     "https://www.sinyi.com.tw/rent/list/Taoyuan-city/"
@@ -126,6 +127,10 @@ YUNGCHING_SEARCH_BASE = (
     "https://rent.yungching.com.tw/list/"
     "桃園市-中壢區,桃園市-平鎮區,桃園市-桃園區,桃園市-八德區_c/"
     "整層住家_use/4-4_room"
+)
+YUNGCHING_FEED_URL = (
+    "https://taoyuan-rental-line-watchdog.flysky3345678.workers.dev/"
+    "yungching-feed"
 )
 SINYI_NON_RESIDENTIAL_MARKERS = (
     "店面",
@@ -273,6 +278,7 @@ class Listing:
     category: str = ""
     fingerprint: str = ""
     validated_at: str = ""
+    first_seen_at: str = ""
     raw_text: str = field(default="", repr=False)
     filter_tags: list[str] = field(default_factory=list, repr=False)
 
@@ -2061,6 +2067,88 @@ def extract_yungching_list_cards(
     return items
 
 
+def load_yungching_browser_feed(source_stats: dict[str, Any]) -> dict[str, Listing]:
+    """讀取 Cloudflare Browser Run 產生的永慶公開房源摘要。
+
+    GitHub Runner 的出口 IP 目前會被永慶的 CloudFront 規則回應 403；此摘要
+    只瀏覽固定的永慶公開搜尋／詳細頁，不使用帳號、Cookie 或私人資料。
+    """
+    try:
+        response = session.get(YUNGCHING_FEED_URL, timeout=100)
+        response.raise_for_status()
+        payload = response.json()
+    except (requests.RequestException, ValueError) as exc:
+        source_stats["notices"].append(f"Cloudflare永慶公開摘要暫時無法讀取：{exc}")
+        return {}
+
+    rows = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        source_stats["notices"].append("Cloudflare永慶公開摘要的items不是陣列。")
+        return {}
+
+    items: dict[str, Listing] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        source_id = str(row.get("source_id", "")).strip()
+        url = normalize_item_url(str(row.get("url", "")).strip())
+        if not source_id or not re.fullmatch(r"\d+", source_id):
+            continue
+        if not re.search(rf"/house/{re.escape(source_id)}(?:$|[/?#])", url):
+            continue
+        images = [
+            str(value).strip()
+            for value in row.get("images", [])
+            if is_yungching_photo_url(str(value).strip())
+        ]
+        images = list(dict.fromkeys(images))
+        tags = [
+            str(value).strip()
+            for value in row.get("filter_tags", [])
+            if str(value).strip() in {"new"}
+        ]
+        item = Listing(
+            source="永慶房屋",
+            source_id=source_id,
+            url=url,
+            title=clean(row.get("title", ""), 180),
+            district=district_from_text(str(row.get("address", ""))),
+            address=clean(row.get("address", ""), 100),
+            house_type="整層住家",
+            building_type=clean(row.get("building_type", ""), 30),
+            floor=clean(row.get("floor", ""), 30),
+            layout=clean(row.get("layout", ""), 60),
+            size=clean(row.get("size", ""), 30),
+            equipment=clean(row.get("equipment", ""), 160),
+            rent=int(row.get("rent", 0) or 0),
+            updated=clean(row.get("updated", ""), 50),
+            publisher=clean(row.get("publisher", "永慶房屋"), 100),
+            image=images[0] if images else "",
+            images=images[1:],
+            summary=clean(row.get("summary", ""), 900),
+            raw_text=clean(row.get("raw_text", ""), 12000),
+            validated_at=NOW.isoformat(),
+            filter_tags=sorted(set(tags)),
+        )
+        if not source_snapshot_item_valid(item, "永慶房屋"):
+            continue
+        item.fingerprint = fingerprint(item)
+        items[source_id] = item
+
+    source_stats["browser_feed_generated_at"] = str(payload.get("generated_at", ""))
+    source_stats["browser_feed_cache"] = str(payload.get("cache", ""))
+    source_stats["browser_feed_candidates"] = int(payload.get("candidate_count", 0) or 0)
+    source_stats["browser_feed_validated"] = len(items)
+    if items:
+        source_stats["transport"] = "cloudflare_browser_run"
+        source_stats["category_counts"] = {
+            "all": len(items),
+            "new": sum(1 for item in items.values() if "new" in item.filter_tags),
+        }
+        source_stats["candidate_links"] = len(items)
+    return items
+
+
 def crawl_yungching_candidates(source_stats: dict[str, Any]) -> dict[str, Listing]:
     candidates: dict[str, Listing] = {}
     pages_read = 0
@@ -2237,6 +2325,15 @@ def collect_yungching_listings(source_stats: dict[str, Any]) -> list[Listing]:
         return use_source_snapshot(
             source_stats, "永慶房屋", snapshot, generated_at, age_hours, "refresh_cooldown"
         )
+
+    browser_feed = load_yungching_browser_feed(source_stats)
+    if browser_feed:
+        fresh = list(browser_feed.values())
+        source_stats["details_checked"] = len(fresh)
+        source_stats["validated"] = len(fresh)
+        save_source_snapshot("永慶房屋", fresh, LAST_SUCCESS_YUNGCHING)
+        source_stats["snapshot_updated_at"] = NOW.isoformat()
+        return fresh
 
     candidates = crawl_yungching_candidates(source_stats)
     fresh: list[Listing] = []
@@ -3881,6 +3978,92 @@ def save_state(state: dict[str, Any]) -> None:
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def parse_state_time(value: Any) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=TZ)
+    return parsed.astimezone(TZ)
+
+
+def seed_first_seen_registry(state: dict[str, Any]) -> dict[str, str]:
+    """從既有歷史與真實快照遷移來源物件首次出現時間。
+
+    先遷移再標示，可避免功能第一次上線時把數百筆既有房源誤標成新房源。
+    """
+    raw_registry = state.get("first_seen", {})
+    registry: dict[str, str] = {}
+    if isinstance(raw_registry, dict):
+        registry = {
+            str(key): str(value)
+            for key, value in raw_registry.items()
+            if parse_state_time(value)
+        }
+
+    def remember(source_key: str, value: Any) -> None:
+        parsed = parse_state_time(value)
+        if not source_key or parsed is None:
+            return
+        current = parse_state_time(registry.get(source_key, ""))
+        if current is None or parsed < current:
+            registry[source_key] = parsed.isoformat()
+
+    for row in state.get("sent", []):
+        if isinstance(row, dict):
+            remember(str(row.get("source_key", "")), row.get("sent_at"))
+
+    for path in (
+        OUTPUT_JSON,
+        LAST_SUCCESS_591,
+        LAST_SUCCESS_SINYI,
+        LAST_SUCCESS_YUNGCHING,
+    ):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        generated_at = payload.get("generated_at", "")
+        rows = payload.get("items", [])
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            source = str(row.get("source", ""))
+            source_id = str(row.get("source_id", ""))
+            if not source or not source_id:
+                continue
+            remember(
+                f"{source}:{source_id}",
+                row.get("first_seen_at") or row.get("validated_at") or generated_at,
+            )
+    return registry
+
+
+def assign_first_seen(items: list[Listing], state: dict[str, Any]) -> list[Listing]:
+    registry = seed_first_seen_registry(state)
+    current_keys: set[str] = set()
+    for item in items:
+        source_key = f"{item.source}:{item.source_id}"
+        current_keys.add(source_key)
+        if source_key not in registry:
+            registry[source_key] = NOW.isoformat()
+        item.first_seen_at = registry[source_key]
+
+    if len(registry) > FIRST_SEEN_REGISTRY_LIMIT:
+        ordered = sorted(
+            registry,
+            key=lambda key: parse_state_time(registry[key]) or datetime.min.replace(tzinfo=TZ),
+            reverse=True,
+        )
+        keep = current_keys | set(ordered[:FIRST_SEEN_REGISTRY_LIMIT])
+        registry = {key: value for key, value in registry.items() if key in keep}
+    state["first_seen"] = registry
+    return items
+
+
 def apply_categories(items: list[Listing], state: dict[str, Any]) -> list[Listing]:
     prices = state.setdefault("prices", {})
 
@@ -4094,6 +4277,11 @@ def recency_minutes(item: Listing) -> int:
     return 10**9
 
 
+def is_new_listing(item: Listing) -> bool:
+    first_seen = parse_state_time(item.first_seen_at)
+    return bool(first_seen and first_seen.date() == NOW.astimezone(TZ).date())
+
+
 def card_badges(item: Listing) -> list[str]:
     badges: list[str] = []
     if is_591_featured(item):
@@ -4170,6 +4358,7 @@ def render_card(item: Listing, order: int = 0) -> str:
                onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
           <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
           {f'<span class="source-badge">{esc(source_label(item.source))}</span>' if index == 1 else ''}
+          {f'<span class="new-listing-badge" title="本日首次收錄">新房源</span>' if index == 1 and is_new_listing(item) else ''}
           {f'<span class="photo-index">{index}/{len(images)}</span>' if len(images) > 1 else ''}
         </a>
         """
@@ -4181,6 +4370,7 @@ def render_card(item: Listing, order: int = 0) -> str:
            rel="noopener noreferrer" aria-label="{esc(item.title)} 來源頁">
           <div class="photo-fallback no-photo">來源未提供可讀取照片<br>點擊前往來源頁</div>
           <span class="source-badge">{esc(source_label(item.source))}</span>
+          {f'<span class="new-listing-badge" title="本日首次收錄">新房源</span>' if is_new_listing(item) else ''}
         </a>
         """
 
@@ -4453,11 +4643,17 @@ def render_status(stats: dict[str, Any], source: str) -> str:
             if source == "永慶房屋"
             else ""
         )
+        transport_html = (
+            "<span>取得方式 Cloudflare Browser Run（公開頁）</span>"
+            if source == "永慶房屋" and row.get("transport") == "cloudflare_browser_run"
+            else ""
+        )
         diagnostics = (
             f"{snapshot_html}{source_total_html}"
             f"<span>讀取列表 {row.get('pages_read', 0)} 頁</span>"
             f"{detail_html}"
             f"{image_html}"
+            f"{transport_html}"
         )
 
     return f"""
@@ -4565,6 +4761,7 @@ main{{padding:22px 0 48px}}
 .gallery-photo{{flex:0 0 100%;scroll-snap-align:start}}
 .photo img{{width:100%;height:100%;object-fit:cover}}
 .photo .source-badge{{position:absolute;left:10px;top:10px;background:#111c;color:#fff;padding:6px 9px;border-radius:5px;font-size:13px;font-weight:900}}
+.new-listing-badge{{position:absolute;right:10px;top:10px;z-index:2;background:#e53935;color:#fff;padding:7px 11px;border-radius:6px;box-shadow:0 2px 8px #0004;font-size:14px;font-weight:950;letter-spacing:.04em}}
 .photo-index{{position:absolute;right:10px;bottom:10px;background:#111c;color:#fff;padding:5px 8px;border-radius:999px;font-size:12px;font-weight:900}}
 .photo-fallback{{display:none;position:absolute;inset:0;align-items:center;justify-content:center;text-align:center;color:#fff;font-weight:900;background:#4b5563}}
 .photo-fallback.no-photo{{display:flex}}
@@ -4661,7 +4858,7 @@ h3 a{{text-decoration:none}}
 </div></div>
 
 <main class="wrap">
-<div class="notice">頁面顯示本輪所有驗證通過的有效物件；近48小時紀錄只提供重複診斷，不會再把仍有效的房源從頁面隱藏。來源被阻擋或FB資料來源未設定時會直接顯示原因。</div>
+<div class="notice">頁面顯示本輪所有驗證通過的有效物件；近48小時紀錄只提供重複診斷，不會再把仍有效的房源從頁面隱藏。首圖右上角的「新房源」表示該來源物件編號於本日第一次被電子報收錄，會跨分類共用同一判斷，不會把單純更新或舊快照誤標為新上架。來源被阻擋或FB資料來源未設定時會直接顯示原因。</div>
 
 <div id="source-591" class="source-block">
   <div class="source-heading"><h2>591</h2><a href="https://rent.591.com.tw/list?kind=1&layout=4&region=6" target="_blank">開啟591搜尋 ↗</a></div>
@@ -4949,6 +5146,7 @@ def main() -> int:
     candidates = list(unique.values())
 
     state = load_state()
+    candidates = assign_first_seen(candidates, state)
     candidates = apply_categories(candidates, state)
     published, duplicate_count = filter_recent_duplicates(candidates, state)
 
