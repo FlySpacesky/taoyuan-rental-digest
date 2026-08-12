@@ -1546,6 +1546,80 @@ class ThreadsImportTests(unittest.TestCase):
 
 
 class SinyiAndYungchingTests(unittest.TestCase):
+    def test_cloudflare_yungching_feed_accepts_only_verified_public_rows(self) -> None:
+        payload = {
+            "generated_at": "2026-08-12T10:00:00Z",
+            "candidate_count": 2,
+            "items": [
+                {
+                    "source_id": "2411508",
+                    "url": "https://rent.yungching.com.tw/house/2411508",
+                    "title": "冠倫大國",
+                    "address": "桃園市桃園區大有路",
+                    "layout": "4房(室)2廳2衛",
+                    "size": "50.63坪",
+                    "floor": "9/17樓",
+                    "rent": 26000,
+                    "updated": "2026年08月12日",
+                    "publisher": "永義房屋",
+                    "images": [
+                        "https://yccdn.yungching.com.tw/a.jpg",
+                        "https://example.test/not-allowed.jpg",
+                    ],
+                    "filter_tags": ["new"],
+                },
+                {
+                    "source_id": "bad",
+                    "url": "https://example.test/fake",
+                    "title": "不合法",
+                    "address": "桃園市桃園區",
+                    "layout": "4房2廳2衛",
+                    "rent": 26000,
+                    "updated": "2026年08月12日",
+                },
+            ],
+        }
+        response = SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: payload,
+        )
+        stats: dict[str, object] = {"errors": [], "notices": []}
+
+        with patch.object(DIGEST.session, "get", return_value=response):
+            items = DIGEST.load_yungching_browser_feed(stats)
+
+        self.assertEqual(list(items), ["2411508"])
+        item = items["2411508"]
+        self.assertEqual(item.image, "https://yccdn.yungching.com.tw/a.jpg")
+        self.assertEqual(item.filter_tags, ["new"])
+        self.assertEqual(stats["transport"], "cloudflare_browser_run")
+        self.assertEqual(stats["category_counts"], {"all": 1, "new": 1})
+
+    def test_yungching_prefers_cloudflare_browser_feed_over_blocked_runner(self) -> None:
+        item = DIGEST.Listing(
+            source="永慶房屋",
+            source_id="2411508",
+            url="https://rent.yungching.com.tw/house/2411508",
+            title="冠倫大國",
+            district="桃園區",
+            address="桃園市桃園區大有路",
+            house_type="整層住家",
+            layout="4房(室)2廳2衛",
+            rent=26000,
+            updated="2026年08月12日",
+        )
+        stats: dict[str, object] = {"errors": [], "notices": []}
+        with patch.object(DIGEST, "load_source_snapshot", return_value=([], "", None, "")), patch.object(
+            DIGEST, "load_yungching_browser_feed", return_value={item.source_id: item}
+        ), patch.object(DIGEST, "crawl_yungching_candidates") as blocked_crawl, patch.object(
+            DIGEST, "save_source_snapshot"
+        ):
+            result = DIGEST.collect_yungching_listings(stats)
+
+        self.assertEqual(result, [item])
+        blocked_crawl.assert_not_called()
+        self.assertEqual(stats["validated"], 1)
+
     def test_sinyi_parser_keeps_40_ping_home_and_excludes_store(self) -> None:
         raw = """
         <a href="houseno/C357998">
@@ -1880,6 +1954,83 @@ class SinyiAndYungchingTests(unittest.TestCase):
 
 
 class CurrentListingDisplayTests(unittest.TestCase):
+    def test_first_seen_registry_marks_only_today_new_across_all_sources(self) -> None:
+        old_now = DIGEST.NOW
+        DIGEST.NOW = DIGEST.datetime(2026, 8, 12, 18, 0, tzinfo=DIGEST.TZ)
+        try:
+            sources = ["591", "FB", "樂屋網", "Threads", "信義房屋", "永慶房屋"]
+            items = [
+                DIGEST.Listing(
+                    source=source,
+                    source_id=f"id-{index}",
+                    url=f"https://example.test/{index}",
+                    title=f"{source}四房",
+                    image="https://example.test/photo.jpg",
+                )
+                for index, source in enumerate(sources)
+            ]
+            state = {
+                "sent": [
+                    {
+                        "source_key": "591:id-0",
+                        "fingerprint": "old",
+                        "sent_at": "2026-08-11T20:00:00+08:00",
+                    }
+                ],
+                "prices": {},
+            }
+            with patch.object(DIGEST, "OUTPUT_JSON", Path("missing-output.json")), patch.object(
+                DIGEST, "LAST_SUCCESS_591", Path("missing-591.json")
+            ), patch.object(DIGEST, "LAST_SUCCESS_SINYI", Path("missing-sinyi.json")), patch.object(
+                DIGEST, "LAST_SUCCESS_YUNGCHING", Path("missing-yungching.json")
+            ):
+                DIGEST.assign_first_seen(items, state)
+
+            self.assertFalse(DIGEST.is_new_listing(items[0]))
+            self.assertTrue(all(DIGEST.is_new_listing(item) for item in items[1:]))
+            for item in items[1:]:
+                rendered = DIGEST.render_card(item)
+                self.assertIn('class="new-listing-badge"', rendered)
+                self.assertEqual(rendered.count("新房源"), 1)
+            self.assertNotIn("新房源", DIGEST.render_card(items[0]))
+        finally:
+            DIGEST.NOW = old_now
+
+    def test_first_seen_migration_prevents_mass_false_new_badges(self) -> None:
+        old_now = DIGEST.NOW
+        DIGEST.NOW = DIGEST.datetime(2026, 8, 12, 18, 0, tzinfo=DIGEST.TZ)
+        try:
+            item = DIGEST.Listing(
+                source="FB",
+                source_id="existing",
+                url="https://example.test/existing",
+                title="既有四房",
+            )
+            existing_payload = {
+                "generated_at": "2026-08-10T12:00:00+08:00",
+                "items": [
+                    {
+                        "source": "FB",
+                        "source_id": "existing",
+                        "validated_at": "2026-08-10T12:00:00+08:00",
+                    }
+                ],
+            }
+            with tempfile.TemporaryDirectory() as temp_dir:
+                output = Path(temp_dir) / "latest.json"
+                output.write_text(json.dumps(existing_payload), encoding="utf-8")
+                missing = Path(temp_dir) / "missing.json"
+                with patch.object(DIGEST, "OUTPUT_JSON", output), patch.object(
+                    DIGEST, "LAST_SUCCESS_591", missing
+                ), patch.object(DIGEST, "LAST_SUCCESS_SINYI", missing), patch.object(
+                    DIGEST, "LAST_SUCCESS_YUNGCHING", missing
+                ):
+                    DIGEST.assign_first_seen([item], {"sent": [], "prices": {}})
+            self.assertEqual(item.first_seen_at, "2026-08-10T12:00:00+08:00")
+            self.assertFalse(DIGEST.is_new_listing(item))
+        finally:
+            DIGEST.NOW = old_now
+
     @staticmethod
     def listing(
         source_id: str,
