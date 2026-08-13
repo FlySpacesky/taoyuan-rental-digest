@@ -6,6 +6,7 @@ import {
   deliverySlotFor,
   handleScheduled,
   normalizeYungchingWorkerItem,
+  submitFacebookInbox,
 } from "../src/index.js";
 import worker from "../src/index.js";
 
@@ -235,6 +236,34 @@ test("private Facebook inbox stores an authorized post and exposes it only to re
   );
   assert.equal(payload.posts[0].republish_authorized, true);
   assert.equal(payload.posts[0].no_facebook_credentials, undefined);
+});
+
+
+test("private Facebook inbox triggers one web-only refresh when enabled", async () => {
+  const privateEnv = {
+    ...facebookEnv(),
+    FACEBOOK_AUTO_REFRESH: "true",
+  };
+  const calls = [];
+  const fetchImpl = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    return response(204);
+  };
+  const submitted = await submitFacebookInbox(
+    facebookRequest("/facebook-inbox", "write-only-test-token", validFacebookSubmission()),
+    privateEnv,
+    fetchImpl,
+  );
+  const receipt = await submitted.json();
+
+  assert.equal(submitted.status, 201);
+  assert.equal(receipt.refresh_dispatched, true);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /actions\/workflows\/rental-digest\.yml\/dispatches$/);
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    ref: "main",
+    inputs: { skip_line: "true" },
+  });
 });
 
 
