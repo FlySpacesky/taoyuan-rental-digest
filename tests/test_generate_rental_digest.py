@@ -907,8 +907,8 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
     def test_repo_facebook_import_keeps_current_public_post_and_excludes_old_post(self) -> None:
         stats = DIGEST.empty_source_stats()
         public_url = (
-            "https://www.facebook.com/groups/4091621327828556/"
-            "posts/4654208718236478/"
+            "https://www.facebook.com/groups/468627751712411/"
+            "posts/1578861454022363/"
         )
         metadata = {
             "url": public_url,
@@ -930,7 +930,7 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
                 "archive_facebook_image",
                 return_value=(
                     "https://flyspacesky.github.io/taoyuan-rental-digest/"
-                    "assets/facebook/4654208718236478.jpg"
+                    "assets/facebook/1578861454022363.jpg"
                 ),
             ),
         ):
@@ -938,7 +938,7 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
 
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].url, public_url)
-        self.assertEqual(items[0].fb_lead_grade, "C")
+        self.assertEqual(items[0].fb_lead_grade, "B")
         self.assertEqual(stats["import_source"], "data/facebook_posts.json")
         self.assertEqual(stats["discovery_groups"], len(DIGEST.FB_GROUPS))
         self.assertEqual(stats["anonymous_verified_posts"], 1)
