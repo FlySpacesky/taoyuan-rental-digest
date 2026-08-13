@@ -1151,13 +1151,13 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
         self.assertEqual(item.fb_lead_grade, "C")
         self.assertEqual(DIGEST.listing_filter_tokens(item), ["all", "lead_c"])
 
-    def test_fb_company_signature_stays_excluded_even_with_management_words(self) -> None:
+    def test_fb_property_management_signature_stays_excluded(self) -> None:
         text = (
-            "桃園區4房出租，也可協助想找包租代管的房東。"
-            "歡迎房東委託，成交後收取服務費，不動產經紀營業員王先生。"
+            "桃園區4房出租，包租代管公司，歡迎房東委託。"
+            "租賃住宅服務業，提供代租代管服務。"
         )
 
-        self.assertTrue(DIGEST.facebook_industry_listing(text, "安心房屋仲介"))
+        self.assertTrue(DIGEST.facebook_industry_listing(text, "安心包租代管公司"))
 
     def test_supplied_share_post_reports_every_rejection_reason(self) -> None:
         row = {
