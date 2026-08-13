@@ -205,7 +205,38 @@ async function normalizeFacebookInboxSubmission(payload) {
   return { id, row };
 }
 
-async function submitFacebookInbox(request, env) {
+export async function dispatchFacebookRefresh(env, fetchImpl = fetch) {
+  const token = String(env.GITHUB_TOKEN || "").trim();
+  if (!token) return false;
+  const owner = env.GITHUB_OWNER || DEFAULT_OWNER;
+  const repository = env.GITHUB_REPOSITORY || DEFAULT_REPOSITORY;
+  const workflow = env.GITHUB_WORKFLOW || DEFAULT_WORKFLOW;
+  const branch = env.GITHUB_BRANCH || DEFAULT_BRANCH;
+  const response = await fetchImpl(
+    `https://api.github.com/repos/${owner}/${repository}/actions/workflows/` +
+      `${encodeURIComponent(workflow)}/dispatches`,
+    {
+      method: "POST",
+      headers: {
+        ...githubHeaders(token),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ref: branch,
+        inputs: { skip_line: "true" },
+      }),
+    },
+  );
+  if (response.status !== 204) {
+    throw new Error(
+      `Facebook refresh dispatch failed: ${response.status} ` +
+        (await response.text()).slice(0, 200),
+    );
+  }
+  return true;
+}
+
+export async function submitFacebookInbox(request, env, fetchImpl = fetch) {
   if (!env.FB_INBOX || !String(env.FB_INBOX_WRITE_TOKEN || "").trim()) {
     return facebookJson(request, { status: "error", message: "私人收件匣尚未完成設定。" }, 503);
   }
@@ -235,10 +266,23 @@ async function submitFacebookInbox(request, env) {
     JSON.stringify(normalized.row),
     { expirationTtl: FACEBOOK_INBOX_TTL_SECONDS },
   );
+  let refreshDispatched = false;
+  let refreshWarning = "";
+  if (String(env.FACEBOOK_AUTO_REFRESH || "").toLowerCase() === "true") {
+    try {
+      refreshDispatched = await dispatchFacebookRefresh(env, fetchImpl);
+    } catch (error) {
+      refreshWarning = "房源已安全收件，但即時更新暫時無法啟動；下個排程仍會自動讀取。";
+      console.error(String(error));
+    }
+  }
   return facebookJson(request, {
     status: "accepted",
     id: normalized.id,
-    message: "已安全收件；電子報仍會套用地區、房數、日期與同業排除規則。",
+    refresh_dispatched: refreshDispatched,
+    message: refreshDispatched
+      ? "已安全收件並開始更新電子報；仍會套用地區、房數、日期與包租代管同行排除規則。"
+      : refreshWarning || "已安全收件；電子報仍會套用地區、房數、日期與包租代管同行排除規則。",
   }, 201);
 }
 

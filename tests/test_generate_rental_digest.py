@@ -904,15 +904,45 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
         self.assertEqual(item.total_cost, 28_000)
         self.assertEqual(item.category_hint, "general")
 
-    def test_repo_facebook_import_excludes_post_outside_initial_seven_days(self) -> None:
+    def test_repo_facebook_import_keeps_current_public_post_and_excludes_old_post(self) -> None:
         stats = DIGEST.empty_source_stats()
+        public_url = (
+            "https://www.facebook.com/groups/468627751712411/"
+            "posts/1578861454022363/"
+        )
+        metadata = {
+            "url": public_url,
+            "canonical_url": public_url,
+            "post_text": (
+                "桃園區藝文特區電梯3房出租，3房2廳2衛，34.03坪，"
+                "租金20000元，一般房屋仲介刊登。"
+            ),
+            "image_origin": "https://scontent.ftpe8-1.fna.fbcdn.net/current.jpg",
+            "publisher": "一般房仲",
+            "creation_time": int(DIGEST.NOW.timestamp()),
+            "title": "桃園區藝文特區電梯三房出租",
+            "publicly_readable": True,
+        }
+        with (
+            patch.object(DIGEST, "fetch_public_facebook_metadata", return_value=metadata),
+            patch.object(
+                DIGEST,
+                "archive_facebook_image",
+                return_value=(
+                    "https://flyspacesky.github.io/taoyuan-rental-digest/"
+                    "assets/facebook/1578861454022363.jpg"
+                ),
+            ),
+        ):
+            items = DIGEST.load_facebook_import(stats)
 
-        items = DIGEST.load_facebook_import(stats)
-
-        self.assertEqual(items, [])
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].url, public_url)
+        self.assertEqual(items[0].fb_lead_grade, "B")
         self.assertEqual(stats["import_source"], "data/facebook_posts.json")
         self.assertEqual(stats["discovery_groups"], len(DIGEST.FB_GROUPS))
-        self.assertEqual(stats["anonymous_verified_posts"], 0)
+        self.assertEqual(stats["anonymous_verified_posts"], 1)
+        self.assertEqual(stats["candidate_links"], 2)
         self.assertEqual(stats["rejects"]["outside_collection_window"], 1)
         self.assertIn("不是社團全部貼文數", stats["notices"][0])
 
@@ -1025,6 +1055,29 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
         self.assertIn("excluded_industry", DIGEST.facebook_row_reject_reasons(row))
         self.assertIsNone(DIGEST.parse_social_row(row, "FB", DIGEST.NOW))
 
+    def test_facebook_ordinary_broker_listing_is_kept_as_c_grade(self) -> None:
+        row = {
+            "url": "https://www.facebook.com/groups/987654321/posts/1234567890128/",
+            "title": "桃園區藝文特區電梯三房出租",
+            "district": "桃園區",
+            "layout": "3房2廳2衛",
+            "size": "34.03坪",
+            "rent": "20000",
+            "publisher": "中信房屋桃園中正捷運加盟店",
+            "post_text": (
+                "桃園區藝文特區電梯3房出租，3房2廳2衛，34.03坪，租金20000元。"
+                "一般房屋仲介刊登，成交後收取仲介服務費，附不動產經紀營業員證號。"
+            ),
+        }
+
+        self.assertNotIn("excluded_industry", DIGEST.facebook_row_reject_reasons(row))
+        item = DIGEST.parse_social_row(row, "FB", DIGEST.NOW)
+
+        self.assertIsNotNone(item)
+        assert item is not None
+        self.assertEqual(item.fb_lead_grade, "C")
+        self.assertEqual(DIGEST.listing_filter_tokens(item), ["all", "lead_c"])
+
     def test_owner_seeking_management_is_kept_and_ranked_a(self) -> None:
         row = {
             "url": "https://www.facebook.com/groups/987654321/posts/1234567890125/",
@@ -1098,13 +1151,13 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
         self.assertEqual(item.fb_lead_grade, "C")
         self.assertEqual(DIGEST.listing_filter_tokens(item), ["all", "lead_c"])
 
-    def test_fb_company_signature_stays_excluded_even_with_management_words(self) -> None:
+    def test_fb_property_management_signature_stays_excluded(self) -> None:
         text = (
-            "桃園區4房出租，也可協助想找包租代管的房東。"
-            "歡迎房東委託，成交後收取服務費，不動產經紀營業員王先生。"
+            "桃園區4房出租，包租代管公司，歡迎房東委託。"
+            "租賃住宅服務業，提供代租代管服務。"
         )
 
-        self.assertTrue(DIGEST.facebook_industry_listing(text, "安心房屋仲介"))
+        self.assertTrue(DIGEST.facebook_industry_listing(text, "安心包租代管公司"))
 
     def test_supplied_share_post_reports_every_rejection_reason(self) -> None:
         row = {

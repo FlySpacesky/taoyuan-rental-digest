@@ -21,7 +21,8 @@
     "GITHUB_OWNER": "FlySpacesky",
     "GITHUB_REPOSITORY": "taoyuan-rental-digest",
     "GITHUB_WORKFLOW": "rental-digest.yml",
-    "GITHUB_BRANCH": "main"
+    "GITHUB_BRANCH": "main",
+    "FACEBOOK_AUTO_REFRESH": "true"
   },
   "triggers": {
     "crons": [

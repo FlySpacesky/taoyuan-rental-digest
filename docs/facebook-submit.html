@@ -68,7 +68,7 @@
       </label>
 
       <label>完整原始貼文文字
-        <small>請原樣貼上，不改寫、不補造。系統會從文字判斷四區、至少 3 房、坪數、租金及是否為同業。</small>
+        <small>請原樣貼上，不改寫、不補造。系統會從文字判斷四區、至少 3 房、坪數、租金及是否為包租代管同行；一般房仲的真實出租可歸入「其他符合物件」。</small>
         <textarea name="post_text" required placeholder="貼上完整原始貼文文字"></textarea>
       </label>
 
@@ -170,7 +170,9 @@
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.message || `收件失敗（HTTP ${response.status}）`);
-      show(`已收件（編號 ${payload.id}）。電子報會再依規則驗證，不代表一定刊出。`, true);
+      show(payload.refresh_dispatched
+        ? `已收件（編號 ${payload.id}）並開始更新電子報。系統仍會依規則驗證，不代表一定刊出。`
+        : `已收件（編號 ${payload.id}）。${payload.message || '電子報會再依規則驗證，不代表一定刊出。'}`, true);
       form.reset();
     } catch (error) {
       show(error.message || '暫時無法送出，請稍後再試。', false);
