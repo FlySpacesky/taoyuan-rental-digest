@@ -1,27 +1,6 @@
 {
   "sent": [
     {
-      "source_key": "樂屋網:09867e350386281",
-      "fingerprint": "7bd52e1651ca41529a761c37",
-      "sent_at": "2026-08-14T16:06:52.962126+08:00",
-      "title": "[樂屋網] 桃園市桃園區玉山街-玉山街透天店住✦振聲高中旁可營登租補可炊店住辦皆宜",
-      "url": "https://rent.rakuya.com.tw/item/09867e350386281"
-    },
-    {
-      "source_key": "樂屋網:0ce4ab350684837",
-      "fingerprint": "9cac5a3a8077f08d728d1e75",
-      "sent_at": "2026-08-14T16:06:52.962126+08:00",
-      "title": "[樂屋網] 桃園市桃園區介壽路-火車站旁店面",
-      "url": "https://rent.rakuya.com.tw/item/0ce4ab350684837"
-    },
-    {
-      "source_key": "信義房屋:C358000",
-      "fingerprint": "fb8e1e9c879724206ff5dbe8",
-      "sent_at": "2026-08-14T16:06:52.962126+08:00",
-      "title": "田園景觀優質整棟透天出租",
-      "url": "https://www.sinyi.com.tw/rent/houseno/C358000"
-    },
-    {
       "source_key": "591:21759598",
       "fingerprint": "9511e65ee83472999aa9cc65",
       "sent_at": "2026-08-14T22:06:44.239376+08:00",
@@ -2582,6 +2561,27 @@
       "sent_at": "2026-08-16T16:06:22.015292+08:00",
       "title": "福爾摩沙溫馨三房車位",
       "url": "https://www.sinyi.com.tw/rent/houseno/C355784"
+    },
+    {
+      "source_key": "樂屋網:0ce4ab350684837",
+      "fingerprint": "9cac5a3a8077f08d728d1e75",
+      "sent_at": "2026-08-16T16:25:42.478905+08:00",
+      "title": "[樂屋網] 桃園市桃園區介壽路-火車站旁店面",
+      "url": "https://rent.rakuya.com.tw/item/0ce4ab350684837"
+    },
+    {
+      "source_key": "樂屋網:09867e350386281",
+      "fingerprint": "7bd52e1651ca41529a761c37",
+      "sent_at": "2026-08-16T16:25:42.478905+08:00",
+      "title": "[樂屋網] 桃園市桃園區玉山街-玉山街透天店住✦振聲高中旁可營登租補可炊店住辦皆宜",
+      "url": "https://rent.rakuya.com.tw/item/09867e350386281"
+    },
+    {
+      "source_key": "信義房屋:C358000",
+      "fingerprint": "fb8e1e9c879724206ff5dbe8",
+      "sent_at": "2026-08-16T16:25:42.478905+08:00",
+      "title": "田園景觀優質整棟透天出租",
+      "url": "https://www.sinyi.com.tw/rent/houseno/C358000"
     }
   ],
   "prices": {
