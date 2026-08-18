@@ -48,7 +48,7 @@ permissions:
 
 concurrency:
   group: taoyuan-rental-digest
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   validate-branch:
@@ -198,7 +198,7 @@ jobs:
 
       - name: 決定 LINE 投遞時段
         id: delivery-slot
-        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_line) || (github.event_name == 'push' && github.event.head_commit.message == 'rental redelivery 2026-08-18 v2') }}
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_line) }}
         shell: bash
         env:
           REQUESTED_SLOT: ${{ inputs.delivery_slot }}
@@ -206,8 +206,6 @@ jobs:
         run: |
           if [ -n "${REQUESTED_SLOT}" ]; then
             SLOT="${REQUESTED_SLOT}"
-          elif [ "${GITHUB_EVENT_NAME}" = "push" ]; then
-            SLOT="2026-08-18T09:30+08:00:redelivery-v2"
           elif [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
             DATE=$(TZ=Asia/Taipei date +%F)
             case "${EVENT_SCHEDULE}" in
@@ -223,7 +221,7 @@ jobs:
           echo "LINE delivery slot: ${SLOT}"
 
       - name: 發送 LINE
-        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_line) || (github.event_name == 'push' && github.event.head_commit.message == 'rental redelivery 2026-08-18 v2') }}
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_line) }}
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_DELIVERY_SLOT: ${{ steps.delivery-slot.outputs.slot }}
