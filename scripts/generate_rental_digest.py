@@ -10,14 +10,15 @@
 
 本版重點：
 1. FB與Threads不使用帳號密碼、Cookie或瀏覽器Session；指定四區與3房以上為
-   硬條件。FB排除包租代管同行、保留一般房仲為C級；首次回溯7天、後續收集2天。
+   硬條件。FB排除包租代管同行、保留一般房仲為C級；所有來源只刊出近2天內資料。
 2. 591 列表優先讀網站前端使用的官方 BFF；失效時才退回 SSR HTML / Chromium。
 3. 591 屋主只接受 role_name / 詳情聯絡人角色明確以「屋主」開頭的物件。
 4. 591 降價優先使用 BFF 官方 diff_price，詳情頁阻擋時使用同輪嚴格列表快照。
 5. 404 / 410 / 已刪除 / 已關閉 / 已成交物件仍排除。
 6. 樂屋網原租金只接受明確舊價標示或歷史快照，避免把押金誤判為原租金。
 7. 48 小時來源內與跨來源去重；真正降價物件可重新顯示。
-8. 頁首「桃園四房以上租屋快報＋591／FB社團／樂屋網」捲動時固定在頂端。
+8. 新房源以上一封成功投遞的快報為比較基準，不以同一天判斷。
+9. 每封 LINE 使用日期加時段的永久快報網址，不連向可變的首頁。
 """
 
 from __future__ import annotations
@@ -52,6 +53,9 @@ DATA_DIR = DOCS / "rental-data"
 STATE_FILE = DATA_DIR / "history.json"
 OUTPUT_JSON = DATA_DIR / "latest.json"
 OUTPUT_HTML = DOCS / "index.html"
+ARCHIVE_DIR = DOCS / "archive"
+EDITION_DATA_DIR = DATA_DIR / "editions"
+LAST_DELIVERY_FILE = DATA_DIR / "last-delivery.json"
 LAST_SUCCESS_591 = DATA_DIR / "last-success-591.json"
 LAST_SUCCESS_SINYI = DATA_DIR / "last-success-sinyi.json"
 LAST_SUCCESS_YUNGCHING = DATA_DIR / "last-success-yungching.json"
@@ -137,10 +141,14 @@ _591_SNAPSHOT_MAX_AGE = timedelta(hours=72)
 SOURCE_REFRESH_COOLDOWN = _591_REFRESH_COOLDOWN
 SOURCE_SNAPSHOT_MAX_AGE = _591_SNAPSHOT_MAX_AGE
 FIRST_SEEN_REGISTRY_LIMIT = 20_000
-SOCIAL_INITIAL_WINDOW = timedelta(days=7)
+SOURCE_FRESHNESS_WINDOW = timedelta(days=2)
+SOCIAL_INITIAL_WINDOW = SOURCE_FRESHNESS_WINDOW
 SOCIAL_ONGOING_WINDOW = timedelta(days=2)
 SOCIAL_NEW_WINDOW = timedelta(days=2)
 SOCIAL_LAST_SEEN_REGISTRY_LIMIT = 20_000
+RENTAL_EDITION_ID_ENV = "RENTAL_EDITION_ID"
+SITE_URL_ENV = "SITE_URL"
+DEFAULT_SITE_URL = "https://flyspacesky.github.io/taoyuan-rental-digest/"
 
 SINYI_SEARCH_TEMPLATE = (
     "https://www.sinyi.com.tw/rent/list/Taoyuan-city/"
@@ -367,6 +375,7 @@ class Listing:
     category: str = ""
     fingerprint: str = ""
     validated_at: str = ""
+    source_timestamp: str = ""
     first_seen_at: str = ""
     new_listing: bool = False
     social_score: int = 0
@@ -2351,24 +2360,14 @@ def crawl_sinyi_listings(source_stats: dict[str, Any]) -> list[Listing]:
 
 
 def collect_sinyi_listings(source_stats: dict[str, Any]) -> list[Listing]:
-    snapshot, generated_at, age_hours, snapshot_error = load_source_snapshot(
-        "信義房屋", LAST_SUCCESS_SINYI
-    )
-    if snapshot and age_hours is not None and timedelta(hours=age_hours) < SOURCE_REFRESH_COOLDOWN:
-        return use_source_snapshot(
-            source_stats, "信義房屋", snapshot, generated_at, age_hours, "refresh_cooldown"
-        )
     fresh = crawl_sinyi_listings(source_stats)
     if fresh:
         save_source_snapshot("信義房屋", fresh, LAST_SUCCESS_SINYI)
         source_stats["snapshot_updated_at"] = NOW.isoformat()
         return fresh
-    if snapshot and age_hours is not None:
-        return use_source_snapshot(
-            source_stats, "信義房屋", snapshot, generated_at, age_hours, "source_blocked"
-        )
-    if snapshot_error:
-        source_stats["errors"].append(snapshot_error)
+    source_stats["errors"].append(
+        "信義房屋本輪沒有重新驗證成功的物件；本輪不沿用上次快照。"
+    )
     return []
 
 
@@ -2690,14 +2689,6 @@ def parse_yungching_detail(candidate: Listing) -> Listing | None:
 
 
 def collect_yungching_listings(source_stats: dict[str, Any]) -> list[Listing]:
-    snapshot, generated_at, age_hours, snapshot_error = load_source_snapshot(
-        "永慶房屋", LAST_SUCCESS_YUNGCHING
-    )
-    if snapshot and age_hours is not None and timedelta(hours=age_hours) < SOURCE_REFRESH_COOLDOWN:
-        return use_source_snapshot(
-            source_stats, "永慶房屋", snapshot, generated_at, age_hours, "refresh_cooldown"
-        )
-
     browser_feed = load_yungching_browser_feed(source_stats)
     if browser_feed:
         fresh = list(browser_feed.values())
@@ -2724,12 +2715,9 @@ def collect_yungching_listings(source_stats: dict[str, Any]) -> list[Listing]:
         save_source_snapshot("永慶房屋", fresh, LAST_SUCCESS_YUNGCHING)
         source_stats["snapshot_updated_at"] = NOW.isoformat()
         return fresh
-    if snapshot and age_hours is not None:
-        return use_source_snapshot(
-            source_stats, "永慶房屋", snapshot, generated_at, age_hours, "source_blocked"
-        )
-    if snapshot_error:
-        source_stats["errors"].append(snapshot_error)
+    source_stats["errors"].append(
+        "永慶房屋本輪沒有重新驗證成功的物件；本輪不沿用上次快照。"
+    )
     return []
 
 
@@ -3340,10 +3328,11 @@ def enrich_facebook_row(
     )
 
     creation_time = int(metadata.get("creation_time") or 0)
-    if creation_time and not clean(enriched.get("updated", "")):
+    if creation_time:
         published = datetime.fromtimestamp(creation_time, TZ)
         enriched["published_at"] = published.isoformat()
-        enriched["updated"] = published.strftime("%Y/%m/%d %H:%M刊登")
+        if not clean(enriched.get("updated", "")):
+            enriched["updated"] = published.strftime("%Y/%m/%d %H:%M刊登")
 
     image_origin = (
         str(enriched.get("image_origin", "")).strip()
@@ -3599,6 +3588,7 @@ def parse_social_row(
         social_notes=social_notes,
         raw_text=text,
         validated_at=NOW.isoformat(),
+        source_timestamp=activity.isoformat() if activity else "",
         filter_tags=social_tags,
     )
     item.fingerprint = fingerprint(item)
@@ -4438,7 +4428,7 @@ def load_threads_listings(
         "Threads合併官方keyword_search與人工授權的公開永久貼文入口；官方結果會合併"
         "API可讀取且username與主貼文相同的原作者留言。硬條件是指定四區、至少3房、"
         "最近收集時間窗且非包租代管／仲介同業；30至35坪以上、租金、照片及屋主訊號"
-        "只用於可解釋的自動評分。首次讀取7天，成功初始化後每次只讀最近2天。"
+        "只用於可解釋的自動評分。每次只讀且發布最近2天。"
     )
 
     unique_rows: dict[str, dict[str, Any]] = {}
@@ -4684,6 +4674,7 @@ def load_threads_listings(
             category="general",
             raw_text=text,
             validated_at=NOW.isoformat(),
+            source_timestamp=latest_activity.isoformat(),
             filter_tags=social_tags,
             social_score=score,
             social_notes=social_notes,
@@ -4744,6 +4735,196 @@ def parse_state_time(value: Any) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=TZ)
     return parsed.astimezone(TZ)
+
+
+def listing_key(item: Listing | dict[str, Any]) -> str:
+    if isinstance(item, Listing):
+        source = item.source
+        source_id = item.source_id
+    else:
+        source = str(item.get("source", ""))
+        source_id = str(item.get("source_id", ""))
+    prefix = {
+        "591": "591",
+        "FB": "fb",
+        "樂屋網": "rakuya",
+        "Threads": "threads",
+        "信義房屋": "sinyi",
+        "永慶房屋": "yungching",
+    }.get(source, source.lower())
+    return f"{prefix}:{source_id}" if prefix and source_id else ""
+
+
+def source_listing_time(item: Listing) -> datetime | None:
+    """Parse the source-provided listing/update time without using crawl time."""
+
+    raw = str(item.source_timestamp or item.updated or "").strip()
+    if not raw and item.source == "樂屋網" and "新上架" in item.views:
+        raw = item.views
+    if not raw:
+        return None
+    parsed = parse_state_time(raw)
+    if parsed is not None:
+        return parsed
+    if "剛剛" in raw or "新上架" in raw:
+        return NOW
+    relative = re.search(r"(\d+)\s*(分鐘|小時|天|個月)(?:內|前)?(?:更新|刊登)?", raw)
+    if relative:
+        amount = int(relative.group(1))
+        unit = relative.group(2)
+        delta = {
+            "分鐘": timedelta(minutes=amount),
+            "小時": timedelta(hours=amount),
+            "天": timedelta(days=amount),
+            "個月": timedelta(days=amount * 30),
+        }[unit]
+        return NOW - delta
+    for pattern, date_format in (
+        (r"\d{4}/\d{1,2}/\d{1,2}\s+\d{1,2}:\d{2}", "%Y/%m/%d %H:%M"),
+        (r"\d{4}/\d{1,2}/\d{1,2}", "%Y/%m/%d"),
+        (r"\d{4}年\d{1,2}月\d{1,2}日", "%Y年%m月%d日"),
+        (r"\d{4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2}", "%Y-%m-%d %H:%M"),
+        (r"\d{4}-\d{1,2}-\d{1,2}", "%Y-%m-%d"),
+    ):
+        match = re.search(pattern, raw)
+        if not match:
+            continue
+        try:
+            return datetime.strptime(match.group(0), date_format).replace(tzinfo=TZ)
+        except ValueError:
+            continue
+    return None
+
+
+def filter_source_freshness(
+    items: list[Listing],
+    stats: dict[str, Any],
+) -> list[Listing]:
+    """Keep only rows whose source itself proves activity within 48 hours."""
+
+    kept: list[Listing] = []
+    source_rows = stats.get("sources", {})
+    for source, source_stats in source_rows.items():
+        source_items = [item for item in items if item.source == source]
+        source_stats["validated_before_freshness"] = len(source_items)
+        source_stats["freshness_checked"] = len(source_items)
+        source_stats["fresh_within_2_days"] = 0
+        source_stats["freshness_rejected"] = 0
+
+    for item in items:
+        source_stats = source_rows.get(item.source, {})
+        timestamp = source_listing_time(item)
+        reason = ""
+        if timestamp is None:
+            reason = "missing_source_time"
+        elif timestamp > NOW + timedelta(minutes=10):
+            reason = "source_time_in_future"
+        elif NOW - timestamp > SOURCE_FRESHNESS_WINDOW:
+            reason = "source_older_than_2_days"
+        if reason:
+            rejects = source_stats.setdefault("rejects", {})
+            rejects[reason] = int(rejects.get(reason, 0) or 0) + 1
+            source_stats["freshness_rejected"] = (
+                int(source_stats.get("freshness_rejected", 0) or 0) + 1
+            )
+            continue
+        item.source_timestamp = timestamp.isoformat()
+        source_stats["fresh_within_2_days"] = (
+            int(source_stats.get("fresh_within_2_days", 0) or 0) + 1
+        )
+        kept.append(item)
+
+    for source, source_stats in source_rows.items():
+        source_stats["validated"] = int(source_stats.get("fresh_within_2_days", 0) or 0)
+        rejected = int(source_stats.get("freshness_rejected", 0) or 0)
+        if rejected:
+            source_stats.setdefault("notices", []).append(
+                f"已排除{rejected}筆來源時間超過2天或無法證明時效的物件。"
+            )
+    return kept
+
+
+def load_previous_edition_keys() -> tuple[set[str], str]:
+    """Load the last successful delivery, falling back once to the current page."""
+
+    try:
+        receipt = json.loads(LAST_DELIVERY_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        receipt = None
+    if isinstance(receipt, dict) and isinstance(receipt.get("item_keys"), list):
+        return {
+            str(value)
+            for value in receipt["item_keys"]
+            if isinstance(value, str) and ":" in value
+        }, f"delivery:{receipt.get('edition_id', '')}"
+
+    try:
+        previous = json.loads(OUTPUT_JSON.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        previous = {}
+    rows = previous.get("items", []) if isinstance(previous, dict) else []
+    keys = {
+        key
+        for row in rows
+        if isinstance(row, dict)
+        if (key := listing_key(row))
+    }
+    return keys, "latest:migration"
+
+
+def assign_previous_edition_new_flags(
+    items: list[Listing],
+    previous_keys: set[str],
+) -> list[Listing]:
+    for item in items:
+        item.new_listing = listing_key(item) not in previous_keys
+    return items
+
+
+def archive_url_for_edition(edition_id: str, site_url: str | None = None) -> str:
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}-\d{4}(?:-manual-\d+)?", edition_id):
+        raise ValueError(f"無效的租屋快報版本：{edition_id}")
+    base_url = (site_url or DEFAULT_SITE_URL).strip() or DEFAULT_SITE_URL
+    if not base_url.endswith("/"):
+        base_url += "/"
+    parsed = urllib.parse.urlparse(base_url)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise ValueError(f"租屋快報網址必須使用 HTTPS：{base_url}")
+    return urllib.parse.urljoin(base_url, f"archive/{edition_id}.html")
+
+
+def edition_context() -> tuple[str, str]:
+    edition_id = os.environ.get(RENTAL_EDITION_ID_ENV, "").strip()
+    if not edition_id:
+        return "", ""
+    return edition_id, archive_url_for_edition(
+        edition_id,
+        os.environ.get(SITE_URL_ENV),
+    )
+
+
+def reuse_existing_edition(edition_id: str, edition_url: str) -> bool:
+    """Reuse a committed edition on retry so its permanent URL stays immutable."""
+
+    if not edition_id:
+        return False
+    archive_path = ARCHIVE_DIR / f"{edition_id}.html"
+    edition_path = EDITION_DATA_DIR / f"{edition_id}.json"
+    try:
+        payload_text = edition_path.read_text(encoding="utf-8")
+        payload = json.loads(payload_text)
+        html_text = archive_path.read_text(encoding="utf-8")
+    except (OSError, json.JSONDecodeError):
+        return False
+    if (
+        str(payload.get("edition_id", "")) != edition_id
+        or str(payload.get("edition_url", "")) != edition_url
+    ):
+        raise ValueError(f"已存在的快報版本資料不一致：{edition_id}")
+    OUTPUT_JSON.write_text(payload_text, encoding="utf-8")
+    OUTPUT_HTML.write_text(html_text, encoding="utf-8")
+    print(f"重用已存在的永久快報：{edition_url}")
+    return True
 
 
 def seed_first_seen_registry(state: dict[str, Any]) -> dict[str, str]:
@@ -5120,10 +5301,7 @@ def recency_minutes(item: Listing) -> int:
 
 
 def is_new_listing(item: Listing) -> bool:
-    if item.source in {"FB", "Threads"}:
-        return item.new_listing
-    first_seen = parse_state_time(item.first_seen_at)
-    return bool(first_seen and first_seen.date() == NOW.astimezone(TZ).date())
+    return item.new_listing
 
 
 def card_badges(item: Listing) -> list[str]:
@@ -5225,7 +5403,7 @@ def render_card(item: Listing, order: int = 0) -> str:
                onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
           <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
           {f'<span class="source-badge">{esc(source_label(item.source))}</span>' if index == 1 else ''}
-          {f'<span class="new-listing-badge" title="{esc("過去2天未曾出現" if item.source in {"FB", "Threads"} else "本日首次收錄")}">新房源</span>' if index == 1 and is_new_listing(item) else ''}
+          {f'<span class="new-listing-badge" title="上一封快報未出現">新房源</span>' if index == 1 and is_new_listing(item) else ''}
           {f'<span class="photo-index">{index}/{len(images)}</span>' if len(images) > 1 else ''}
         </a>
         """
@@ -5237,7 +5415,7 @@ def render_card(item: Listing, order: int = 0) -> str:
            rel="noopener noreferrer" aria-label="{esc(item.title)} 來源頁">
           <div class="photo-fallback no-photo">來源未提供可讀取照片<br>點擊前往來源頁</div>
           <span class="source-badge">{esc(source_label(item.source))}</span>
-          {f'<span class="new-listing-badge" title="{esc("過去2天未曾出現" if item.source in {"FB", "Threads"} else "本日首次收錄")}">新房源</span>' if is_new_listing(item) else ''}
+          {f'<span class="new-listing-badge" title="上一封快報未出現">新房源</span>' if is_new_listing(item) else ''}
         </a>
         """
 
@@ -5741,12 +5919,12 @@ h3 a{{text-decoration:none}}
 
 <div class="statusbar"><div class="wrap">
 產生時間：{NOW.strftime('%Y/%m/%d %H:%M')}｜候選 {stats['candidates']} 筆｜
-驗證通過 {stats['validated']} 筆｜近48小時曾顯示／同輪重複 {stats['duplicates']} 筆｜
-本次顯示 {len(items)} 筆
+驗證通過 {stats['validated']} 筆｜超過2天／無來源時間 {stats.get('freshness_rejected', 0)} 筆｜
+新房源 {stats.get('new_listings', sum(1 for item in items if item.new_listing))} 筆｜本次顯示 {len(items)} 筆
 </div></div>
 
 <main class="wrap">
-<div class="notice">頁面顯示本輪所有驗證通過的有效物件；近48小時紀錄只提供重複診斷，不會再把仍有效的房源從頁面隱藏。591、樂屋網、信義與永慶首圖的「新房源」代表本日第一次收錄；FB與Threads則代表同一來源物件過去2天沒有出現。社群來源首次啟用回溯7天，成功初始化後每次只收最近2天。</div>
+<div class="notice">每個來源每輪都會重新檢查；只顯示來源刊登或更新時間在最近48小時內的物件，無法取得來源時間也不發布。「新房源」統一代表上一封成功投遞的快報未出現該來源物件。</div>
 
 <div id="source-591" class="source-block">
   <div class="source-heading"><h2>591</h2><a href="https://rent.591.com.tw/list?kind=1&layout=4&region=6" target="_blank">開啟591搜尋 ↗</a></div>
@@ -5783,7 +5961,7 @@ h3 a{{text-decoration:none}}
     一般房仲的真實出租會歸入C級「其他符合物件」；包租代管／代租代管同行廣告會排除；
     屋主自己提到「想找代管」不會再被誤判為同業。
     30至35坪以上、租金與照片是加分條件，缺少選填資訊仍會誠實顯示，不補造資料或照片。
-    首次回溯7天，後續只讀最近2天；「新房源」表示同一物件過去2天未曾出現。
+    每次只讀與顯示最近2天；「新房源」表示上一封快報未出現。
     Facebook登入與加入社團狀態只留在您的瀏覽器；若Facebook登出，請由您本人重新登入。
   </div>
   <div class="social-links">{fb_buttons}</div>
@@ -5822,8 +6000,8 @@ h3 a{{text-decoration:none}}
     官方API會搜尋公開貼文並合併可讀取的原作者留言；人工入口可補入已知的公開永久貼文。
     桃園區、中壢區、平鎮區、八德區及至少3房是必要條件；包租代管與仲介同業會排除。
     30至35坪以上、租金、照片與屋主訊號只用於自動符合度評分；缺少租金或可讀照片仍可刊出，
-    並顯示「租金洽詢」或「來源未提供可讀取照片」。首次回溯7天，後續只讀最近2天；
-    「新房源」表示過去2天未曾出現。不使用帳號密碼、Cookie或瀏覽器Session，也不加入假物件。
+    並顯示「租金洽詢」或「來源未提供可讀取照片」。每次只讀與顯示最近2天；
+    「新房源」表示上一封快報未出現。不使用帳號密碼、Cookie或瀏覽器Session，也不加入假物件。
   </div>
   {render_listing_browser(
       items,
@@ -5995,7 +6173,11 @@ def empty_source_stats() -> dict[str, Any]:
 
 def main() -> int:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    edition_id, edition_url = edition_context()
+    if reuse_existing_edition(edition_id, edition_url):
+        return 0
     state = load_state()
+    previous_edition_keys, comparison_source = load_previous_edition_keys()
     stats: dict[str, Any] = {
         "sources": {
             "591": empty_source_stats(),
@@ -6008,7 +6190,7 @@ def main() -> int:
     }
     stats["sources"]["Threads"]["notices"].append(
         "Threads會合併官方API與人工授權公開入口，依指定四區、至少3房、"
-        "非包租代管／仲介同業及最近7天／2天時間窗驗證。"
+        "非包租代管／仲介同業及最近2天時間窗驗證。"
     )
     candidates: list[Listing] = []
 
@@ -6045,8 +6227,9 @@ def main() -> int:
         unique[f"{item.source}:{item.source_id}"] = item
     candidates = list(unique.values())
 
+    candidates = filter_source_freshness(candidates, stats)
     candidates = assign_first_seen(candidates, state)
-    candidates = assign_social_new_flags(candidates, state)
+    candidates = assign_previous_edition_new_flags(candidates, previous_edition_keys)
     candidates = apply_categories(candidates, state)
     published, duplicate_count = filter_recent_duplicates(candidates, state)
 
@@ -6059,22 +6242,40 @@ def main() -> int:
             "validated": len(candidates),
             "duplicates": duplicate_count,
             "published": len(published),
+            "new_listings": sum(1 for item in published if item.new_listing),
+            "freshness_rejected": sum(
+                int(value.get("freshness_rejected", 0) or 0)
+                for value in stats["sources"].values()
+            ),
+            "freshness_window_hours": int(
+                SOURCE_FRESHNESS_WINDOW.total_seconds() // 3600
+            ),
+            "comparison_source": comparison_source,
         }
     )
 
-    OUTPUT_JSON.write_text(
-        json.dumps(
-            {
-                "generated_at": NOW.isoformat(),
-                "stats": stats,
-                "items": [asdict(item) for item in published],
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
+    rendered_html = render_html(published, stats)
+    payload_text = json.dumps(
+        {
+            "generated_at": NOW.isoformat(),
+            "edition_id": edition_id,
+            "edition_url": edition_url,
+            "stats": stats,
+            "items": [asdict(item) for item in published],
+        },
+        ensure_ascii=False,
+        indent=2,
     )
-    OUTPUT_HTML.write_text(render_html(published, stats), encoding="utf-8")
+    OUTPUT_JSON.write_text(payload_text, encoding="utf-8")
+    OUTPUT_HTML.write_text(rendered_html, encoding="utf-8")
+    if edition_id:
+        ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+        EDITION_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        archive_path = ARCHIVE_DIR / f"{edition_id}.html"
+        archive_path.write_text(rendered_html, encoding="utf-8")
+        edition_path = EDITION_DATA_DIR / f"{edition_id}.json"
+        edition_path.write_text(payload_text, encoding="utf-8")
+        print(f"永久快報：{edition_url}")
     save_state(state)
 
     print(json.dumps(stats, ensure_ascii=False))

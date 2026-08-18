@@ -1370,7 +1370,7 @@ class ThreadsImportTests(unittest.TestCase):
         self.assertEqual(items, [])
         self.assertEqual(stats["rejects"]["excluded_industry"], 1)
 
-    def test_threads_initial_window_is_seven_days_then_two_days(self) -> None:
+    def test_threads_always_rejects_rows_older_than_two_days(self) -> None:
         row = {
             "permalink": "https://www.threads.com/@owner.home/post/SIX_DAYS_OLD",
             "text": "平鎮區3房2廳整層出租，35坪",
@@ -1393,9 +1393,10 @@ class ThreadsImportTests(unittest.TestCase):
             second_stats = DIGEST.empty_source_stats()
             second_items = DIGEST.load_threads_listings(second_stats, state)
 
-        self.assertEqual(len(first_items), 1)
+        self.assertEqual(first_items, [])
         self.assertEqual(first_stats["collection_mode"], "initial")
-        self.assertEqual(first_stats["window_days"], 7)
+        self.assertEqual(first_stats["window_days"], 2)
+        self.assertEqual(first_stats["rejects"]["outside_collection_window"], 1)
         self.assertEqual(second_items, [])
         self.assertEqual(second_stats["collection_mode"], "ongoing")
         self.assertEqual(second_stats["window_days"], 2)
@@ -2334,7 +2335,7 @@ class SinyiAndYungchingTests(unittest.TestCase):
 
 
 class CurrentListingDisplayTests(unittest.TestCase):
-    def test_first_seen_registry_marks_only_today_new_across_all_sources(self) -> None:
+    def test_previous_edition_marks_new_listings_across_all_sources(self) -> None:
         old_now = DIGEST.NOW
         DIGEST.NOW = DIGEST.datetime(2026, 8, 12, 18, 0, tzinfo=DIGEST.TZ)
         try:
@@ -2349,23 +2350,7 @@ class CurrentListingDisplayTests(unittest.TestCase):
                 )
                 for index, source in enumerate(sources)
             ]
-            state = {
-                "sent": [
-                    {
-                        "source_key": "591:id-0",
-                        "fingerprint": "old",
-                        "sent_at": "2026-08-11T20:00:00+08:00",
-                    }
-                ],
-                "prices": {},
-            }
-            with patch.object(DIGEST, "OUTPUT_JSON", Path("missing-output.json")), patch.object(
-                DIGEST, "LAST_SUCCESS_591", Path("missing-591.json")
-            ), patch.object(DIGEST, "LAST_SUCCESS_SINYI", Path("missing-sinyi.json")), patch.object(
-                DIGEST, "LAST_SUCCESS_YUNGCHING", Path("missing-yungching.json")
-            ):
-                DIGEST.assign_first_seen(items, state)
-                DIGEST.assign_social_new_flags(items, state)
+            DIGEST.assign_previous_edition_new_flags(items, {"591:id-0"})
 
             self.assertFalse(DIGEST.is_new_listing(items[0]))
             self.assertTrue(all(DIGEST.is_new_listing(item) for item in items[1:]))
@@ -2377,7 +2362,7 @@ class CurrentListingDisplayTests(unittest.TestCase):
         finally:
             DIGEST.NOW = old_now
 
-    def test_first_seen_migration_prevents_mass_false_new_badges(self) -> None:
+    def test_latest_page_migration_prevents_mass_false_new_badges(self) -> None:
         old_now = DIGEST.NOW
         DIGEST.NOW = DIGEST.datetime(2026, 8, 12, 18, 0, tzinfo=DIGEST.TZ)
         try:
@@ -2402,19 +2387,16 @@ class CurrentListingDisplayTests(unittest.TestCase):
                 output.write_text(json.dumps(existing_payload), encoding="utf-8")
                 missing = Path(temp_dir) / "missing.json"
                 with patch.object(DIGEST, "OUTPUT_JSON", output), patch.object(
-                    DIGEST, "LAST_SUCCESS_591", missing
-                ), patch.object(DIGEST, "LAST_SUCCESS_SINYI", missing), patch.object(
-                    DIGEST, "LAST_SUCCESS_YUNGCHING", missing
+                    DIGEST, "LAST_DELIVERY_FILE", missing
                 ):
-                    state = {"sent": [], "prices": {}}
-                    DIGEST.assign_first_seen([item], state)
-                    DIGEST.assign_social_new_flags([item], state)
-            self.assertEqual(item.first_seen_at, "2026-08-11T12:00:00+08:00")
+                    previous, source = DIGEST.load_previous_edition_keys()
+                    DIGEST.assign_previous_edition_new_flags([item], previous)
+            self.assertEqual(source, "latest:migration")
             self.assertFalse(DIGEST.is_new_listing(item))
         finally:
             DIGEST.NOW = old_now
 
-    def test_social_listing_is_new_only_after_two_days_without_appearance(self) -> None:
+    def test_last_delivery_is_the_new_listing_comparison_source(self) -> None:
         old_now = DIGEST.NOW
         DIGEST.NOW = DIGEST.datetime(2026, 8, 12, 18, 0, tzinfo=DIGEST.TZ)
         try:
@@ -2428,20 +2410,106 @@ class CurrentListingDisplayTests(unittest.TestCase):
                 source_id="absent",
                 url="https://example.test/absent",
             )
-            state = {
-                "social_last_seen": {
-                    "FB:recent": "2026-08-11T18:00:00+08:00",
-                    "Threads:absent": "2026-08-09T18:00:00+08:00",
-                }
-            }
-            with patch.object(DIGEST, "OUTPUT_JSON", Path("missing-output.json")):
-                DIGEST.assign_social_new_flags([recent, absent], state)
+            DIGEST.assign_previous_edition_new_flags(
+                [recent, absent],
+                {"fb:recent"},
+            )
 
             self.assertFalse(recent.new_listing)
             self.assertTrue(absent.new_listing)
-            self.assertIn("過去2天未曾出現", DIGEST.render_card(absent))
+            self.assertIn("上一封快報未出現", DIGEST.render_card(absent))
         finally:
             DIGEST.NOW = old_now
+
+    def test_every_source_excludes_missing_or_older_than_two_day_timestamps(self) -> None:
+        old_now = DIGEST.NOW
+        DIGEST.NOW = DIGEST.datetime(2026, 8, 18, 16, 0, tzinfo=DIGEST.TZ)
+        try:
+            sources = ["591", "FB", "樂屋網", "Threads", "信義房屋", "永慶房屋"]
+            items: list[object] = []
+            stats = {"sources": {source: DIGEST.empty_source_stats() for source in sources}}
+            for source in sources:
+                items.extend(
+                    [
+                        DIGEST.Listing(
+                            source=source,
+                            source_id=f"{source}-fresh",
+                            url="https://example.test/fresh",
+                            updated="1小時前更新",
+                        ),
+                        DIGEST.Listing(
+                            source=source,
+                            source_id=f"{source}-stale",
+                            url="https://example.test/stale",
+                            updated="3天前更新",
+                        ),
+                        DIGEST.Listing(
+                            source=source,
+                            source_id=f"{source}-missing",
+                            url="https://example.test/missing",
+                        ),
+                    ]
+                )
+
+            kept = DIGEST.filter_source_freshness(items, stats)
+
+            self.assertEqual(len(kept), len(sources))
+            self.assertTrue(all(item.source_id.endswith("-fresh") for item in kept))
+            self.assertTrue(all(item.source_timestamp for item in kept))
+            for source in sources:
+                row = stats["sources"][source]
+                self.assertEqual(row["validated"], 1)
+                self.assertEqual(row["freshness_rejected"], 2)
+                self.assertEqual(row["rejects"]["source_older_than_2_days"], 1)
+                self.assertEqual(row["rejects"]["missing_source_time"], 1)
+        finally:
+            DIGEST.NOW = old_now
+
+    def test_rental_permalink_contains_date_and_delivery_slot(self) -> None:
+        self.assertEqual(
+            DIGEST.archive_url_for_edition("2026-08-18-1600"),
+            "https://flyspacesky.github.io/taoyuan-rental-digest/"
+            "archive/2026-08-18-1600.html",
+        )
+        with self.assertRaisesRegex(ValueError, "無效"):
+            DIGEST.archive_url_for_edition("latest")
+
+    def test_existing_edition_is_reused_without_overwriting_archive(self) -> None:
+        edition_id = "2026-08-18-1600"
+        edition_url = DIGEST.archive_url_for_edition(edition_id)
+        payload = {
+            "edition_id": edition_id,
+            "edition_url": edition_url,
+            "generated_at": "2026-08-18T16:00:00+08:00",
+            "stats": {},
+            "items": [],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            archive_dir = root / "archive"
+            edition_dir = root / "editions"
+            archive_dir.mkdir()
+            edition_dir.mkdir()
+            archive = archive_dir / f"{edition_id}.html"
+            archive.write_text("fixed edition", encoding="utf-8")
+            (edition_dir / f"{edition_id}.json").write_text(
+                json.dumps(payload),
+                encoding="utf-8",
+            )
+            latest = root / "latest.json"
+            index = root / "index.html"
+            with (
+                patch.object(DIGEST, "ARCHIVE_DIR", archive_dir),
+                patch.object(DIGEST, "EDITION_DATA_DIR", edition_dir),
+                patch.object(DIGEST, "OUTPUT_JSON", latest),
+                patch.object(DIGEST, "OUTPUT_HTML", index),
+            ):
+                reused = DIGEST.reuse_existing_edition(edition_id, edition_url)
+
+            self.assertTrue(reused)
+            self.assertEqual(index.read_text(encoding="utf-8"), "fixed edition")
+            self.assertEqual(archive.read_text(encoding="utf-8"), "fixed edition")
+            self.assertEqual(json.loads(latest.read_text())["edition_id"], edition_id)
 
     @staticmethod
     def listing(
@@ -2735,7 +2803,13 @@ class CurrentListingDisplayTests(unittest.TestCase):
         self.assertNotIn('cron: "30 9,16,22 * * *"', workflow)
         self.assertEqual(workflow.count('timezone: "Asia/Taipei"'), 3)
         self.assertIn("LINE_DELIVERY_SLOT:", workflow)
-        self.assertIn("manual:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}", workflow)
+        self.assertIn("manual:${GITHUB_RUN_ID}", workflow)
+        self.assertIn('EDITION_ID="${DATE}-0930"', workflow)
+        self.assertIn('EDITION_ID="${DATE}-1600"', workflow)
+        self.assertIn('EDITION_ID="${DATE}-2200"', workflow)
+        self.assertIn("RENTAL_EDITION_ID:", workflow)
+        self.assertIn("git add docs/archive", workflow)
+        self.assertIn("docs/rental-data/last-delivery.json", workflow)
         self.assertIn("skip_line:", workflow)
         self.assertEqual(workflow.count("!inputs.skip_line"), 2)
         self.assertIn(
