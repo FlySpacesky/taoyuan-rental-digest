@@ -1930,22 +1930,7 @@ def use_591_snapshot(
 
 
 def collect_591_listings(source_stats: dict[str, Any]) -> list[Listing]:
-    """取得 591；短時間重跑或來源受阻時，誠實標示並沿用近期成功快照。"""
-    snapshot, snapshot_at, snapshot_age, snapshot_error = load_591_snapshot()
-
-    if (
-        snapshot
-        and snapshot_age is not None
-        and timedelta(hours=snapshot_age) < _591_REFRESH_COOLDOWN
-    ):
-        return use_591_snapshot(
-            source_stats,
-            snapshot,
-            snapshot_at,
-            snapshot_age,
-            "refresh_cooldown",
-        )
-
+    """取得 591；只回傳本輪實際重新驗證成功且仍在刊登的物件。"""
     links = crawl_591_links(source_stats)
     fresh: list[Listing] = []
     for index, url in enumerate(links, 1):
@@ -1968,25 +1953,13 @@ def collect_591_listings(source_stats: dict[str, Any]) -> list[Listing]:
         )
 
     # 若前段已有少量成功資料、後續卻因 403/429 中止，這不是完整刷新。
-    # 不得用部分結果覆蓋較完整的真實快照；新鮮資料優先，其餘沿用近期快照。
+    # 只發布本輪已重新驗證成功的資料；舊快照不得補進本輪發布清單。
     if fresh and source_stats.get("blocked_after_queries"):
         source_stats["fresh_validated"] = len(fresh)
         source_stats["partial_refresh"] = True
-        if snapshot and snapshot_age is not None:
-            fresh_ids = {item.source_id for item in fresh}
-            merged = fresh + [
-                item for item in snapshot if item.source_id not in fresh_ids
-            ]
-            return use_591_snapshot(
-                source_stats,
-                merged,
-                snapshot_at,
-                snapshot_age,
-                "partial_source_blocked",
-            )
         source_stats["errors"].append(
-            f"591本輪只取得{len(fresh)}筆後即遭阻擋，沒有可沿用的近期完整快照；"
-            "本輪不會把部分結果保存成成功快照。"
+            f"591本輪只重新驗證成功{len(fresh)}筆後即遭阻擋；"
+            "本輪只發布這些已驗證物件，不沿用上次快照。"
         )
         return fresh
 
@@ -1998,17 +1971,10 @@ def collect_591_listings(source_stats: dict[str, Any]) -> list[Listing]:
             source_stats["errors"].append(f"591成功資料無法保存為備援快照：{exc}")
         return fresh
 
-    if snapshot and snapshot_age is not None:
-        return use_591_snapshot(
-            source_stats,
-            snapshot,
-            snapshot_at,
-            snapshot_age,
-            "source_blocked",
-        )
-
-    if snapshot_error:
-        source_stats["errors"].append(snapshot_error)
+    source_stats["errors"].append(
+        "591本輪沒有重新驗證成功的物件；為避免發布未確認仍在刊登的舊物件，"
+        "本輪不沿用上次快照。"
+    )
     return []
 
 

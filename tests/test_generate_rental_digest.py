@@ -434,27 +434,34 @@ class Snapshot591Tests(unittest.TestCase):
         item.fingerprint = DIGEST.fingerprint(item)
         return item
 
-    def test_recent_snapshot_avoids_refresh_rate_limit(self) -> None:
+    def test_recent_snapshot_does_not_skip_fresh_validation(self) -> None:
         stats = DIGEST.empty_source_stats()
         item = self.listing()
+
+        def fresh_crawl(row: dict[str, object]) -> list[str]:
+            row["candidate_links"] = 1
+            return [item.url]
+
         with (
             patch.object(
                 DIGEST,
                 "load_591_snapshot",
                 return_value=([item], DIGEST.NOW.isoformat(), 0.5, ""),
             ),
-            patch.object(DIGEST, "crawl_591_links") as crawl,
+            patch.object(DIGEST, "crawl_591_links", side_effect=fresh_crawl) as crawl,
+            patch.object(DIGEST, "parse_591_detail", return_value=item),
+            patch.object(DIGEST, "save_591_snapshot") as save,
         ):
             result = DIGEST.collect_591_listings(stats)
 
         self.assertEqual(result, [item])
-        crawl.assert_not_called()
+        crawl.assert_called_once_with(stats)
+        save.assert_called_once_with([item])
         self.assertEqual(stats["candidate_links"], 1)
-        self.assertEqual(stats["fresh_candidate_links"], 0)
         self.assertEqual(stats["validated"], 1)
-        self.assertEqual(stats["fallback"], "refresh_cooldown")
+        self.assertNotIn("fallback", stats)
 
-    def test_blocked_refresh_uses_recent_real_snapshot(self) -> None:
+    def test_blocked_refresh_does_not_publish_recent_snapshot(self) -> None:
         stats = DIGEST.empty_source_stats()
         item = self.listing()
 
@@ -473,12 +480,11 @@ class Snapshot591Tests(unittest.TestCase):
         ):
             result = DIGEST.collect_591_listings(stats)
 
-        self.assertEqual(result, [item])
-        self.assertEqual(stats["candidate_links"], 1)
-        self.assertEqual(stats["fresh_candidate_links"], 0)
-        self.assertEqual(stats["validated"], 1)
-        self.assertEqual(stats["fallback"], "source_blocked")
-        self.assertTrue(any("未重新驗證" in value for value in stats["errors"]))
+        self.assertEqual(result, [])
+        self.assertEqual(stats["candidate_links"], 0)
+        self.assertEqual(stats["validated"], 0)
+        self.assertNotIn("fallback", stats)
+        self.assertTrue(any("不沿用上次快照" in value for value in stats["errors"]))
 
     def test_successful_refresh_updates_snapshot(self) -> None:
         stats = DIGEST.empty_source_stats()
@@ -503,7 +509,7 @@ class Snapshot591Tests(unittest.TestCase):
         self.assertEqual(stats["validated"], 1)
         save.assert_called_once_with([item])
 
-    def test_partial_blocked_refresh_merges_and_preserves_complete_snapshot(self) -> None:
+    def test_partial_blocked_refresh_publishes_only_freshly_validated_items(self) -> None:
         stats = DIGEST.empty_source_stats()
         refreshed = self.listing()
         prior_only = self.listing()
@@ -535,11 +541,11 @@ class Snapshot591Tests(unittest.TestCase):
         ):
             result = DIGEST.collect_591_listings(stats)
 
-        self.assertEqual([item.source_id for item in result], ["21700001", "21700002"])
-        self.assertEqual(stats["fresh_candidate_links"], 1)
+        self.assertEqual([item.source_id for item in result], ["21700001"])
         self.assertEqual(stats["fresh_validated"], 1)
-        self.assertEqual(stats["candidate_links"], 2)
-        self.assertEqual(stats["fallback"], "partial_source_blocked")
+        self.assertEqual(stats["candidate_links"], 1)
+        self.assertNotIn("fallback", stats)
+        self.assertTrue(any("不沿用上次快照" in value for value in stats["errors"]))
         save.assert_not_called()
 
 
