@@ -123,6 +123,15 @@ jobs:
     timeout-minutes: 45
 
     steps:
+      - name: 載入自有 runner 的 Git
+        shell: pwsh
+        run: |
+          $gitPath = "C:\Users\admin\.cache\codex-runtimes\codex-primary-runtime\dependencies\native\git\cmd"
+          if (-not (Test-Path (Join-Path $gitPath "git.exe"))) {
+            throw "self-hosted runner 找不到 Git：$gitPath"
+          }
+          $gitPath | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
       - name: 下載正式版
         uses: actions/checkout@v6
         with:
