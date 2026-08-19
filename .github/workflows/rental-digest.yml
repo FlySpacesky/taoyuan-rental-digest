@@ -165,12 +165,14 @@ jobs:
         env:
           EVENT_SCHEDULE: ${{ github.event.schedule }}
         run: |
-          $date = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow, 'Taipei Standard Time').ToString('yyyy-MM-dd')
+          $taipeiNow = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow, 'Taipei Standard Time')
+          $date = $taipeiNow.ToString('yyyy-MM-dd')
+          $time = $taipeiNow.ToString('HHmm')
           $suffix = switch ($env:EVENT_SCHEDULE) {
             '30 9 * * *' { '0930' }
             '0 16 * * *' { '1600' }
             '0 22 * * *' { '2200' }
-            default { "manual-$env:GITHUB_RUN_ID" }
+            default { "$time-manual-$env:GITHUB_RUN_ID" }
           }
           "RENTAL_EDITION_ID=$date-$suffix" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
