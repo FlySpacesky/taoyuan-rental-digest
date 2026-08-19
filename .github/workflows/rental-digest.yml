@@ -123,30 +123,35 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - name: 載入自有 runner 的 Git
+      - name: 載入自有 runner 工具鏈
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $gitPath = "C:\Users\admin\.cache\codex-runtimes\codex-primary-runtime\dependencies\native\git\cmd"
+          $pythonPath = "C:\Users\admin\.cache\codex-runtimes\codex-primary-runtime\dependencies\python"
           if (-not (Test-Path (Join-Path $gitPath "git.exe"))) {
             throw "self-hosted runner 找不到 Git：$gitPath"
           }
+          if (-not (Test-Path (Join-Path $pythonPath "python.exe"))) {
+            throw "self-hosted runner 找不到 Python：$pythonPath"
+          }
           $gitPath | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          $pythonPath | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
       - name: 下載正式版
         uses: actions/checkout@v6
         with:
           ref: main
 
-      - name: 設定 Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-
       - name: 安裝套件與 Chromium
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          python -m pip install -r requirements.txt
+          $dependencyPath = Join-Path $env:GITHUB_WORKSPACE ".runner-python"
+          $browserPath = Join-Path $env:GITHUB_WORKSPACE ".playwright"
+          python -m pip install --upgrade --target $dependencyPath -r requirements.txt
+          "PYTHONPATH=$dependencyPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PLAYWRIGHT_BROWSERS_PATH=$browserPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $env:PYTHONPATH = $dependencyPath
+          $env:PLAYWRIGHT_BROWSERS_PATH = $browserPath
           python -m playwright install chromium
 
       - name: 檢查與測試
