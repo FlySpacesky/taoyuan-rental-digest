@@ -388,11 +388,16 @@ test("rejects Browser Run rows outside the requested districts or below four roo
 });
 
 
-test("Yungching feed fails honestly when the Browser Run binding is absent", async () => {
+test("Yungching feed returns a stable degraded schema when Browser Run is absent", async () => {
   const response = await worker.fetch(
     new Request("https://watchdog.example/yungching-feed"),
     {},
   );
-  assert.equal(response.status, 502);
-  assert.equal((await response.json()).status, "error");
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.status, "degraded");
+  assert.equal(payload.healthy, false);
+  assert.equal(payload.validated_count, 0);
+  assert.deepEqual(payload.items, []);
+  assert.equal(payload.fresh_validation.successful, false);
 });

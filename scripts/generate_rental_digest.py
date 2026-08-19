@@ -2452,6 +2452,18 @@ def load_yungching_browser_feed(source_stats: dict[str, Any]) -> dict[str, Listi
         )
         return {}
 
+    if not isinstance(payload, dict) or payload.get("healthy") is False:
+        details = payload.get("errors", []) if isinstance(payload, dict) else []
+        source_stats["browser_feed_health"] = "degraded"
+        source_stats["browser_feed_candidates"] = int(
+            payload.get("candidate_count", 0) if isinstance(payload, dict) else 0
+        )
+        source_stats["notices"].append(
+            "Cloudflare永慶公開摘要本輪驗證失敗；未使用舊快照。"
+            f" 診斷={clean(json.dumps(details, ensure_ascii=False), 600)}"
+        )
+        return {}
+
     rows = payload.get("items") if isinstance(payload, dict) else None
     if not isinstance(rows, list):
         source_stats["notices"].append("Cloudflare永慶公開摘要的items不是陣列。")
@@ -2507,6 +2519,7 @@ def load_yungching_browser_feed(source_stats: dict[str, Any]) -> dict[str, Listi
         items[source_id] = item
 
     source_stats["browser_feed_generated_at"] = str(payload.get("generated_at", ""))
+    source_stats["browser_feed_health"] = str(payload.get("status", "ok"))
     source_stats["browser_feed_cache"] = str(payload.get("cache", ""))
     source_stats["browser_feed_candidates"] = int(payload.get("candidate_count", 0) or 0)
     source_stats["browser_feed_validated"] = len(items)

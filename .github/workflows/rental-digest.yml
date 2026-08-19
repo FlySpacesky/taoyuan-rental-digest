@@ -115,8 +115,91 @@ jobs:
           path: docs
           retention-days: 3
 
+  # 591 已實測封鎖 GitHub-hosted Runner 的共享出口；正式抓取改由自有出口執行。
+  # 標籤刻意固定，避免工作意外落回 GitHub-hosted Runner 而產生「來源 0 筆」。
+  fresh-source-validation:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+    runs-on: [self-hosted, Windows, X64, rental-validation]
+    timeout-minutes: 45
+
+    steps:
+      - name: 下載正式版
+        uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: 設定 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 安裝套件與 Chromium
+        shell: pwsh
+        run: |
+          python -m pip install -r requirements.txt
+          python -m playwright install chromium
+
+      - name: 檢查與測試
+        shell: pwsh
+        run: |
+          python -m py_compile scripts/generate_rental_digest.py scripts/send_line.py
+          python -m unittest discover -s tests -v
+
+      - name: 決定快報版本
+        shell: pwsh
+        env:
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          $date = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow, 'Taipei Standard Time').ToString('yyyy-MM-dd')
+          $suffix = switch ($env:EVENT_SCHEDULE) {
+            '30 9 * * *' { '0930' }
+            '0 16 * * *' { '1600' }
+            '0 22 * * *' { '2200' }
+            default { "manual-$env:GITHUB_RUN_ID" }
+          }
+          "RENTAL_EDITION_ID=$date-$suffix" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: 測試時重設48小時去重紀錄
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.reset_history }}
+        shell: pwsh
+        run: Set-Content -Path docs/rental-data/history.json -Value '{"sent":[],"prices":{}}' -Encoding utf8
+
+      - name: 本輪從自有出口抓取並重新驗證
+        shell: pwsh
+        env:
+          FACEBOOK_POSTS_JSON: ${{ secrets.FACEBOOK_POSTS_JSON }}
+          FACEBOOK_POSTS_JSON_URL: ${{ secrets.FACEBOOK_POSTS_JSON_URL || vars.FACEBOOK_POSTS_JSON_URL }}
+          FACEBOOK_PRIVATE_INBOX_TOKEN: ${{ secrets.FB_INBOX_READ_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          VALIDATION_EGRESS: self-hosted-windows
+          RENTAL_EDITION_ID: ${{ env.RENTAL_EDITION_ID }}
+          SITE_URL: https://flyspacesky.github.io/taoyuan-rental-digest/
+        run: python scripts/generate_rental_digest.py
+
+      - name: 強制 fresh validation 閘門與診斷
+        shell: pwsh
+        run: |
+          @'
+          import json
+          data = json.load(open("docs/rental-data/latest.json", encoding="utf-8"))
+          for source in ("591", "永慶房屋"):
+              row = data["stats"]["sources"][source]
+              print(source, json.dumps(row, ensure_ascii=False, indent=2))
+              assert not row.get("snapshot_used"), f"{source} 不得以舊快照通過本輪驗證"
+          '@ | python -
+
+      - name: 上傳本輪已驗證內容
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-rental-validation
+          path: docs
+          if-no-files-found: error
+          retention-days: 1
+
   build-deploy-broadcast:
     if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+    needs: fresh-source-validation
     runs-on: ubuntu-latest
 
     environment:
@@ -129,6 +212,12 @@ jobs:
         with:
           ref: main
 
+      - name: 下載自有出口的本輪驗證結果
+        uses: actions/download-artifact@v4
+        with:
+          name: fresh-rental-validation
+          path: docs
+
       - name: 設定 Python
         uses: actions/setup-python@v6
         with:
@@ -137,15 +226,6 @@ jobs:
 
       - name: 安裝 Python 套件
         run: python -m pip install -r requirements.txt
-
-      - name: 安裝 Chromium
-        run: |
-          # GitHub 的 Azure Ubuntu 鏡像偶爾會長時間逾時；保留官方備援鏡像，
-          # 避免正式排程卡在瀏覽器安裝、錯過 LINE 投遞時段。
-          if [ -f /etc/apt/apt-mirrors.txt ]; then
-            sudo sed -i '\|http://azure.archive.ubuntu.com/ubuntu|d' /etc/apt/apt-mirrors.txt
-          fi
-          python -m playwright install --with-deps chromium
 
       - name: 檢查 Python 語法
         run: python -m py_compile scripts/generate_rental_digest.py scripts/send_line.py
@@ -197,19 +277,6 @@ jobs:
           echo "edition_id=${EDITION_ID}" >> "${GITHUB_OUTPUT}"
           echo "LINE delivery slot: ${SLOT:-none}"
           echo "Rental edition id: ${EDITION_ID:-preview-only}"
-
-      - name: 抓取、驗證、去重並產生網頁
-        env:
-          FACEBOOK_POSTS_JSON: ${{ secrets.FACEBOOK_POSTS_JSON }}
-          FACEBOOK_POSTS_JSON_URL: ${{ secrets.FACEBOOK_POSTS_JSON_URL || vars.FACEBOOK_POSTS_JSON_URL }}
-          FACEBOOK_PRIVATE_INBOX_TOKEN: ${{ secrets.FB_INBOX_READ_TOKEN }}
-          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
-          THREADS_POSTS_JSON: ${{ secrets.THREADS_POSTS_JSON }}
-          THREADS_POSTS_JSON_URL: ${{ secrets.THREADS_POSTS_JSON_URL || vars.THREADS_POSTS_JSON_URL }}
-          GITHUB_TOKEN: ${{ github.token }}
-          RENTAL_EDITION_ID: ${{ steps.edition.outputs.edition_id }}
-          SITE_URL: https://flyspacesky.github.io/taoyuan-rental-digest/
-        run: python scripts/generate_rental_digest.py
 
       - name: 顯示來源診斷摘要
         run: |

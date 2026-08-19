@@ -681,7 +681,51 @@ async function yungchingFeedResponse(request, env, ctx) {
       return response;
     }
   }
-  const payload = await buildYungchingFeed(env.BROWSER);
+  const attempts = [];
+  let payload = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const startedAt = Date.now();
+    try {
+      payload = await buildYungchingFeed(env.BROWSER);
+      attempts.push({ attempt, ok: true, elapsed_ms: Date.now() - startedAt });
+      break;
+    } catch (error) {
+      attempts.push({
+        attempt,
+        ok: false,
+        elapsed_ms: Date.now() - startedAt,
+        error: String(error?.message || error).slice(0, 180),
+      });
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 750 * (2 ** (attempt - 1))));
+    }
+  }
+  if (!payload) {
+    return Response.json({
+      status: "degraded",
+      healthy: false,
+      generated_at: new Date().toISOString(),
+      source: "永慶房屋公開搜尋與詳細頁",
+      candidate_count: 0,
+      validated_count: 0,
+      fresh_validation: { attempted: true, successful: false, published_eligible: 0 },
+      errors: attempts.filter((row) => !row.ok),
+      items: [],
+    }, {
+      status: 200,
+      headers: { "Cache-Control": "no-store", "X-Rental-Feed-Cache": "error" },
+    });
+  }
+  payload = {
+    status: "ok",
+    healthy: true,
+    ...payload,
+    fresh_validation: {
+      attempted: true,
+      successful: true,
+      published_eligible: payload.validated_count,
+    },
+    attempts,
+  };
   const response = Response.json(payload, {
     headers: {
       "Cache-Control": `public, max-age=${YUNGCHING_FEED_CACHE_SECONDS}`,
@@ -724,10 +768,17 @@ export default {
         return await yungchingFeedResponse(request, env, ctx);
       } catch (error) {
         console.error(error);
-        return Response.json(
-          { status: "error", message: String(error).slice(0, 300) },
-          { status: 502 },
-        );
+        return Response.json({
+          status: "degraded",
+          healthy: false,
+          generated_at: new Date().toISOString(),
+          source: "永慶房屋公開搜尋與詳細頁",
+          candidate_count: 0,
+          validated_count: 0,
+          fresh_validation: { attempted: true, successful: false, published_eligible: 0 },
+          errors: [{ attempt: 0, ok: false, error: String(error?.message || error).slice(0, 180) }],
+          items: [],
+        }, { status: 200, headers: { "Cache-Control": "no-store" } });
       }
     }
     if (request.method === "GET" && url.pathname === "/health") {
