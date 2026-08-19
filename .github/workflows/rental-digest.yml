@@ -199,7 +199,8 @@ jobs:
           @'
           import json
           data = json.load(open("docs/rental-data/latest.json", encoding="utf-8"))
-          for source in ("591", "永慶房屋"):
+          # Use escapes because Windows PowerShell 5 can transcode non-ASCII here-string input.
+          for source in ("591", "\u6c38\u6176\u623f\u5c4b"):
               row = data["stats"]["sources"][source]
               print(source, json.dumps(row, ensure_ascii=False, indent=2))
               assert not row.get("snapshot_used"), f"{source} 不得以舊快照通過本輪驗證"
