@@ -30,6 +30,24 @@ class WorkflowReliabilityTests(unittest.TestCase):
         )
         self.assertIn("run: python scripts/send_line.py", self.workflow)
 
+    def test_non_delivery_events_do_not_consume_live_source_quota(self) -> None:
+        delivery_condition = (
+            "github.event_name == 'schedule' || "
+            "(github.event_name == 'workflow_dispatch' && "
+            "github.ref == 'refs/heads/main')"
+        )
+        self.assertGreaterEqual(self.workflow.count(delivery_condition), 2)
+        self.assertNotIn(
+            "github.event_name != 'workflow_dispatch' || "
+            "github.ref == 'refs/heads/main'",
+            self.workflow,
+        )
+        self.assertIn(
+            "- name: 抓取、驗證並產生分支預覽\n"
+            "        if: ${{ github.event_name == 'workflow_dispatch' }}",
+            self.workflow,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

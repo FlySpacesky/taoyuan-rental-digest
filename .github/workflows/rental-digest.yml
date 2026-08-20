@@ -53,7 +53,9 @@ concurrency:
 
 jobs:
   validate-branch:
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' }}
+    # 程式推送與投稿更新只跑測試，避免在不發 LINE 的執行中先消耗 591 限流額度。
+    # 非 main 的人工執行仍可產生分支預覽。
+    if: ${{ github.event_name == 'push' || github.event_name == 'issues' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main') }}
     runs-on: ubuntu-latest
 
     steps:
@@ -91,6 +93,7 @@ jobs:
           printf '{"sent":[],"prices":{}}\n' > docs/rental-data/history.json
 
       - name: 抓取、驗證並產生分支預覽
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
           FACEBOOK_POSTS_JSON: ${{ secrets.FACEBOOK_POSTS_JSON }}
           FACEBOOK_POSTS_JSON_URL: ${{ secrets.FACEBOOK_POSTS_JSON_URL || vars.FACEBOOK_POSTS_JSON_URL }}
@@ -102,6 +105,7 @@ jobs:
         run: python scripts/generate_rental_digest.py
 
       - name: 顯示來源診斷摘要
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           python - <<'PY'
           import json
@@ -110,6 +114,7 @@ jobs:
           PY
 
       - name: 上傳分支預覽
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/upload-artifact@v4
         with:
           name: rental-digest-branch-preview
@@ -118,8 +123,9 @@ jobs:
 
   # 正式排程不能依賴可能離線的個人電腦。591 若封鎖 GitHub-hosted Runner，
   # 本輪就誠實發布 0 筆，不使用未重新驗證的舊快照；其他來源與 LINE 仍須完成。
+  # 只有真正會投遞 LINE 的排程或 main 人工執行才抓正式來源。
   fresh-source-validation:
-    if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -205,7 +211,7 @@ jobs:
           retention-days: 1
 
   build-deploy-broadcast:
-    if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') }}
     needs: fresh-source-validation
     runs-on: ubuntu-latest
 
