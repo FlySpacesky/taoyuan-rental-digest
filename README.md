@@ -45,8 +45,17 @@
   讀取固定的永慶公開搜尋及詳細頁，再提供2小時快取摘要。只保留指定四區、
   整層住家、4房以上且有詳細頁更新日期的物件；照片僅取該物件相簿，
   不使用帳密、Cookie或私人Session，也不挪用推薦房源照片
-- 591 成功抓取後會保存 `docs/rental-data/last-success-591.json`。兩小時內
-  重跑會沿用這份真實快照以避免限流；新一輪受 403／429 阻擋時最多沿用
-  72 小時，頁面會明確標示「未重新驗證」，不會把舊資料冒充新抓結果。
+- 591 成功抓取後仍會保存 `docs/rental-data/last-success-591.json` 作診斷與租金比較，
+  但任何新電子報都不會沿用未重新驗證的舊物件。只有本輪重新驗證成功、確認仍在
+  刊登且來源時間在2天內的物件可以發布。
+- 591 若明確遭遇 403／429，正式流程預設等待15分鐘，再以新的 GitHub Runner
+  出口重新驗證一次；變數 `RENTAL_591_RETRY_DELAY_SECONDS` 可在300至3600秒間調整。
+  初次與重試結果都必須通過「無 `snapshot_used`／無 `fallback`」閘門，之後才選擇
+  本輪重新驗證數較完整的一份部署與發送。
+- 若有合規且可長期使用的固定出口，可設定 GitHub Actions Secrets
+  `RENTAL_591_PROXY_SERVER`、`RENTAL_591_PROXY_USERNAME`、
+  `RENTAL_591_PROXY_PASSWORD`。代理只套用於 591 的 HTTP 與 Chromium 請求，
+  Facebook、Threads、GitHub Token 與其他來源不會經過該代理。未設定時會自動
+  使用上述「延後＋新 Runner」模式。
 
 完整建立步驟請看 `SETUP_GUIDE_zh-TW.md`。

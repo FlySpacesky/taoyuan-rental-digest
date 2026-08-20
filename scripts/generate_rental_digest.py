@@ -34,7 +34,7 @@ import urllib.parse
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import requests
 from bs4 import BeautifulSoup
@@ -149,6 +149,9 @@ SOCIAL_LAST_SEEN_REGISTRY_LIMIT = 20_000
 RENTAL_EDITION_ID_ENV = "RENTAL_EDITION_ID"
 SITE_URL_ENV = "SITE_URL"
 DEFAULT_SITE_URL = "https://flyspacesky.github.io/taoyuan-rental-digest/"
+RENTAL_591_PROXY_SERVER_ENV = "RENTAL_591_PROXY_SERVER"
+RENTAL_591_PROXY_USERNAME_ENV = "RENTAL_591_PROXY_USERNAME"
+RENTAL_591_PROXY_PASSWORD_ENV = "RENTAL_591_PROXY_PASSWORD"
 
 SINYI_SEARCH_TEMPLATE = (
     "https://www.sinyi.com.tw/rent/list/Taoyuan-city/"
@@ -337,14 +340,63 @@ FB_WHOLE_HOME_MARKERS = (
     "長期出租",
 )
 
-session = requests.Session()
-session.headers.update(
-    {
-        "User-Agent": UA,
-        "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.6",
-        "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+SESSION_HEADERS = {
+    "User-Agent": UA,
+    "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.6",
+    "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+}
+
+
+def rental_591_proxy_config(
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, Any] | None:
+    """建立只供 591 使用的穩定出口；不讓社群 Token 經過第三方代理。"""
+    values = environ if environ is not None else os.environ
+    server = str(values.get(RENTAL_591_PROXY_SERVER_ENV, "")).strip()
+    if not server:
+        return None
+    parsed = urllib.parse.urlparse(server)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("RENTAL_591_PROXY_SERVER 必須是 http(s)://host:port")
+    if parsed.username or parsed.password:
+        raise ValueError("代理帳密必須分別放在 USERNAME/PASSWORD Secret")
+
+    username = str(values.get(RENTAL_591_PROXY_USERNAME_ENV, "")).strip()
+    password = str(values.get(RENTAL_591_PROXY_PASSWORD_ENV, "")).strip()
+    if password and not username:
+        raise ValueError("設定代理密碼時也必須設定代理帳號")
+
+    request_url = server
+    if username:
+        host = parsed.hostname or ""
+        if parsed.port:
+            host = f"{host}:{parsed.port}"
+        auth = urllib.parse.quote(username, safe="")
+        if password:
+            auth += ":" + urllib.parse.quote(password, safe="")
+        request_url = urllib.parse.urlunparse(
+            (parsed.scheme, f"{auth}@{host}", parsed.path, "", "", "")
+        )
+
+    playwright: dict[str, str] = {"server": server}
+    if username:
+        playwright["username"] = username
+        playwright["password"] = password
+    return {
+        "requests": {"http": request_url, "https": request_url},
+        "playwright": playwright,
     }
-)
+
+
+_591_PROXY_CONFIG = rental_591_proxy_config()
+
+session = requests.Session()
+session.headers.update(SESSION_HEADERS)
+
+session_591 = requests.Session()
+session_591.headers.update(SESSION_HEADERS)
+if _591_PROXY_CONFIG:
+    session_591.proxies.update(_591_PROXY_CONFIG["requests"])
 
 
 @dataclass
@@ -388,11 +440,12 @@ class Listing:
 class BrowserFetcher:
     """單一 Chromium session，供 591 SSR / 反機器人頁面備援。"""
 
-    def __init__(self) -> None:
+    def __init__(self, proxy: dict[str, str] | None = None) -> None:
         self._pw = None
         self._browser = None
         self._context = None
         self._disabled = False
+        self._proxy = proxy
 
     def start(self) -> bool:
         if self._disabled:
@@ -403,15 +456,18 @@ class BrowserFetcher:
             return False
         try:
             self._pw = sync_playwright().start()
-            self._browser = self._pw.chromium.launch(
-                headless=True,
-                channel="chromium",
-                args=[
+            launch_options: dict[str, Any] = {
+                "headless": True,
+                "channel": "chromium",
+                "args": [
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
                 ],
-            )
+            }
+            if self._proxy:
+                launch_options["proxy"] = self._proxy
+            self._browser = self._pw.chromium.launch(**launch_options)
             browser_major = self._browser.version.split(".", 1)[0]
             browser_ua = re.sub(r"Chrome/\d+", f"Chrome/{browser_major}", UA)
             self._context = self._browser.new_context(
@@ -426,7 +482,8 @@ class BrowserFetcher:
             print(f"[Browser] Chromium {self._browser.version} ready")
             return True
         except Exception as exc:
-            print(f"[WARN] Chromium 啟動失敗：{exc}", file=sys.stderr)
+            detail = type(exc).__name__ if self._proxy else str(exc)
+            print(f"[WARN] Chromium 啟動失敗：{detail}", file=sys.stderr)
             self.close()
             self._disabled = True
             return False
@@ -495,6 +552,20 @@ class BrowserFetcher:
 
 
 browser = BrowserFetcher()
+browser_591 = (
+    BrowserFetcher(_591_PROXY_CONFIG["playwright"])
+    if _591_PROXY_CONFIG
+    else browser
+)
+
+
+def is_591_url(url: str) -> bool:
+    hostname = (urllib.parse.urlparse(url).hostname or "").lower()
+    return hostname == "591.com.tw" or hostname.endswith(".591.com.tw")
+
+
+def browser_for_url(url: str) -> BrowserFetcher:
+    return browser_591 if is_591_url(url) else browser
 
 
 def clean(value: Any, limit: int = 500) -> str:
@@ -514,16 +585,22 @@ def money(value: str | int) -> int:
 
 
 def get_requests(url: str, *, attempts: int = 3) -> tuple[requests.Response | None, str]:
+    request_session = session_591 if is_591_url(url) else session
     for attempt in range(attempts):
         try:
-            response = session.get(url, timeout=30, allow_redirects=True)
+            response = request_session.get(url, timeout=30, allow_redirects=True)
             text = response.text
             if response.status_code in {429, 500, 502, 503, 504}:
                 raise requests.RequestException(f"temporary status {response.status_code}")
             return response, text
         except requests.RequestException as exc:
             if attempt + 1 >= attempts:
-                print(f"[WARN] GET failed: {url}: {exc}", file=sys.stderr)
+                detail = (
+                    type(exc).__name__
+                    if request_session is session_591 and _591_PROXY_CONFIG
+                    else str(exc)
+                )
+                print(f"[WARN] GET failed: {url}: {detail}", file=sys.stderr)
                 return None, ""
             time.sleep(1.4 * (2**attempt))
     return None, ""
@@ -550,7 +627,7 @@ def fetch_html(
     """
 
     if browser_first:
-        rendered = browser.html(
+        rendered = browser_for_url(url).html(
             url,
             wait_ms=browser_wait_ms,
             click_button_text=browser_click_text,
@@ -568,7 +645,7 @@ def fetch_html(
     )
 
     if should_use_browser:
-        rendered = browser.html(
+        rendered = browser_for_url(url).html(
             url,
             wait_ms=browser_wait_ms,
             click_button_text=browser_click_text,
@@ -1424,7 +1501,7 @@ def fetch_591_bff_cards(
     }
     for attempt in range(3):
         try:
-            response = session.get(
+            response = session_591.get(
                 _591_BFF_LIST_URL,
                 params=params,
                 headers=headers,
@@ -1446,8 +1523,9 @@ def fetch_591_bff_cards(
             return response.status_code, first_row, parse_591_bff_cards(payload)
         except (requests.RequestException, ValueError) as exc:
             if attempt + 1 >= 3:
+                detail = type(exc).__name__ if _591_PROXY_CONFIG else str(exc)
                 print(
-                    f"[WARN] 591 BFF failed: firstRow={first_row}: {exc}",
+                    f"[WARN] 591 BFF failed: firstRow={first_row}: {detail}",
                     file=sys.stderr,
                 )
                 return None, first_row, {}
@@ -1456,6 +1534,12 @@ def fetch_591_bff_cards(
 
 
 def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
+    source_stats["egress"] = (
+        "stable_proxy"
+        if _591_PROXY_CONFIG
+        else os.environ.get("VALIDATION_EGRESS", "default")
+    )
+    source_stats["stable_egress_configured"] = bool(_591_PROXY_CONFIG)
     links: list[str] = []
     seen: set[str] = set()
     blocked_streak = 0
@@ -1515,7 +1599,7 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                     source_stats["browser_attempts"] = (
                         int(source_stats.get("browser_attempts", 0)) + 1
                     )
-                    rendered = browser.html(url)
+                    rendered = browser_for_url(url).html(url)
                     if rendered:
                         rendered_cards = parse_591_list_cards(rendered)
                         if rendered_cards:
@@ -6234,6 +6318,8 @@ def main() -> int:
 
     finally:
         browser.close()
+        if browser_591 is not browser:
+            browser_591.close()
 
     unique: dict[str, Listing] = {}
     for item in candidates:

@@ -48,6 +48,26 @@ class WorkflowReliabilityTests(unittest.TestCase):
             self.workflow,
         )
 
+    def test_rate_limit_uses_delayed_fresh_runner_retry(self) -> None:
+        self.assertIn("retry_591_validation:", self.workflow)
+        self.assertIn("REQUESTED_DELAY:", self.workflow)
+        self.assertIn('sleep "${DELAY}"', self.workflow)
+        self.assertIn("fresh-rental-validation-initial", self.workflow)
+        self.assertIn("fresh-rental-validation-retry", self.workflow)
+        self.assertIn("select_validation_attempt.py select", self.workflow)
+        self.assertIn("needs.retry_591_validation.result", self.workflow)
+
+    def test_stable_591_proxy_is_optional_and_secret_backed(self) -> None:
+        self.assertGreaterEqual(self.workflow.count("RENTAL_591_PROXY_SERVER:"), 2)
+        self.assertIn(
+            "RENTAL_591_PROXY_SERVER: ${{ secrets.RENTAL_591_PROXY_SERVER }}",
+            self.workflow,
+        )
+        self.assertIn(
+            "RENTAL_591_PROXY_PASSWORD: ${{ secrets.RENTAL_591_PROXY_PASSWORD }}",
+            self.workflow,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

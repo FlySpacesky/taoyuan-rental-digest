@@ -213,7 +213,7 @@ class Extract591Tests(unittest.TestCase):
             status_code=200,
             json=lambda: {"status": 1, "data": {"items": []}},
         )
-        with patch.object(DIGEST.session, "get", return_value=response) as get:
+        with patch.object(DIGEST.session_591, "get", return_value=response) as get:
             status, first_row, cards = DIGEST.fetch_591_bff_cards(
                 {
                     "kind": 1,
@@ -2827,6 +2827,36 @@ class CurrentListingDisplayTests(unittest.TestCase):
         self.assertNotIn('name="password"', page)
         self.assertNotIn('name="cookie"', page)
         self.assertNotIn('name="session"', page)
+
+
+class Stable591EgressTests(unittest.TestCase):
+    def test_proxy_is_scoped_to_591_and_encodes_credentials(self) -> None:
+        config = DIGEST.rental_591_proxy_config(
+            {
+                DIGEST.RENTAL_591_PROXY_SERVER_ENV: "https://proxy.example:8443",
+                DIGEST.RENTAL_591_PROXY_USERNAME_ENV: "user@example.com",
+                DIGEST.RENTAL_591_PROXY_PASSWORD_ENV: "p@ss word",
+            }
+        )
+
+        self.assertIsNotNone(config)
+        self.assertEqual(
+            config["requests"]["https"],
+            "https://user%40example.com:p%40ss%20word@proxy.example:8443",
+        )
+        self.assertEqual(config["playwright"]["server"], "https://proxy.example:8443")
+        self.assertTrue(DIGEST.is_591_url("https://bff-house.591.com.tw/v3/web/rent/list"))
+        self.assertFalse(DIGEST.is_591_url("https://graph.threads.net/v1/posts"))
+
+    def test_proxy_rejects_embedded_credentials(self) -> None:
+        with self.assertRaises(ValueError):
+            DIGEST.rental_591_proxy_config(
+                {
+                    DIGEST.RENTAL_591_PROXY_SERVER_ENV: (
+                        "https://user:password@proxy.example:8443"
+                    )
+                }
+            )
 
 
 if __name__ == "__main__":

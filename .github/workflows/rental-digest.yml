@@ -81,7 +81,7 @@ jobs:
           python -m playwright install --with-deps chromium
 
       - name: 檢查 Python 語法
-        run: python -m py_compile scripts/generate_rental_digest.py scripts/send_line.py
+        run: python -m py_compile scripts/generate_rental_digest.py scripts/send_line.py scripts/select_validation_attempt.py
 
       - name: 執行資料分類測試
         run: python -m unittest discover -s tests -v
@@ -124,10 +124,12 @@ jobs:
   # 正式排程不能依賴可能離線的個人電腦。591 若封鎖 GitHub-hosted Runner，
   # 本輪就誠實發布 0 筆，不使用未重新驗證的舊快照；其他來源與 LINE 仍須完成。
   # 只有真正會投遞 LINE 的排程或 main 人工執行才抓正式來源。
-  fresh-source-validation:
+  fresh_source_validation:
     if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      retry_591: ${{ steps.fresh_gate.outputs.retry_591 }}
 
     steps:
       - name: 下載正式版
@@ -153,7 +155,7 @@ jobs:
 
       - name: 檢查與測試
         run: |
-          python -m py_compile scripts/generate_rental_digest.py scripts/send_line.py
+          python -m py_compile scripts/generate_rental_digest.py scripts/send_line.py scripts/select_validation_attempt.py
           python -m unittest discover -s tests -v
 
       - name: 決定快報版本
@@ -187,32 +189,114 @@ jobs:
           THREADS_POSTS_JSON_URL: ${{ secrets.THREADS_POSTS_JSON_URL || vars.THREADS_POSTS_JSON_URL }}
           GITHUB_TOKEN: ${{ github.token }}
           VALIDATION_EGRESS: github-hosted-ubuntu
+          RENTAL_591_PROXY_SERVER: ${{ secrets.RENTAL_591_PROXY_SERVER }}
+          RENTAL_591_PROXY_USERNAME: ${{ secrets.RENTAL_591_PROXY_USERNAME }}
+          RENTAL_591_PROXY_PASSWORD: ${{ secrets.RENTAL_591_PROXY_PASSWORD }}
           RENTAL_EDITION_ID: ${{ env.RENTAL_EDITION_ID }}
           SITE_URL: https://flyspacesky.github.io/taoyuan-rental-digest/
         run: python scripts/generate_rental_digest.py
 
       - name: 強制 fresh validation 閘門與診斷
-        run: |
-          python - <<'PY'
-          import json
-          data = json.load(open("docs/rental-data/latest.json", encoding="utf-8"))
-          row = data["stats"]["sources"]["591"]
-          print("591", json.dumps(row, ensure_ascii=False, indent=2))
-          assert not row.get("snapshot_used"), "591 不得以舊快照通過本輪驗證"
-          assert not row.get("fallback"), "591 不得以舊快照補入本輪發布清單"
-          PY
+        id: fresh_gate
+        run: python scripts/select_validation_attempt.py inspect --latest docs/rental-data/latest.json
 
       - name: 上傳本輪已驗證內容
         uses: actions/upload-artifact@v4
         with:
-          name: fresh-rental-validation
+          name: fresh-rental-validation-initial
           path: docs
           if-no-files-found: error
           retention-days: 1
 
-  build-deploy-broadcast:
-    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') }}
-    needs: fresh-source-validation
+  retry_591_validation:
+    if: ${{ needs.fresh_source_validation.outputs.retry_591 == 'true' }}
+    needs: fresh_source_validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    outputs:
+      retry_591: ${{ steps.retry_gate.outputs.retry_591 }}
+
+    steps:
+      - name: 延後後改用新的 Runner 出口
+        shell: bash
+        env:
+          REQUESTED_DELAY: ${{ vars.RENTAL_591_RETRY_DELAY_SECONDS }}
+        run: |
+          DELAY="${REQUESTED_DELAY:-900}"
+          if ! [[ "${DELAY}" =~ ^[0-9]+$ ]]; then DELAY=900; fi
+          if [ "${DELAY}" -lt 300 ]; then DELAY=300; fi
+          if [ "${DELAY}" -gt 3600 ]; then DELAY=3600; fi
+          echo "591 受限，等待 ${DELAY} 秒後以新的 GitHub Runner 重新驗證。"
+          sleep "${DELAY}"
+
+      - name: 下載正式版
+        uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: 設定 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 安裝 Python 套件
+        run: python -m pip install -r requirements.txt
+
+      - name: 安裝 Chromium
+        run: |
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '\|http://azure.archive.ubuntu.com/ubuntu|d' /etc/apt/apt-mirrors.txt
+          fi
+          python -m playwright install --with-deps chromium
+
+      - name: 決定重試快報版本
+        shell: bash
+        env:
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          DATE=$(TZ=Asia/Taipei date +%F)
+          TIME=$(TZ=Asia/Taipei date +%H%M)
+          case "${EVENT_SCHEDULE}" in
+            "30 9 * * *") SUFFIX="0930" ;;
+            "0 16 * * *") SUFFIX="1600" ;;
+            "0 22 * * *") SUFFIX="2200" ;;
+            *) SUFFIX="${TIME}-manual-${GITHUB_RUN_ID}" ;;
+          esac
+          echo "RENTAL_EDITION_ID=${DATE}-${SUFFIX}" >> "${GITHUB_ENV}"
+
+      - name: 本輪延後重新抓取並驗證
+        env:
+          FACEBOOK_POSTS_JSON: ${{ secrets.FACEBOOK_POSTS_JSON }}
+          FACEBOOK_POSTS_JSON_URL: ${{ secrets.FACEBOOK_POSTS_JSON_URL || vars.FACEBOOK_POSTS_JSON_URL }}
+          FACEBOOK_PRIVATE_INBOX_TOKEN: ${{ secrets.FB_INBOX_READ_TOKEN }}
+          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+          THREADS_POSTS_JSON: ${{ secrets.THREADS_POSTS_JSON }}
+          THREADS_POSTS_JSON_URL: ${{ secrets.THREADS_POSTS_JSON_URL || vars.THREADS_POSTS_JSON_URL }}
+          GITHUB_TOKEN: ${{ github.token }}
+          VALIDATION_EGRESS: github-hosted-ubuntu-retry
+          RENTAL_591_PROXY_SERVER: ${{ secrets.RENTAL_591_PROXY_SERVER }}
+          RENTAL_591_PROXY_USERNAME: ${{ secrets.RENTAL_591_PROXY_USERNAME }}
+          RENTAL_591_PROXY_PASSWORD: ${{ secrets.RENTAL_591_PROXY_PASSWORD }}
+          RENTAL_EDITION_ID: ${{ env.RENTAL_EDITION_ID }}
+          SITE_URL: https://flyspacesky.github.io/taoyuan-rental-digest/
+        run: python scripts/generate_rental_digest.py
+
+      - name: 重試 fresh validation 閘門與診斷
+        id: retry_gate
+        run: python scripts/select_validation_attempt.py inspect --latest docs/rental-data/latest.json
+
+      - name: 上傳重試驗證內容
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-rental-validation-retry
+          path: docs
+          if-no-files-found: error
+          retention-days: 1
+
+  build_deploy_broadcast:
+    if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')) && needs.fresh_source_validation.result == 'success' && needs.retry_591_validation.result != 'cancelled' }}
+    needs: [fresh_source_validation, retry_591_validation]
     runs-on: ubuntu-latest
 
     environment:
@@ -225,11 +309,18 @@ jobs:
         with:
           ref: main
 
-      - name: 下載本輪驗證結果
+      - name: 下載初次驗證結果
         uses: actions/download-artifact@v4
         with:
-          name: fresh-rental-validation
-          path: docs
+          name: fresh-rental-validation-initial
+          path: .validation/initial
+
+      - name: 下載延後重試結果
+        if: ${{ needs.retry_591_validation.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: fresh-rental-validation-retry
+          path: .validation/retry
 
       - name: 設定 Python
         uses: actions/setup-python@v6
@@ -237,11 +328,19 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: 選擇最佳本輪 fresh validation
+        id: validation_selection
+        run: |
+          python scripts/select_validation_attempt.py select \
+            --initial .validation/initial \
+            --retry .validation/retry \
+            --output docs
+
       - name: 安裝 Python 套件
         run: python -m pip install -r requirements.txt
 
       - name: 檢查 Python 語法
-        run: python -m py_compile scripts/generate_rental_digest.py scripts/send_line.py
+        run: python -m py_compile scripts/generate_rental_digest.py scripts/send_line.py scripts/select_validation_attempt.py
 
       - name: 執行資料分類測試
         run: python -m unittest discover -s tests -v
