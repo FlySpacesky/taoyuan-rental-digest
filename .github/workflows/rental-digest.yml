@@ -47,7 +47,8 @@ permissions:
   id-token: write
 
 concurrency:
-  group: taoyuan-rental-digest
+  # v2 不再等待已離線的 self-hosted runner，也不會被舊的排隊執行卡住。
+  group: taoyuan-rental-digest-live-v2
   cancel-in-progress: false
 
 jobs:
@@ -115,96 +116,85 @@ jobs:
           path: docs
           retention-days: 3
 
-  # 591 已實測封鎖 GitHub-hosted Runner 的共享出口；正式抓取改由自有出口執行。
-  # 標籤刻意固定，避免工作意外落回 GitHub-hosted Runner 而產生「來源 0 筆」。
+  # 正式排程不能依賴可能離線的個人電腦。591 若封鎖 GitHub-hosted Runner，
+  # 本輪就誠實發布 0 筆，不使用未重新驗證的舊快照；其他來源與 LINE 仍須完成。
   fresh-source-validation:
     if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
-    runs-on: [self-hosted, Windows, X64, rental-validation]
+    runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
-      - name: 載入自有 runner 工具鏈
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: |
-          $gitPath = "C:\Users\admin\.cache\codex-runtimes\codex-primary-runtime\dependencies\native\git\cmd"
-          $pythonPath = "C:\Users\admin\.cache\codex-runtimes\codex-primary-runtime\dependencies\python"
-          if (-not (Test-Path (Join-Path $gitPath "git.exe"))) {
-            throw "self-hosted runner 找不到 Git：$gitPath"
-          }
-          if (-not (Test-Path (Join-Path $pythonPath "python.exe"))) {
-            throw "self-hosted runner 找不到 Python：$pythonPath"
-          }
-          $gitPath | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-          $pythonPath | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-
       - name: 下載正式版
         uses: actions/checkout@v6
         with:
           ref: main
 
-      - name: 安裝套件與 Chromium
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+      - name: 設定 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 安裝 Python 套件
+        run: python -m pip install -r requirements.txt
+
+      - name: 安裝 Chromium
         run: |
-          $dependencyPath = Join-Path $env:GITHUB_WORKSPACE ".runner-python"
-          $browserPath = Join-Path $env:GITHUB_WORKSPACE ".playwright"
-          python -m pip install --upgrade --target $dependencyPath -r requirements.txt
-          "PYTHONPATH=$dependencyPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "PLAYWRIGHT_BROWSERS_PATH=$browserPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          $env:PYTHONPATH = $dependencyPath
-          $env:PLAYWRIGHT_BROWSERS_PATH = $browserPath
-          python -m playwright install chromium
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '\|http://azure.archive.ubuntu.com/ubuntu|d' /etc/apt/apt-mirrors.txt
+          fi
+          python -m playwright install --with-deps chromium
 
       - name: 檢查與測試
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           python -m py_compile scripts/generate_rental_digest.py scripts/send_line.py
           python -m unittest discover -s tests -v
 
       - name: 決定快報版本
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+        shell: bash
         env:
           EVENT_SCHEDULE: ${{ github.event.schedule }}
         run: |
-          $taipeiNow = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow, 'Taipei Standard Time')
-          $date = $taipeiNow.ToString('yyyy-MM-dd')
-          $time = $taipeiNow.ToString('HHmm')
-          $suffix = switch ($env:EVENT_SCHEDULE) {
-            '30 9 * * *' { '0930' }
-            '0 16 * * *' { '1600' }
-            '0 22 * * *' { '2200' }
-            default { "$time-manual-$env:GITHUB_RUN_ID" }
-          }
-          "RENTAL_EDITION_ID=$date-$suffix" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          DATE=$(TZ=Asia/Taipei date +%F)
+          TIME=$(TZ=Asia/Taipei date +%H%M)
+          case "${EVENT_SCHEDULE}" in
+            "30 9 * * *") SUFFIX="0930" ;;
+            "0 16 * * *") SUFFIX="1600" ;;
+            "0 22 * * *") SUFFIX="2200" ;;
+            *) SUFFIX="${TIME}-manual-${GITHUB_RUN_ID}" ;;
+          esac
+          echo "RENTAL_EDITION_ID=${DATE}-${SUFFIX}" >> "${GITHUB_ENV}"
 
       - name: 測試時重設48小時去重紀錄
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.reset_history }}
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: Set-Content -Path docs/rental-data/history.json -Value '{"sent":[],"prices":{}}' -Encoding utf8
+        run: |
+          mkdir -p docs/rental-data
+          printf '{"sent":[],"prices":{}}\n' > docs/rental-data/history.json
 
-      - name: 本輪從自有出口抓取並重新驗證
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+      - name: 本輪重新抓取並驗證
         env:
           FACEBOOK_POSTS_JSON: ${{ secrets.FACEBOOK_POSTS_JSON }}
           FACEBOOK_POSTS_JSON_URL: ${{ secrets.FACEBOOK_POSTS_JSON_URL || vars.FACEBOOK_POSTS_JSON_URL }}
           FACEBOOK_PRIVATE_INBOX_TOKEN: ${{ secrets.FB_INBOX_READ_TOKEN }}
+          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+          THREADS_POSTS_JSON: ${{ secrets.THREADS_POSTS_JSON }}
+          THREADS_POSTS_JSON_URL: ${{ secrets.THREADS_POSTS_JSON_URL || vars.THREADS_POSTS_JSON_URL }}
           GITHUB_TOKEN: ${{ github.token }}
-          VALIDATION_EGRESS: self-hosted-windows
+          VALIDATION_EGRESS: github-hosted-ubuntu
           RENTAL_EDITION_ID: ${{ env.RENTAL_EDITION_ID }}
           SITE_URL: https://flyspacesky.github.io/taoyuan-rental-digest/
         run: python scripts/generate_rental_digest.py
 
       - name: 強制 fresh validation 閘門與診斷
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          @'
+          python - <<'PY'
           import json
           data = json.load(open("docs/rental-data/latest.json", encoding="utf-8"))
-          # Use escapes because Windows PowerShell 5 can transcode non-ASCII here-string input.
-          for source in ("591", "\u6c38\u6176\u623f\u5c4b"):
-              row = data["stats"]["sources"][source]
-              print(source, json.dumps(row, ensure_ascii=False, indent=2))
-              assert not row.get("snapshot_used"), f"{source} 不得以舊快照通過本輪驗證"
-          '@ | python -
+          row = data["stats"]["sources"]["591"]
+          print("591", json.dumps(row, ensure_ascii=False, indent=2))
+          assert not row.get("snapshot_used"), "591 不得以舊快照通過本輪驗證"
+          assert not row.get("fallback"), "591 不得以舊快照補入本輪發布清單"
+          PY
 
       - name: 上傳本輪已驗證內容
         uses: actions/upload-artifact@v4
@@ -229,7 +219,7 @@ jobs:
         with:
           ref: main
 
-      - name: 下載自有出口的本輪驗證結果
+      - name: 下載本輪驗證結果
         uses: actions/download-artifact@v4
         with:
           name: fresh-rental-validation
