@@ -142,6 +142,7 @@ SOURCE_REFRESH_COOLDOWN = _591_REFRESH_COOLDOWN
 SOURCE_SNAPSHOT_MAX_AGE = _591_SNAPSHOT_MAX_AGE
 FIRST_SEEN_REGISTRY_LIMIT = 20_000
 SOURCE_FRESHNESS_WINDOW = timedelta(days=2)
+NEW_LISTING_BADGE_WINDOW = timedelta(days=1)
 SOCIAL_INITIAL_WINDOW = SOURCE_FRESHNESS_WINDOW
 SOCIAL_ONGOING_WINDOW = timedelta(days=2)
 SOCIAL_NEW_WINDOW = timedelta(days=2)
@@ -2980,7 +2981,7 @@ def parse_rakuya_detail(url: str, hints: set[str]) -> Listing | None:
         if address_match:
             address = f"{address_match.group(1)}{clean(address_match.group(2), 60)}"
 
-    updated_match = re.search(r"((?:\d+分鐘|\d+小時|\d+天|\d+個月)前更新)", text)
+    updated = source_time_text_from_page(soup, text)
     views_match = re.search(r"(\d+次瀏覽|新上架)", text)
 
     features = [
@@ -3004,7 +3005,7 @@ def parse_rakuya_detail(url: str, hints: set[str]) -> Listing | None:
         equipment="、".join(features),
         rent=current_rent,
         old_rent=old_rent,
-        updated=updated_match.group(1) if updated_match else "",
+        updated=updated,
         views=views_match.group(1) if views_match else "",
         image=image,
         summary=description,
@@ -4865,6 +4866,27 @@ def source_listing_time(item: Listing) -> datetime | None:
         return parsed
     if "剛剛" in raw or "新上架" in raw:
         return NOW
+    if raw.startswith("今天"):
+        clock = re.search(r"(\d{1,2}):(\d{2})", raw)
+        if clock:
+            return NOW.replace(
+                hour=int(clock.group(1)),
+                minute=int(clock.group(2)),
+                second=0,
+                microsecond=0,
+            )
+        return NOW
+    if raw.startswith(("昨日", "昨天")):
+        clock = re.search(r"(\d{1,2}):(\d{2})", raw)
+        yesterday = NOW - timedelta(days=1)
+        if clock:
+            return yesterday.replace(
+                hour=int(clock.group(1)),
+                minute=int(clock.group(2)),
+                second=0,
+                microsecond=0,
+            )
+        return yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
     relative = re.search(r"(\d+)\s*(分鐘|小時|天|個月)(?:內|前)?(?:更新|刊登)?", raw)
     if relative:
         amount = int(relative.group(1))
@@ -4890,7 +4912,78 @@ def source_listing_time(item: Listing) -> datetime | None:
             return datetime.strptime(match.group(0), date_format).replace(tzinfo=TZ)
         except ValueError:
             continue
+    month_day = re.search(
+        r"(?<!\d)(\d{1,2})[/-](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?",
+        raw,
+    )
+    if month_day:
+        try:
+            parsed = datetime(
+                NOW.year,
+                int(month_day.group(1)),
+                int(month_day.group(2)),
+                int(month_day.group(3) or 0),
+                int(month_day.group(4) or 0),
+                tzinfo=TZ,
+            )
+            if parsed > NOW + timedelta(days=31):
+                parsed = parsed.replace(year=NOW.year - 1)
+            return parsed
+        except ValueError:
+            pass
     return None
+
+
+def source_time_text_from_page(soup: BeautifulSoup, text: str) -> str:
+    """Extract a source-owned publish/update timestamp from DOM or JSON-LD."""
+
+    for selector in (
+        'meta[property="article:modified_time"]',
+        'meta[property="article:published_time"]',
+        'meta[property="og:updated_time"]',
+        'meta[name="dateModified"]',
+        'meta[name="datePublished"]',
+        '[itemprop="dateModified"]',
+        '[itemprop="datePublished"]',
+        '[itemprop="datePosted"]',
+        'time[datetime]',
+    ):
+        node = soup.select_one(selector)
+        if not node:
+            continue
+        value = clean(node.get("content") or node.get("datetime") or node.get_text(" "), 80)
+        if value and source_listing_time(Listing(source="", source_id="", url="", updated=value)):
+            return value
+
+    def structured_dates(value: Any) -> Iterable[str]:
+        if isinstance(value, dict):
+            for key in ("dateModified", "datePublished", "datePosted", "uploadDate"):
+                raw_value = value.get(key)
+                if isinstance(raw_value, str) and raw_value.strip():
+                    yield raw_value.strip()
+            for nested in value.values():
+                yield from structured_dates(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                yield from structured_dates(nested)
+
+    for node in soup.select('script[type*="ld+json"]'):
+        try:
+            payload = json.loads(node.get_text() or "null")
+        except json.JSONDecodeError:
+            continue
+        for value in structured_dates(payload):
+            if source_listing_time(Listing(source="", source_id="", url="", updated=value)):
+                return value
+
+    match = re.search(
+        r"((?:剛剛|新上架|今天|昨日|昨天)(?:\s*\d{1,2}:\d{2})?(?:更新|刊登|上架)?|"
+        r"\d+\s*(?:分鐘|小時|天|個月)(?:內|前)?(?:更新|刊登|上架)?|"
+        r"\d{4}[年/-]\d{1,2}[月/-]\d{1,2}日?(?:\s+\d{1,2}:\d{2})?(?:更新|刊登|上架)|"
+        r"(?<!\d)\d{1,2}[/-]\d{1,2}(?:\s+\d{1,2}:\d{2})?(?:更新|刊登|上架))",
+        text,
+    )
+    return clean(match.group(1), 80) if match else ""
 
 
 def filter_source_freshness(
@@ -4935,8 +5028,19 @@ def filter_source_freshness(
         source_stats["validated"] = int(source_stats.get("fresh_within_2_days", 0) or 0)
         rejected = int(source_stats.get("freshness_rejected", 0) or 0)
         if rejected:
+            rejects = source_stats.get("rejects", {}) or {}
+            stale = int(rejects.get("source_older_than_2_days", 0) or 0)
+            missing = int(rejects.get("missing_source_time", 0) or 0)
+            future = int(rejects.get("source_time_in_future", 0) or 0)
+            reasons: list[str] = []
+            if stale:
+                reasons.append(f"{stale}筆來源時間超過2天")
+            if missing:
+                reasons.append(f"{missing}筆未取得可驗證的來源時間（parser／來源欄位問題）")
+            if future:
+                reasons.append(f"{future}筆來源時間異常晚於本輪時間")
             source_stats.setdefault("notices", []).append(
-                f"已排除{rejected}筆來源時間超過2天或無法證明時效的物件。"
+                "已排除" + "、".join(reasons) + "。"
             )
     return kept
 
@@ -4974,7 +5078,11 @@ def assign_previous_edition_new_flags(
     previous_keys: set[str],
 ) -> list[Listing]:
     for item in items:
-        item.new_listing = listing_key(item) not in previous_keys
+        first_seen = parse_state_time(item.first_seen_at) or NOW
+        item.new_listing = (
+            listing_key(item) not in previous_keys
+            and timedelta(0) <= NOW - first_seen <= NEW_LISTING_BADGE_WINDOW
+        )
     return items
 
 
@@ -5500,7 +5608,7 @@ def render_card(item: Listing, order: int = 0) -> str:
                onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
           <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
           {f'<span class="source-badge">{esc(source_label(item.source))}</span>' if index == 1 else ''}
-          {f'<span class="new-listing-badge" title="上一封快報未出現">新房源</span>' if index == 1 and is_new_listing(item) else ''}
+          {f'<span class="new-listing-badge" title="上一封快報未出現，且首次發現未滿24小時">新房源</span>' if index == 1 and is_new_listing(item) else ''}
           {f'<span class="photo-index">{index}/{len(images)}</span>' if len(images) > 1 else ''}
         </a>
         """
@@ -5512,7 +5620,7 @@ def render_card(item: Listing, order: int = 0) -> str:
            rel="noopener noreferrer" aria-label="{esc(item.title)} 來源頁">
           <div class="photo-fallback no-photo">來源未提供可讀取照片<br>點擊前往來源頁</div>
           <span class="source-badge">{esc(source_label(item.source))}</span>
-          {f'<span class="new-listing-badge" title="上一封快報未出現">新房源</span>' if is_new_listing(item) else ''}
+          {f'<span class="new-listing-badge" title="上一封快報未出現，且首次發現未滿24小時">新房源</span>' if is_new_listing(item) else ''}
         </a>
         """
 
