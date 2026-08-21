@@ -335,6 +335,9 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: 安裝 Python 套件
+        run: python -m pip install -r requirements.txt
+
       - name: 逐來源合併最佳本輪 fresh validation
         if: ${{ !inputs.publish_prevalidated }}
         id: validation_selection
@@ -343,9 +346,6 @@ jobs:
             --attempt initial=.validation/initial \
             --attempt retry=.validation/retry \
             --output docs
-
-      - name: 安裝 Python 套件
-        run: python -m pip install -r requirements.txt
 
       - name: 檢查 Python 語法
         run: python -m py_compile scripts/generate_rental_digest.py scripts/send_line.py scripts/select_validation_attempt.py
