@@ -1386,11 +1386,11 @@ class ThreadsImportTests(unittest.TestCase):
         self.assertEqual(items, [])
         self.assertEqual(stats["rejects"]["excluded_industry"], 1)
 
-    def test_threads_always_rejects_rows_older_than_fourteen_days(self) -> None:
+    def test_threads_always_rejects_rows_older_than_seven_days(self) -> None:
         row = {
             "permalink": "https://www.threads.com/@owner.home/post/SIX_DAYS_OLD",
             "text": "平鎮區3房2廳整層出租，35坪",
-            "published_at": (DIGEST.NOW - DIGEST.timedelta(days=16)).isoformat(),
+            "published_at": (DIGEST.NOW - DIGEST.timedelta(days=8)).isoformat(),
         }
         state: dict[str, object] = {}
         common_env = {
@@ -1411,11 +1411,11 @@ class ThreadsImportTests(unittest.TestCase):
 
         self.assertEqual(first_items, [])
         self.assertEqual(first_stats["collection_mode"], "initial")
-        self.assertEqual(first_stats["window_days"], 14)
+        self.assertEqual(first_stats["window_days"], 7)
         self.assertEqual(first_stats["rejects"]["outside_collection_window"], 1)
         self.assertEqual(second_items, [])
         self.assertEqual(second_stats["collection_mode"], "ongoing")
-        self.assertEqual(second_stats["window_days"], 14)
+        self.assertEqual(second_stats["window_days"], 7)
         self.assertEqual(second_stats["rejects"]["outside_collection_window"], 1)
 
     def test_threads_issue_form_creates_manual_public_candidate(self) -> None:
@@ -1746,7 +1746,7 @@ https://www.threads.com/@owner.home/post/ISSUE_HOME
         self.assertEqual(stats["root_post_requests"], 1)
         self.assertEqual(stats["author_reply_rows"], 1)
 
-    def test_threads_post_older_than_fourteen_days_without_activity_is_rejected(self) -> None:
+    def test_threads_post_older_than_seven_days_without_activity_is_rejected(self) -> None:
         stats = DIGEST.empty_source_stats()
         response = Mock(status_code=200)
         response.json.return_value = {
@@ -1758,7 +1758,7 @@ https://www.threads.com/@owner.home/post/ISSUE_HOME
                     "permalink": "https://www.threads.com/@real.home/post/OLD_POST",
                     "username": "real.home",
                     "text": "桃園區四房出租\n4房2廳2衛",
-                    "timestamp": (DIGEST.NOW - DIGEST.timedelta(days=16)).isoformat(),
+                    "timestamp": (DIGEST.NOW - DIGEST.timedelta(days=8)).isoformat(),
                 }
             ]
         }
@@ -2478,7 +2478,7 @@ class CurrentListingDisplayTests(unittest.TestCase):
         finally:
             DIGEST.NOW = old_now
 
-    def test_every_source_excludes_missing_or_older_than_fourteen_day_timestamps(self) -> None:
+    def test_591_uses_two_days_and_other_sources_use_seven_days(self) -> None:
         old_now = DIGEST.NOW
         DIGEST.NOW = DIGEST.datetime(2026, 8, 18, 16, 0, tzinfo=DIGEST.TZ)
         try:
@@ -2486,6 +2486,7 @@ class CurrentListingDisplayTests(unittest.TestCase):
             items: list[object] = []
             stats = {"sources": {source: DIGEST.empty_source_stats() for source in sources}}
             for source in sources:
+                stale_age = "3天前更新" if source == "591" else "8天前更新"
                 items.extend(
                     [
                         DIGEST.Listing(
@@ -2498,7 +2499,7 @@ class CurrentListingDisplayTests(unittest.TestCase):
                             source=source,
                             source_id=f"{source}-stale",
                             url="https://example.test/stale",
-                            updated="15天前更新",
+                            updated=stale_age,
                         ),
                         DIGEST.Listing(
                             source=source,
@@ -2515,9 +2516,14 @@ class CurrentListingDisplayTests(unittest.TestCase):
             self.assertTrue(all(item.source_timestamp for item in kept))
             for source in sources:
                 row = stats["sources"][source]
+                freshness_days = 2 if source == "591" else 7
                 self.assertEqual(row["validated"], 1)
                 self.assertEqual(row["freshness_rejected"], 2)
-                self.assertEqual(row["rejects"]["source_older_than_14_days"], 1)
+                self.assertEqual(row["freshness_window_days"], freshness_days)
+                self.assertEqual(row[f"fresh_within_{freshness_days}_days"], 1)
+                self.assertEqual(
+                    row["rejects"][f"source_older_than_{freshness_days}_days"], 1
+                )
                 self.assertEqual(row["rejects"]["missing_source_time"], 1)
         finally:
             DIGEST.NOW = old_now
