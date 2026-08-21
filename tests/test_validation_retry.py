@@ -54,10 +54,12 @@ def merge_payload(
     items: list[dict[str, object]] = []
     for source in RETRY.SOURCE_ORDER:
         candidate_count, published = source_rows.get(source, (0, 0))
+        freshness_days = RETRY.source_freshness_days(source)
         sources[source] = {
             "candidate_links": candidate_count,
             "validated_before_freshness": candidate_count,
-            "fresh_within_14_days": published,
+            f"fresh_within_{freshness_days}_days": published,
+            "freshness_window_days": freshness_days,
             "validated": published,
             "published": published,
             "freshness_rejected": max(candidate_count - published, 0),
@@ -80,7 +82,11 @@ def merge_payload(
         "stats": {
             "sources": sources,
             "comparison_source": "delivery:2026-08-21-0800",
-            "freshness_window_hours": 336,
+            "default_freshness_window_hours": 168,
+            "freshness_window_hours_by_source": {
+                source: RETRY.source_freshness_days(source) * 24
+                for source in RETRY.SOURCE_ORDER
+            },
         },
         "items": items,
     }
@@ -149,12 +155,12 @@ class ValidationRetryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             RETRY.merge_source_payloads((("first", first), ("second", second)))
 
-    def test_source_merge_drops_item_that_crosses_final_fourteen_day_boundary(self) -> None:
+    def test_source_merge_drops_591_item_that_crosses_final_two_day_boundary(self) -> None:
         first = merge_payload(
             generated_at="2026-08-21T09:30:00+08:00",
             source_rows={"591": (1, 1)},
         )
-        first["items"][0]["source_timestamp"] = "2026-08-07T09:30:00+08:00"
+        first["items"][0]["source_timestamp"] = "2026-08-19T09:30:00+08:00"
         second = merge_payload(
             generated_at="2026-08-21T09:40:00+08:00",
             source_rows={"樂屋網": (1, 1)},
@@ -165,7 +171,25 @@ class ValidationRetryTests(unittest.TestCase):
         row = merged["stats"]["sources"]["591"]
         self.assertEqual(row["published"], 0)
         self.assertEqual(row["validated"], 0)
-        self.assertEqual(row["rejects"]["source_older_than_14_days"], 1)
+        self.assertEqual(row["rejects"]["source_older_than_2_days"], 1)
+
+    def test_source_merge_keeps_non_591_item_inside_seven_day_boundary(self) -> None:
+        first = merge_payload(
+            generated_at="2026-08-21T09:30:00+08:00",
+            source_rows={"樂屋網": (1, 1)},
+        )
+        rakuya_item = next(item for item in first["items"] if item["source"] == "樂屋網")
+        rakuya_item["source_timestamp"] = "2026-08-15T09:30:00+08:00"
+        second = merge_payload(
+            generated_at="2026-08-21T09:40:00+08:00",
+            source_rows={"591": (1, 1)},
+        )
+
+        merged, _ = RETRY.merge_source_payloads((('first', first), ('second', second)))
+
+        row = merged["stats"]["sources"]["樂屋網"]
+        self.assertEqual(row["published"], 1)
+        self.assertEqual(row["freshness_window_days"], 7)
 
     def test_prevalidated_bundle_expires_after_two_hours(self) -> None:
         old_time = datetime.now(timezone(timedelta(hours=8))) - timedelta(hours=3)

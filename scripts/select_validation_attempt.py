@@ -19,8 +19,16 @@ from typing import Any, Iterable
 SOURCE_ORDER = ("591", "FB", "樂屋網", "Threads", "信義房屋", "永慶房屋")
 MAX_ATTEMPT_SPAN = timedelta(hours=1)
 MAX_PREVALIDATED_AGE = timedelta(hours=2)
-SOURCE_FRESHNESS_DAYS = 14
-SOURCE_FRESHNESS_WINDOW = timedelta(days=14)
+SOURCE_FRESHNESS_DAYS = 7
+SOURCE_FRESHNESS_DAYS_BY_SOURCE = {"591": 2}
+
+
+def source_freshness_days(source: str) -> int:
+    return SOURCE_FRESHNESS_DAYS_BY_SOURCE.get(source, SOURCE_FRESHNESS_DAYS)
+
+
+def source_freshness_window(source: str) -> timedelta:
+    return timedelta(days=source_freshness_days(source))
 
 
 def load_payload(root: Path) -> dict[str, Any]:
@@ -137,6 +145,8 @@ def merge_source_payloads(
     merged_items: list[dict[str, Any]] = []
     choices: dict[str, str] = {}
     for source in SOURCE_ORDER:
+        freshness_days = source_freshness_days(source)
+        freshness_window = source_freshness_window(source)
         available = [
             (name, payload)
             for name, payload in attempts
@@ -159,23 +169,23 @@ def merge_source_payloads(
             validated_at = parse_timestamp(item.get("validated_at"))
             source_timestamp = parse_timestamp(item.get("source_timestamp"))
             generated_at = parse_timestamp(selected.get("generated_at"))
-            if not timedelta(0) <= generated_at - source_timestamp <= SOURCE_FRESHNESS_WINDOW:
+            if not timedelta(0) <= generated_at - source_timestamp <= freshness_window:
                 raise ValueError(f"non-fresh source timestamp for {source}:{item.get('source_id')}")
             if abs(generated_at - validated_at) > MAX_ATTEMPT_SPAN:
                 raise ValueError(f"stale validation timestamp for {source}:{item.get('source_id')}")
-            if final_generated_at - source_timestamp > SOURCE_FRESHNESS_WINDOW:
+            if final_generated_at - source_timestamp > freshness_window:
                 boundary_rejected += 1
                 continue
             retained_items.append(item)
         source_items = retained_items
         if boundary_rejected:
             rejects = selected_row.setdefault("rejects", {})
-            reason = f"source_older_than_{SOURCE_FRESHNESS_DAYS}_days"
+            reason = f"source_older_than_{freshness_days}_days"
             rejects[reason] = int(rejects.get(reason, 0) or 0) + boundary_rejected
             selected_row["freshness_rejected"] = (
                 int(selected_row.get("freshness_rejected", 0) or 0) + boundary_rejected
             )
-            fresh_key = f"fresh_within_{SOURCE_FRESHNESS_DAYS}_days"
+            fresh_key = f"fresh_within_{freshness_days}_days"
             selected_row[fresh_key] = max(
                 int(selected_row.get(fresh_key, len(source_items) + boundary_rejected) or 0)
                 - boundary_rejected,
@@ -186,8 +196,9 @@ def merge_source_payloads(
                 0,
             )
             selected_row.setdefault("notices", []).append(
-                f"逐來源合併時另排除{boundary_rejected}筆已跨過{SOURCE_FRESHNESS_DAYS}天邊界的物件。"
+                f"逐來源合併時另排除{boundary_rejected}筆已跨過{freshness_days}天邊界的物件。"
             )
+        selected_row["freshness_window_days"] = freshness_days
         selected_row["published"] = len(source_items)
         merged_sources[source] = selected_row
         merged_items.extend(source_items)
@@ -217,6 +228,11 @@ def merge_source_payloads(
     stats["comparison_source"] = max(comparisons)
     stats["validation_comparison_sources"] = sorted(comparisons)
     stats["validation_attempts"] = choices
+    stats.pop("freshness_window_hours", None)
+    stats["default_freshness_window_hours"] = SOURCE_FRESHNESS_DAYS * 24
+    stats["freshness_window_hours_by_source"] = {
+        source: source_freshness_days(source) * 24 for source in SOURCE_ORDER
+    }
     return {
         "generated_at": newest["generated_at"],
         "edition_id": newest.get("edition_id", ""),
@@ -349,13 +365,14 @@ def verify_command(latest: Path, docs: Path) -> int:
     if len(items) != int(payload.get("stats", {}).get("published", -1)):
         raise ValueError("prevalidated published count does not match items")
     for source in SOURCE_ORDER:
+        freshness_window = source_freshness_window(source)
         source_items = [item for item in items if item.get("source") == source]
         if len(source_items) != int(sources[source].get("published", 0) or 0):
             raise ValueError(f"prevalidated source count does not match: {source}")
         for item in source_items:
             validated_at = parse_timestamp(item.get("validated_at"))
             source_timestamp = parse_timestamp(item.get("source_timestamp"))
-            if not timedelta(0) <= generated_at - source_timestamp <= SOURCE_FRESHNESS_WINDOW:
+            if not timedelta(0) <= generated_at - source_timestamp <= freshness_window:
                 raise ValueError(f"non-fresh source timestamp for {source}:{item.get('source_id')}")
             if abs(generated_at - validated_at) > MAX_ATTEMPT_SPAN:
                 raise ValueError(f"stale validation timestamp for {source}:{item.get('source_id')}")
