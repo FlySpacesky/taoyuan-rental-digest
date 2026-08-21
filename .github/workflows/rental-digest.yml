@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "scripts/**"
+      - "tests/**"
       - "requirements.txt"
       - "data/**"
       - ".github/workflows/rental-digest.yml"
