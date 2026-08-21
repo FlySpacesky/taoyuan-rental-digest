@@ -73,6 +73,13 @@ class WorkflowReliabilityTests(unittest.TestCase):
         self.assertIn("select_validation_attempt.py verify", self.workflow)
         self.assertIn("inputs.publish_prevalidated", self.workflow)
 
+    def test_build_installs_dependencies_before_loading_digest_for_merge(self) -> None:
+        build = self.workflow.split("  build_deploy_broadcast:", 1)[1]
+        self.assertLess(
+            build.index("- name: 安裝 Python 套件"),
+            build.index("- name: 逐來源合併最佳本輪 fresh validation"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
