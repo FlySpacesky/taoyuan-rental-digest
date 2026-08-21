@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -44,6 +45,43 @@ def payload(
     }
 
 
+def merge_payload(
+    *,
+    generated_at: str,
+    source_rows: dict[str, tuple[int, int]],
+) -> dict[str, object]:
+    sources: dict[str, object] = {}
+    items: list[dict[str, object]] = []
+    for source in RETRY.SOURCE_ORDER:
+        candidate_count, published = source_rows.get(source, (0, 0))
+        sources[source] = {
+            "candidate_links": candidate_count,
+            "validated": published,
+            "published": published,
+            "freshness_rejected": max(candidate_count - published, 0),
+        }
+        for index in range(published):
+            items.append(
+                {
+                    "source": source,
+                    "source_id": f"{source}-{index}",
+                    "url": f"https://example.com/{source}/{index}",
+                    "validated_at": generated_at,
+                    "source_timestamp": generated_at,
+                    "new_listing": index == 0,
+                }
+            )
+    return {
+        "generated_at": generated_at,
+        "edition_id": "2026-08-21-0930",
+        "edition_url": "https://example.com/archive/2026-08-21-0930.html",
+        "stats": {
+            "sources": sources,
+            "comparison_source": "delivery:2026-08-21-0800",
+            "freshness_window_hours": 48,
+        },
+        "items": items,
+    }
 class ValidationRetryTests(unittest.TestCase):
     def test_explicit_403_requests_delayed_retry(self) -> None:
         blocked = payload(statuses={"bff": {"403": 2}, "html": {"403": 2}})
@@ -74,6 +112,54 @@ class ValidationRetryTests(unittest.TestCase):
     def test_selector_rejects_old_snapshot(self) -> None:
         with self.assertRaises(AssertionError):
             RETRY.validation_score(payload(snapshot_used=True))
+
+    def test_source_merge_keeps_hosted_rakuya_and_stable_591(self) -> None:
+        hosted = merge_payload(
+            generated_at="2026-08-21T09:30:00+08:00",
+            source_rows={"591": (0, 0), "樂屋網": (57, 56)},
+        )
+        stable = merge_payload(
+            generated_at="2026-08-21T09:40:00+08:00",
+            source_rows={"591": (144, 135), "樂屋網": (0, 0), "永慶房屋": (25, 1)},
+        )
+
+        merged, choices = RETRY.merge_source_payloads(
+            (("hosted", hosted), ("stable", stable))
+        )
+
+        self.assertEqual(choices["591"], "stable")
+        self.assertEqual(choices["樂屋網"], "hosted")
+        self.assertEqual(choices["永慶房屋"], "stable")
+        self.assertEqual(merged["stats"]["published"], 192)
+        self.assertEqual(len(merged["items"]), 192)
+
+    def test_source_merge_rejects_non_delivery_comparison(self) -> None:
+        first = merge_payload(
+            generated_at="2026-08-21T09:30:00+08:00",
+            source_rows={"591": (1, 1)},
+        )
+        second = merge_payload(
+            generated_at="2026-08-21T09:40:00+08:00",
+            source_rows={"樂屋網": (1, 1)},
+        )
+        second["stats"]["comparison_source"] = "latest:migration"
+
+        with self.assertRaises(ValueError):
+            RETRY.merge_source_payloads((("first", first), ("second", second)))
+
+    def test_prevalidated_bundle_expires_after_two_hours(self) -> None:
+        old_time = datetime.now(timezone(timedelta(hours=8))) - timedelta(hours=3)
+        data = merge_payload(
+            generated_at=old_time.isoformat(),
+            source_rows={"591": (1, 1)},
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            latest = root / "rental-data" / "latest.json"
+            latest.parent.mkdir(parents=True)
+            latest.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                RETRY.verify_command(latest, root)
 
 
 if __name__ == "__main__":

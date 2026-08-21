@@ -31,12 +31,10 @@ class WorkflowReliabilityTests(unittest.TestCase):
         self.assertIn("run: python scripts/send_line.py", self.workflow)
 
     def test_non_delivery_events_do_not_consume_live_source_quota(self) -> None:
-        delivery_condition = (
-            "github.event_name == 'schedule' || "
-            "(github.event_name == 'workflow_dispatch' && "
-            "github.ref == 'refs/heads/main')"
+        self.assertIn(
+            "github.ref == 'refs/heads/main' && !inputs.publish_prevalidated",
+            self.workflow,
         )
-        self.assertGreaterEqual(self.workflow.count(delivery_condition), 2)
         self.assertNotIn(
             "github.event_name != 'workflow_dispatch' || "
             "github.ref == 'refs/heads/main'",
@@ -54,7 +52,9 @@ class WorkflowReliabilityTests(unittest.TestCase):
         self.assertIn('sleep "${DELAY}"', self.workflow)
         self.assertIn("fresh-rental-validation-initial", self.workflow)
         self.assertIn("fresh-rental-validation-retry", self.workflow)
-        self.assertIn("select_validation_attempt.py select", self.workflow)
+        self.assertIn("select_validation_attempt.py merge", self.workflow)
+        self.assertIn("--attempt initial=.validation/initial", self.workflow)
+        self.assertIn("--attempt retry=.validation/retry", self.workflow)
         self.assertIn("needs.retry_591_validation.result", self.workflow)
 
     def test_stable_591_proxy_is_optional_and_secret_backed(self) -> None:
@@ -67,6 +67,11 @@ class WorkflowReliabilityTests(unittest.TestCase):
             "RENTAL_591_PROXY_PASSWORD: ${{ secrets.RENTAL_591_PROXY_PASSWORD }}",
             self.workflow,
         )
+
+    def test_prevalidated_publish_is_time_bounded_and_explicit(self) -> None:
+        self.assertIn("publish_prevalidated:", self.workflow)
+        self.assertIn("select_validation_attempt.py verify", self.workflow)
+        self.assertIn("inputs.publish_prevalidated", self.workflow)
 
 
 if __name__ == "__main__":
