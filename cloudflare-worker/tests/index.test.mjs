@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   assessWorkflowRuns,
+  buildYungchingFeed,
   deliverySlotFor,
   handleScheduled,
   normalizeYungchingWorkerItem,
@@ -400,4 +401,57 @@ test("Yungching feed returns a stable degraded schema when Browser Run is absent
   assert.equal(payload.validated_count, 0);
   assert.deepEqual(payload.items, []);
   assert.equal(payload.fresh_validation.successful, false);
+});
+
+test("Yungching feed separates list and detail Browser Run sessions", async () => {
+  let launchCount = 0;
+  let closeCount = 0;
+  const launch = async () => {
+    launchCount += 1;
+    const session = launchCount;
+    let currentUrl = "";
+    let evaluateCount = 0;
+    const page = {
+      async setUserAgent() {},
+      async goto(url) { currentUrl = url; },
+      async waitForSelector() {},
+      async $$eval() {
+        if (session !== 1) return [];
+        return [{
+          source_id: "2411508",
+          title: "冠倫大國",
+          address: "桃園市桃園區大有路",
+          layout: "4房(室)2廳2衛",
+          size: "46坪",
+          floor: "9 / 17樓",
+          rent: "26,000元/月",
+          image: "https://yccdn.yungching.com.tw/real-a.jpg",
+        }];
+      },
+      async evaluate() {
+        evaluateCount += 1;
+        if (evaluateCount === 1) return false;
+        return {
+          text: "桃園市桃園區大有路 4房(室)2廳2衛 坪數46坪 更新日期2026年08月21日",
+          title: "冠倫大國",
+          publisher: "永慶房屋",
+          summary: "四房整層住家",
+          images: ["https://yccdn.yungching.com.tw/real-a.jpg"],
+          offerPrice: "26000",
+        };
+      },
+    };
+    return {
+      async newPage() { return page; },
+      async close() { closeCount += 1; },
+    };
+  };
+
+  const payload = await buildYungchingFeed({}, launch);
+
+  assert.equal(payload.candidate_count, 1);
+  assert.equal(payload.validated_count, 1);
+  assert.equal(payload.items[0].source_id, "2411508");
+  assert.ok(launchCount >= 2);
+  assert.equal(closeCount, launchCount);
 });

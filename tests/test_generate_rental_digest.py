@@ -550,6 +550,22 @@ class Snapshot591Tests(unittest.TestCase):
 
 
 class RakuyaFallbackTests(unittest.TestCase):
+    def test_source_time_uses_json_ld_before_visible_text(self) -> None:
+        soup = DIGEST.BeautifulSoup(
+            """
+            <script type="application/ld+json">
+            {"@type":"Apartment","dateModified":"2026-08-21T09:15:00+08:00"}
+            </script>
+            <div>頁尾版權日期 2020/01/01</div>
+            """,
+            "html.parser",
+        )
+
+        self.assertEqual(
+            DIGEST.source_time_text_from_page(soup, soup.get_text(" ")),
+            "2026-08-21T09:15:00+08:00",
+        )
+
     def test_blocked_search_records_error_after_browser_fallback(self) -> None:
         stats = DIGEST.empty_source_stats()
         blocked = "<html>captcha" + ("x" * 900) + "</html>"
@@ -2418,6 +2434,47 @@ class CurrentListingDisplayTests(unittest.TestCase):
             self.assertFalse(recent.new_listing)
             self.assertTrue(absent.new_listing)
             self.assertIn("上一封快報未出現", DIGEST.render_card(absent))
+        finally:
+            DIGEST.NOW = old_now
+
+    def test_new_listing_badge_expires_after_24_hours(self) -> None:
+        old_now = DIGEST.NOW
+        DIGEST.NOW = DIGEST.datetime(2026, 8, 21, 12, 0, tzinfo=DIGEST.TZ)
+        try:
+            recent = DIGEST.Listing(
+                source="樂屋網",
+                source_id="recent",
+                url="https://example.test/recent",
+                first_seen_at="2026-08-20T13:00:00+08:00",
+            )
+            expired = DIGEST.Listing(
+                source="樂屋網",
+                source_id="expired",
+                url="https://example.test/expired",
+                first_seen_at="2026-08-20T11:59:00+08:00",
+            )
+
+            DIGEST.assign_previous_edition_new_flags([recent, expired], set())
+
+            self.assertTrue(recent.new_listing)
+            self.assertFalse(expired.new_listing)
+        finally:
+            DIGEST.NOW = old_now
+
+    def test_source_time_accepts_today_yesterday_month_day_and_iso(self) -> None:
+        old_now = DIGEST.NOW
+        DIGEST.NOW = DIGEST.datetime(2026, 8, 21, 12, 0, tzinfo=DIGEST.TZ)
+        try:
+            cases = {
+                "今天 09:30 更新": DIGEST.datetime(2026, 8, 21, 9, 30, tzinfo=DIGEST.TZ),
+                "昨日 23:20 刊登": DIGEST.datetime(2026, 8, 20, 23, 20, tzinfo=DIGEST.TZ),
+                "08/20 18:42 更新": DIGEST.datetime(2026, 8, 20, 18, 42, tzinfo=DIGEST.TZ),
+                "2026-08-21T09:15:00+08:00": DIGEST.datetime(2026, 8, 21, 9, 15, tzinfo=DIGEST.TZ),
+            }
+            for raw, expected in cases.items():
+                with self.subTest(raw=raw):
+                    item = DIGEST.Listing(source="樂屋網", source_id=raw, url="", updated=raw)
+                    self.assertEqual(DIGEST.source_listing_time(item), expected)
         finally:
             DIGEST.NOW = old_now
 

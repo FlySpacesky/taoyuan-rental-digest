@@ -10,6 +10,7 @@ const YUNGCHING_BASE =
   "桃園市-中壢區,桃園市-平鎮區,桃園市-桃園區,桃園市-八德區_c/" +
   "整層住家_use/4-4_room";
 const YUNGCHING_FEED_CACHE_SECONDS = 2 * 60 * 60;
+const YUNGCHING_DETAIL_BATCH_SIZE = 6;
 const YUNGCHING_ALLOWED_DISTRICTS = ["桃園區", "中壢區", "平鎮區", "八德區"];
 const FACEBOOK_INBOX_PREFIX = "facebook:";
 const FACEBOOK_INBOX_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -611,22 +612,32 @@ async function readYungchingDetail(page, candidate) {
 export async function buildYungchingFeed(browserBinding, launchImpl) {
   if (!browserBinding) throw new Error("Missing Cloudflare Browser Run binding");
   const launch = launchImpl || (await import("@cloudflare/puppeteer")).default.launch;
-  const browser = await launch(browserBinding);
-  const page = await browser.newPage();
   const allCandidates = new Map();
   const newIds = new Set();
   let pagesRead = 0;
   const errors = [];
-  try {
+
+  const openSession = async () => {
+    const browser = await launch(browserBinding);
+    const page = await browser.newPage();
     await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
       "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
     );
+    return { browser, page };
+  };
+
+  // List navigation and detail navigation use separate Browser Run sessions. A single
+  // long-lived session was being closed by Browser Run after the list pass, causing all
+  // 25 detail pages to fail with TargetCloseError while the feed still reported healthy.
+  let listSession = null;
+  try {
+    listSession = await openSession();
     for (const category of ["all", "new"]) {
       for (let pageNo = 1; pageNo <= 5; pageNo += 1) {
         let rows = [];
         try {
-          rows = await readYungchingListPage(page, category, pageNo);
+          rows = await readYungchingListPage(listSession.page, category, pageNo);
         } catch (error) {
           errors.push(`${category}:${pageNo}:${String(error).slice(0, 160)}`);
           break;
@@ -644,35 +655,60 @@ export async function buildYungchingFeed(browserBinding, launchImpl) {
         if (!added || rows.length < 20) break;
       }
     }
+  } finally {
+    if (listSession) await listSession.browser.close().catch(() => {});
+  }
 
-    const items = [];
-    for (const candidate of allCandidates.values()) {
-      try {
-        const detail = await readYungchingDetail(page, candidate);
-        const normalized = detail && normalizeYungchingWorkerItem(detail, newIds);
-        if (normalized) items.push(normalized);
-      } catch (error) {
-        errors.push(`detail:${candidate.source_id}:${String(error).slice(0, 160)}`);
+  const items = [];
+  const orderedCandidates = [...allCandidates.values()].sort((first, second) =>
+    Number(newIds.has(second.source_id)) - Number(newIds.has(first.source_id)),
+  );
+  let detailSession = null;
+  let rowsInSession = 0;
+  try {
+    for (const candidate of orderedCandidates) {
+      let completed = false;
+      for (let attempt = 1; attempt <= 2 && !completed; attempt += 1) {
+        if (!detailSession || rowsInSession >= YUNGCHING_DETAIL_BATCH_SIZE) {
+          if (detailSession) await detailSession.browser.close().catch(() => {});
+          detailSession = await openSession();
+          rowsInSession = 0;
+        }
+        rowsInSession += 1;
+        try {
+          const detail = await readYungchingDetail(detailSession.page, candidate);
+          const normalized = detail && normalizeYungchingWorkerItem(detail, newIds);
+          if (normalized) items.push(normalized);
+          completed = true;
+        } catch (error) {
+          errors.push(
+            `detail:${candidate.source_id}:attempt-${attempt}:${String(error).slice(0, 160)}`,
+          );
+          await detailSession.browser.close().catch(() => {});
+          detailSession = null;
+          rowsInSession = 0;
+        }
       }
     }
-    return {
-      generated_at: new Date().toISOString(),
-      source: "永慶房屋公開搜尋與詳細頁",
-      candidate_count: allCandidates.size,
-      validated_count: items.length,
-      new_category_count: newIds.size,
-      pages_read: pagesRead,
-      errors,
-      items,
-    };
   } finally {
-    await browser.close();
+    if (detailSession) await detailSession.browser.close().catch(() => {});
   }
+
+  return {
+    generated_at: new Date().toISOString(),
+    source: "永慶房屋公開搜尋與詳細頁",
+    candidate_count: allCandidates.size,
+    validated_count: items.length,
+    new_category_count: newIds.size,
+    pages_read: pagesRead,
+    errors,
+    items,
+  };
 }
 
 async function yungchingFeedResponse(request, env, ctx) {
   const cache = globalThis.caches?.default;
-  const cacheKey = new Request(`${new URL(request.url).origin}/__cache/yungching-feed-v1`);
+  const cacheKey = new Request(`${new URL(request.url).origin}/__cache/yungching-feed-v2`);
   if (cache) {
     const cached = await cache.match(cacheKey);
     if (cached) {
@@ -715,24 +751,27 @@ async function yungchingFeedResponse(request, env, ctx) {
       headers: { "Cache-Control": "no-store", "X-Rental-Feed-Cache": "error" },
     });
   }
+  const healthy = payload.candidate_count === 0 || payload.validated_count > 0;
   payload = {
-    status: "ok",
-    healthy: true,
+    status: healthy ? "ok" : "degraded",
+    healthy,
     ...payload,
     fresh_validation: {
       attempted: true,
-      successful: true,
+      successful: healthy,
       published_eligible: payload.validated_count,
     },
     attempts,
   };
   const response = Response.json(payload, {
     headers: {
-      "Cache-Control": `public, max-age=${YUNGCHING_FEED_CACHE_SECONDS}`,
-      "X-Rental-Feed-Cache": "miss",
+      "Cache-Control": healthy
+        ? `public, max-age=${YUNGCHING_FEED_CACHE_SECONDS}`
+        : "no-store",
+      "X-Rental-Feed-Cache": healthy ? "miss" : "error",
     },
   });
-  if (cache) {
+  if (cache && healthy) {
     const pending = cache.put(cacheKey, response.clone());
     if (ctx?.waitUntil) ctx.waitUntil(pending);
     else await pending;
