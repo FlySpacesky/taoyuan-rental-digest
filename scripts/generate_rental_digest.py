@@ -10,13 +10,13 @@
 
 本版重點：
 1. FB與Threads不使用帳號密碼、Cookie或瀏覽器Session；指定四區與3房以上為
-   硬條件。FB排除包租代管同行、保留一般房仲為C級；所有來源只刊出近2天內資料。
+   硬條件。FB排除包租代管同行、保留一般房仲為C級；所有來源只刊出近14天內資料。
 2. 591 列表優先讀網站前端使用的官方 BFF；失效時才退回 SSR HTML / Chromium。
 3. 591 屋主只接受 role_name / 詳情聯絡人角色明確以「屋主」開頭的物件。
 4. 591 降價優先使用 BFF 官方 diff_price，詳情頁阻擋時使用同輪嚴格列表快照。
 5. 404 / 410 / 已刪除 / 已關閉 / 已成交物件仍排除。
 6. 樂屋網原租金只接受明確舊價標示或歷史快照，避免把押金誤判為原租金。
-7. 48 小時來源內與跨來源去重；真正降價物件可重新顯示。
+7. 14 天來源時間驗證與跨來源去重；真正降價物件可重新顯示。
 8. 新房源以上一封成功投遞的快報為比較基準，不以同一天判斷。
 9. 每封 LINE 使用日期加時段的永久快報網址，不連向可變的首頁。
 """
@@ -141,11 +141,12 @@ _591_SNAPSHOT_MAX_AGE = timedelta(hours=72)
 SOURCE_REFRESH_COOLDOWN = _591_REFRESH_COOLDOWN
 SOURCE_SNAPSHOT_MAX_AGE = _591_SNAPSHOT_MAX_AGE
 FIRST_SEEN_REGISTRY_LIMIT = 20_000
-SOURCE_FRESHNESS_WINDOW = timedelta(days=2)
+SOURCE_FRESHNESS_DAYS = 14
+SOURCE_FRESHNESS_WINDOW = timedelta(days=SOURCE_FRESHNESS_DAYS)
 NEW_LISTING_BADGE_WINDOW = timedelta(days=1)
 SOCIAL_INITIAL_WINDOW = SOURCE_FRESHNESS_WINDOW
-SOCIAL_ONGOING_WINDOW = timedelta(days=2)
-SOCIAL_NEW_WINDOW = timedelta(days=2)
+SOCIAL_ONGOING_WINDOW = SOURCE_FRESHNESS_WINDOW
+SOCIAL_NEW_WINDOW = SOURCE_FRESHNESS_WINDOW
 SOCIAL_LAST_SEEN_REGISTRY_LIMIT = 20_000
 RENTAL_EDITION_ID_ENV = "RENTAL_EDITION_ID"
 SITE_URL_ENV = "SITE_URL"
@@ -4526,7 +4527,7 @@ def load_threads_listings(
         "Threads合併官方keyword_search與人工授權的公開永久貼文入口；官方結果會合併"
         "API可讀取且username與主貼文相同的原作者留言。硬條件是指定四區、至少3房、"
         "最近收集時間窗且非包租代管／仲介同業；30至35坪以上、租金、照片及屋主訊號"
-        "只用於可解釋的自動評分。每次只讀且發布最近2天。"
+        f"只用於可解釋的自動評分。每次只讀且發布最近{SOURCE_FRESHNESS_DAYS}天。"
     )
 
     unique_rows: dict[str, dict[str, Any]] = {}
@@ -4990,7 +4991,7 @@ def filter_source_freshness(
     items: list[Listing],
     stats: dict[str, Any],
 ) -> list[Listing]:
-    """Keep only rows whose source itself proves activity within 48 hours."""
+    """Keep only rows whose source itself proves activity within 14 days."""
 
     kept: list[Listing] = []
     source_rows = stats.get("sources", {})
@@ -4998,7 +4999,7 @@ def filter_source_freshness(
         source_items = [item for item in items if item.source == source]
         source_stats["validated_before_freshness"] = len(source_items)
         source_stats["freshness_checked"] = len(source_items)
-        source_stats["fresh_within_2_days"] = 0
+        source_stats["fresh_within_14_days"] = 0
         source_stats["freshness_rejected"] = 0
 
     for item in items:
@@ -5010,7 +5011,7 @@ def filter_source_freshness(
         elif timestamp > NOW + timedelta(minutes=10):
             reason = "source_time_in_future"
         elif NOW - timestamp > SOURCE_FRESHNESS_WINDOW:
-            reason = "source_older_than_2_days"
+            reason = "source_older_than_14_days"
         if reason:
             rejects = source_stats.setdefault("rejects", {})
             rejects[reason] = int(rejects.get(reason, 0) or 0) + 1
@@ -5019,22 +5020,22 @@ def filter_source_freshness(
             )
             continue
         item.source_timestamp = timestamp.isoformat()
-        source_stats["fresh_within_2_days"] = (
-            int(source_stats.get("fresh_within_2_days", 0) or 0) + 1
+        source_stats["fresh_within_14_days"] = (
+            int(source_stats.get("fresh_within_14_days", 0) or 0) + 1
         )
         kept.append(item)
 
     for source, source_stats in source_rows.items():
-        source_stats["validated"] = int(source_stats.get("fresh_within_2_days", 0) or 0)
+        source_stats["validated"] = int(source_stats.get("fresh_within_14_days", 0) or 0)
         rejected = int(source_stats.get("freshness_rejected", 0) or 0)
         if rejected:
             rejects = source_stats.get("rejects", {}) or {}
-            stale = int(rejects.get("source_older_than_2_days", 0) or 0)
+            stale = int(rejects.get("source_older_than_14_days", 0) or 0)
             missing = int(rejects.get("missing_source_time", 0) or 0)
             future = int(rejects.get("source_time_in_future", 0) or 0)
             reasons: list[str] = []
             if stale:
-                reasons.append(f"{stale}筆來源時間超過2天")
+                reasons.append(f"{stale}筆來源時間超過{SOURCE_FRESHNESS_DAYS}天")
             if missing:
                 reasons.append(f"{missing}筆未取得可驗證的來源時間（parser／來源欄位問題）")
             if future:
@@ -6110,7 +6111,7 @@ h3 a{{text-decoration:none}}
         {NOW.strftime('%Y/%m/%d %H:%M')}
       </time>
     </h1>
-    <p class="subtitle">六個來源分區顯示；每筆物件均包含照片與來源直達連結，本輪有效物件不因近48小時曾顯示而隱藏。</p>
+    <p class="subtitle">六個來源分區顯示；每筆物件均包含照片與來源直達連結，來源日期14天內且本輪重新驗證成功的物件都會保留。</p>
     <nav class="source-nav">
       <a href="#source-591">591</a>
       <a href="#source-fb">FB社團</a>
@@ -6124,12 +6125,12 @@ h3 a{{text-decoration:none}}
 
 <div class="statusbar"><div class="wrap">
 產生時間：{NOW.strftime('%Y/%m/%d %H:%M')}｜候選 {stats['candidates']} 筆｜
-驗證通過 {stats['validated']} 筆｜超過2天／無來源時間 {stats.get('freshness_rejected', 0)} 筆｜
+驗證通過 {stats['validated']} 筆｜超過14天／無來源時間 {stats.get('freshness_rejected', 0)} 筆｜
 新房源 {stats.get('new_listings', sum(1 for item in items if item.new_listing))} 筆｜本次顯示 {len(items)} 筆
 </div></div>
 
 <main class="wrap">
-<div class="notice">每個來源每輪都會重新檢查；只顯示來源刊登或更新時間在最近48小時內的物件，無法取得來源時間也不發布。「新房源」統一代表上一封成功投遞的快報未出現該來源物件。</div>
+<div class="notice">每個來源每輪都會重新檢查；只顯示來源刊登或更新時間在最近14天內的物件，無法取得來源時間也不發布。「新房源」代表上一封成功投遞的快報未出現，且首次發現時間仍在24小時內。</div>
 
 <div id="source-591" class="source-block">
   <div class="source-heading"><h2>591</h2><a href="https://rent.591.com.tw/list?kind=1&layout=4&region=6" target="_blank">開啟591搜尋 ↗</a></div>
@@ -6166,7 +6167,7 @@ h3 a{{text-decoration:none}}
     一般房仲的真實出租會歸入C級「其他符合物件」；包租代管／代租代管同行廣告會排除；
     屋主自己提到「想找代管」不會再被誤判為同業。
     30至35坪以上、租金與照片是加分條件，缺少選填資訊仍會誠實顯示，不補造資料或照片。
-    每次只讀與顯示最近2天；「新房源」表示上一封快報未出現。
+    每次只讀與顯示最近14天；「新房源」表示上一封快報未出現且首次發現未滿24小時。
     Facebook登入與加入社團狀態只留在您的瀏覽器；若Facebook登出，請由您本人重新登入。
   </div>
   <div class="social-links">{fb_buttons}</div>
@@ -6205,7 +6206,7 @@ h3 a{{text-decoration:none}}
     官方API會搜尋公開貼文並合併可讀取的原作者留言；人工入口可補入已知的公開永久貼文。
     桃園區、中壢區、平鎮區、八德區及至少3房是必要條件；包租代管與仲介同業會排除。
     30至35坪以上、租金、照片與屋主訊號只用於自動符合度評分；缺少租金或可讀照片仍可刊出，
-    並顯示「租金洽詢」或「來源未提供可讀取照片」。每次只讀與顯示最近2天；
+    並顯示「租金洽詢」或「來源未提供可讀取照片」。每次只讀與顯示最近14天；
     「新房源」表示上一封快報未出現。不使用帳號密碼、Cookie或瀏覽器Session，也不加入假物件。
   </div>
   {render_listing_browser(
@@ -6395,7 +6396,7 @@ def main() -> int:
     }
     stats["sources"]["Threads"]["notices"].append(
         "Threads會合併官方API與人工授權公開入口，依指定四區、至少3房、"
-        "非包租代管／仲介同業及最近2天時間窗驗證。"
+        "非包租代管／仲介同業及最近14天時間窗驗證。"
     )
     candidates: list[Listing] = []
 

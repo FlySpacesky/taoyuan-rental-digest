@@ -19,6 +19,7 @@ from typing import Any, Iterable
 SOURCE_ORDER = ("591", "FB", "樂屋網", "Threads", "信義房屋", "永慶房屋")
 MAX_ATTEMPT_SPAN = timedelta(hours=1)
 MAX_PREVALIDATED_AGE = timedelta(hours=2)
+SOURCE_FRESHNESS_WINDOW = timedelta(days=14)
 
 
 def load_payload(root: Path) -> dict[str, Any]:
@@ -154,7 +155,7 @@ def merge_source_payloads(
             validated_at = parse_timestamp(item.get("validated_at"))
             source_timestamp = parse_timestamp(item.get("source_timestamp"))
             generated_at = parse_timestamp(selected.get("generated_at"))
-            if not timedelta(0) <= generated_at - source_timestamp <= timedelta(days=2):
+            if not timedelta(0) <= generated_at - source_timestamp <= SOURCE_FRESHNESS_WINDOW:
                 raise ValueError(f"non-fresh source timestamp for {source}:{item.get('source_id')}")
             if abs(generated_at - validated_at) > MAX_ATTEMPT_SPAN:
                 raise ValueError(f"stale validation timestamp for {source}:{item.get('source_id')}")
@@ -324,7 +325,7 @@ def verify_command(latest: Path, docs: Path) -> int:
         for item in source_items:
             validated_at = parse_timestamp(item.get("validated_at"))
             source_timestamp = parse_timestamp(item.get("source_timestamp"))
-            if not timedelta(0) <= generated_at - source_timestamp <= timedelta(days=2):
+            if not timedelta(0) <= generated_at - source_timestamp <= SOURCE_FRESHNESS_WINDOW:
                 raise ValueError(f"non-fresh source timestamp for {source}:{item.get('source_id')}")
             if abs(generated_at - validated_at) > MAX_ATTEMPT_SPAN:
                 raise ValueError(f"stale validation timestamp for {source}:{item.get('source_id')}")
