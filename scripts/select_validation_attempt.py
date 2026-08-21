@@ -19,6 +19,7 @@ from typing import Any, Iterable
 SOURCE_ORDER = ("591", "FB", "樂屋網", "Threads", "信義房屋", "永慶房屋")
 MAX_ATTEMPT_SPAN = timedelta(hours=1)
 MAX_PREVALIDATED_AGE = timedelta(hours=2)
+SOURCE_FRESHNESS_DAYS = 14
 SOURCE_FRESHNESS_WINDOW = timedelta(days=14)
 
 
@@ -131,6 +132,7 @@ def merge_source_payloads(
     if not comparisons or any(not value.startswith("delivery:") for value in comparisons):
         raise ValueError("validation attempts must use a successful delivery comparison")
 
+    final_generated_at = max(generated)
     merged_sources: dict[str, Any] = {}
     merged_items: list[dict[str, Any]] = []
     choices: dict[str, str] = {}
@@ -151,6 +153,8 @@ def merge_source_payloads(
         ]
         if len(source_items) != int(selected_row.get("published", 0) or 0):
             raise ValueError(f"published count does not match items for {source}")
+        retained_items: list[dict[str, Any]] = []
+        boundary_rejected = 0
         for item in source_items:
             validated_at = parse_timestamp(item.get("validated_at"))
             source_timestamp = parse_timestamp(item.get("source_timestamp"))
@@ -159,6 +163,32 @@ def merge_source_payloads(
                 raise ValueError(f"non-fresh source timestamp for {source}:{item.get('source_id')}")
             if abs(generated_at - validated_at) > MAX_ATTEMPT_SPAN:
                 raise ValueError(f"stale validation timestamp for {source}:{item.get('source_id')}")
+            if final_generated_at - source_timestamp > SOURCE_FRESHNESS_WINDOW:
+                boundary_rejected += 1
+                continue
+            retained_items.append(item)
+        source_items = retained_items
+        if boundary_rejected:
+            rejects = selected_row.setdefault("rejects", {})
+            reason = f"source_older_than_{SOURCE_FRESHNESS_DAYS}_days"
+            rejects[reason] = int(rejects.get(reason, 0) or 0) + boundary_rejected
+            selected_row["freshness_rejected"] = (
+                int(selected_row.get("freshness_rejected", 0) or 0) + boundary_rejected
+            )
+            fresh_key = f"fresh_within_{SOURCE_FRESHNESS_DAYS}_days"
+            selected_row[fresh_key] = max(
+                int(selected_row.get(fresh_key, len(source_items) + boundary_rejected) or 0)
+                - boundary_rejected,
+                0,
+            )
+            selected_row["validated"] = max(
+                int(selected_row.get("validated", 0) or 0) - boundary_rejected,
+                0,
+            )
+            selected_row.setdefault("notices", []).append(
+                f"逐來源合併時另排除{boundary_rejected}筆已跨過{SOURCE_FRESHNESS_DAYS}天邊界的物件。"
+            )
+        selected_row["published"] = len(source_items)
         merged_sources[source] = selected_row
         merged_items.extend(source_items)
         choices[source] = name
