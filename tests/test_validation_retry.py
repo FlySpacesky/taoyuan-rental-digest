@@ -78,7 +78,7 @@ def merge_payload(
         "stats": {
             "sources": sources,
             "comparison_source": "delivery:2026-08-21-0800",
-            "freshness_window_hours": 48,
+            "freshness_window_hours": 336,
         },
         "items": items,
     }
