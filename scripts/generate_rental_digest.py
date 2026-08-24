@@ -16,7 +16,7 @@
 4. 591 降價優先使用 BFF 官方 diff_price，詳情頁阻擋時使用同輪嚴格列表快照。
 5. 404 / 410 / 已刪除 / 已關閉 / 已成交物件仍排除。
 6. 樂屋網原租金只接受明確舊價標示或歷史快照，避免把押金誤判為原租金。
-7. 14 天來源時間驗證與跨來源去重；真正降價物件可重新顯示。
+7. 591 兩天、其他來源七天的來源時間驗證與跨來源去重；真正降價物件可重新顯示。
 8. 新房源以上一封成功投遞的快報為比較基準，不以同一天判斷。
 9. 每封 LINE 使用日期加時段的永久快報網址，不連向可變的首頁。
 """
@@ -155,6 +155,8 @@ DEFAULT_SITE_URL = "https://flyspacesky.github.io/taoyuan-rental-digest/"
 RENTAL_591_PROXY_SERVER_ENV = "RENTAL_591_PROXY_SERVER"
 RENTAL_591_PROXY_USERNAME_ENV = "RENTAL_591_PROXY_USERNAME"
 RENTAL_591_PROXY_PASSWORD_ENV = "RENTAL_591_PROXY_PASSWORD"
+RENTAL_591_REQUEST_INTERVAL_ENV = "RENTAL_591_REQUEST_INTERVAL_SECONDS"
+RENTAL_SOURCE_ONLY_ENV = "RENTAL_SOURCE_ONLY"
 
 
 def source_freshness_days(source: str) -> int:
@@ -1512,6 +1514,7 @@ def fetch_591_bff_cards(
         "Referer": "https://rent.591.com.tw/",
         "device": "pc",
     }
+    last_status: int | None = None
     for attempt in range(3):
         try:
             response = session_591.get(
@@ -1520,6 +1523,7 @@ def fetch_591_bff_cards(
                 headers=headers,
                 timeout=30,
             )
+            last_status = response.status_code
             if response.status_code in {429, 500, 502, 503, 504}:
                 raise requests.RequestException(
                     f"temporary status {response.status_code}"
@@ -1541,9 +1545,31 @@ def fetch_591_bff_cards(
                     f"[WARN] 591 BFF failed: firstRow={first_row}: {detail}",
                     file=sys.stderr,
                 )
-                return None, first_row, {}
+                return last_status, first_row, {}
             time.sleep(1.4 * (2**attempt))
     return None, first_row, {}
+
+
+def _591_request_interval() -> float:
+    """Use a respectful, configurable interval without allowing a request flood."""
+
+    try:
+        value = float(os.environ.get(RENTAL_591_REQUEST_INTERVAL_ENV, "1.5"))
+    except ValueError:
+        value = 1.5
+    return min(max(value, 1.0), 10.0)
+
+
+def _591_page_is_outside_freshness(cards: Mapping[str, Listing]) -> bool:
+    """Return true only when every sorted card has a proven time older than 2 days."""
+
+    if not cards:
+        return False
+    timestamps = [source_listing_time(item) for item in cards.values()]
+    return all(
+        timestamp is not None and NOW - timestamp > source_freshness_window("591")
+        for timestamp in timestamps
+    )
 
 
 def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
@@ -1557,22 +1583,26 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
     seen: set[str] = set()
     blocked_streak = 0
     stop_after_block = False
+    completed_sections: list[str] = []
+    request_interval = _591_request_interval()
+    source_stats["planned_sections"] = list(DISTRICTS_591)
+    source_stats["request_interval_seconds"] = request_interval
 
     def record_status(channel: str, status: int | None) -> None:
         statuses = source_stats.setdefault("http_statuses", {}).setdefault(channel, {})
         key = str(status) if status is not None else "network_error"
         statuses[key] = statuses.get(key, 0) + 1
 
-    # 先跑 591 官方的屋主篩選，再跑一般列表。即使一般列表後段被限流，
-    # 屋主物件仍會先進入驗證；是否為屋主最後仍由詳情頁聯絡人角色確認。
+    # 一般列表已包含屋主，並提供 role_name 供嚴格分類；不要先重跑一次屋主
+    # 篩選，否則同一物件會消耗兩次分頁額度，常在一般列表開始前就被限流。
     search_modes: tuple[tuple[str, dict[str, str]], ...] = (
-        ("owner", {"shType": "host"}),
         ("general", {}),
     )
 
     for mode, extra_query in search_modes:
         for district, section in DISTRICTS_591.items():
             empty_pages = 0
+            district_completed = False
             for page_no in range(1, 101):
                 query: dict[str, Any] = {
                     "kind": 1,
@@ -1598,7 +1628,7 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                     cards = bff_cards
                     ids = list(cards)
                     _591_BFF_CACHE_IDS.update(cards)
-                elif bff_status != 200:
+                elif bff_status not in {200, 401, 403, 429}:
                     # BFF 被擋或暫時失效時，才讀 SSR HTML。
                     response, raw = fetch_html(url)
                     record_status(
@@ -1608,7 +1638,10 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                     ids = extract_591_ids(raw)
                     cards = parse_591_list_cards(raw)
 
-                if (not ids or not cards) and bff_status != 200:
+                if (
+                    (not ids or not cards)
+                    and bff_status not in {200, 401, 403, 429}
+                ):
                     source_stats["browser_attempts"] = (
                         int(source_stats.get("browser_attempts", 0)) + 1
                     )
@@ -1631,12 +1664,10 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                         browser_result = "empty"
 
                 html_status = response.status_code if response is not None else None
-                if (
-                    not cards
-                    and bff_status in {401, 403, 429}
-                    and html_status in {401, 403, 429}
-                    and browser_result in {"blocked", "empty", "no_cards"}
-                ):
+                if not cards and bff_status in {401, 403, 429}:
+                    # 明確存取限制時不再連打 SSR 與 Chromium；同一出口通常也會
+                    # 被擋，只會加重限流。保留 checkpoint，交給延後的新出口重驗。
+                    browser_result = "skipped_after_bff_block"
                     blocked_streak += 1
                 else:
                     blocked_streak = 0
@@ -1652,7 +1683,7 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                 status = (
                     response.status_code
                     if response is not None
-                    else ("bff" if bff_cards else "network")
+                    else (bff_status if bff_status is not None else "network")
                 )
                 print(
                     f"[591] mode={mode} {district} page={page_no} "
@@ -1662,8 +1693,8 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                     f"cache={len(_591_LIST_CACHE)} new={len(new_ids)}"
                 )
 
-                # 官方 BFF、SSR 與 Chromium 連續兩次都明確被擋時，繼續打
-                # 其餘行政區只會加重共享 Runner IP 的限流。
+                # 官方 BFF 連續兩次都明確被擋時，繼續打其餘行政區只會
+                # 加重共享 Runner IP 的限流；保留 checkpoint 交給延後重驗。
                 if blocked_streak >= 2:
                     stop_after_block = True
                     source_stats["blocked_after_queries"] = 2
@@ -1672,6 +1703,7 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                 if not new_ids:
                     empty_pages += 1
                     if empty_pages >= 2:
+                        district_completed = True
                         break
                 else:
                     empty_pages = 0
@@ -1680,20 +1712,34 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                     seen.add(item_id)
                     links.append(f"https://rent.591.com.tw/{item_id}")
 
-                time.sleep(0.75)
+                # 清單依最新活動排序；整頁都有可證明超過2天的時間後，後頁不可能
+                # 再出現本期需要發布的物件，這是正常完成而不是被擋。
+                if _591_page_is_outside_freshness(cards):
+                    district_completed = True
+                    source_stats.setdefault("freshness_boundaries", {})[district] = page_no
+                    break
+
+                time.sleep(request_interval)
+            if district_completed:
+                completed_sections.append(district)
             if stop_after_block:
                 break
         if stop_after_block:
             break
 
+    source_stats["completed_sections"] = completed_sections
+    source_stats["crawl_complete"] = (
+        not stop_after_block and set(completed_sections) == set(DISTRICTS_591)
+    )
     source_stats["candidate_links"] = len(links)
     source_stats["list_cache"] = len(_591_LIST_CACHE)
     source_stats["rejects"] = dict(sorted(_591_REJECTS.items()))
     if not links:
         if stop_after_block:
             source_stats["errors"].append(
-                "591官方BFF與列表HTML連續回應403/429；Chromium也只取得受阻頁。"
-                "這是GitHub Runner出口IP被591限制，不是Chromium未安裝或物件ID解析失敗。"
+                "591官方BFF連續回應403/429；為避免加重限流，本輪不再以同一出口"
+                "連打列表HTML與Chromium。這是Runner出口IP被591限制，不是"
+                "Chromium未安裝或物件ID解析失敗。"
             )
         else:
             source_stats["errors"].append(
@@ -6415,31 +6461,42 @@ def main() -> int:
         "非包租代管／仲介同業及最近7天時間窗驗證。"
     )
     candidates: list[Listing] = []
+    source_only = os.environ.get(RENTAL_SOURCE_ONLY_ENV, "").strip()
+    if source_only not in {"", "591"}:
+        raise ValueError(f"unsupported {RENTAL_SOURCE_ONLY_ENV}: {source_only}")
 
     try:
         candidates.extend(collect_591_listings(stats["sources"]["591"]))
 
-        rakuya_map = crawl_rakuya_links(stats["sources"]["樂屋網"])
-        hints_by_url: dict[str, set[str]] = {}
-        for hint, links in rakuya_map.items():
-            for url in links:
-                hints_by_url.setdefault(url, set()).add(hint)
+        if source_only == "591":
+            stats["sources"]["591"]["source_only_validation"] = True
+            for source in ("FB", "樂屋網", "Threads", "信義房屋", "永慶房屋"):
+                stats["sources"][source]["validation_skipped"] = True
+                stats["sources"][source]["notices"].append(
+                    "本次 checkpoint 僅重驗591。"
+                )
+        else:
+            rakuya_map = crawl_rakuya_links(stats["sources"]["樂屋網"])
+            hints_by_url: dict[str, set[str]] = {}
+            for hint, links in rakuya_map.items():
+                for url in links:
+                    hints_by_url.setdefault(url, set()).add(hint)
 
-        valid_rakuya = 0
-        for index, (url, hints) in enumerate(hints_by_url.items(), 1):
-            print(f"[Rakuya detail] {index}/{len(hints_by_url)} {url}")
-            item = parse_rakuya_detail(url, hints)
-            if item:
-                candidates.append(item)
-                valid_rakuya += 1
-        stats["sources"]["樂屋網"]["validated"] = valid_rakuya
+            valid_rakuya = 0
+            for index, (url, hints) in enumerate(hints_by_url.items(), 1):
+                print(f"[Rakuya detail] {index}/{len(hints_by_url)} {url}")
+                item = parse_rakuya_detail(url, hints)
+                if item:
+                    candidates.append(item)
+                    valid_rakuya += 1
+            stats["sources"]["樂屋網"]["validated"] = valid_rakuya
 
-        candidates.extend(load_facebook_import(stats["sources"]["FB"], state))
-        candidates.extend(load_threads_listings(stats["sources"]["Threads"], state))
-        candidates.extend(collect_sinyi_listings(stats["sources"]["信義房屋"]))
-        yungching_items = collect_yungching_listings(stats["sources"]["永慶房屋"])
-        prepare_yungching_images(yungching_items, stats["sources"]["永慶房屋"])
-        candidates.extend(yungching_items)
+            candidates.extend(load_facebook_import(stats["sources"]["FB"], state))
+            candidates.extend(load_threads_listings(stats["sources"]["Threads"], state))
+            candidates.extend(collect_sinyi_listings(stats["sources"]["信義房屋"]))
+            yungching_items = collect_yungching_listings(stats["sources"]["永慶房屋"])
+            prepare_yungching_images(yungching_items, stats["sources"]["永慶房屋"])
+            candidates.extend(yungching_items)
 
     finally:
         browser.close()
