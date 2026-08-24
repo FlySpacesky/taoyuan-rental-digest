@@ -195,6 +195,7 @@ jobs:
           THREADS_POSTS_JSON_URL: ${{ secrets.THREADS_POSTS_JSON_URL || vars.THREADS_POSTS_JSON_URL }}
           GITHUB_TOKEN: ${{ github.token }}
           VALIDATION_EGRESS: github-hosted-ubuntu
+          RENTAL_591_REQUEST_INTERVAL_SECONDS: ${{ vars.RENTAL_591_REQUEST_INTERVAL_SECONDS || '1.5' }}
           RENTAL_591_PROXY_SERVER: ${{ secrets.RENTAL_591_PROXY_SERVER }}
           RENTAL_591_PROXY_USERNAME: ${{ secrets.RENTAL_591_PROXY_USERNAME }}
           RENTAL_591_PROXY_PASSWORD: ${{ secrets.RENTAL_591_PROXY_PASSWORD }}
@@ -217,7 +218,9 @@ jobs:
   retry_591_validation:
     if: ${{ needs.fresh_source_validation.outputs.retry_591 == 'true' }}
     needs: fresh_source_validation
-    runs-on: ubuntu-latest
+    # 可將 RENTAL_591_RETRY_RUNNER 設為自有 Linux runner 標籤；未設定時
+    # 仍以新的 GitHub-hosted runner 做一次延後 checkpoint。
+    runs-on: ${{ vars.RENTAL_591_RETRY_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 70
     outputs:
       retry_591: ${{ steps.retry_gate.outputs.retry_591 }}
@@ -281,6 +284,8 @@ jobs:
           THREADS_POSTS_JSON_URL: ${{ secrets.THREADS_POSTS_JSON_URL || vars.THREADS_POSTS_JSON_URL }}
           GITHUB_TOKEN: ${{ github.token }}
           VALIDATION_EGRESS: github-hosted-ubuntu-retry
+          RENTAL_SOURCE_ONLY: "591"
+          RENTAL_591_REQUEST_INTERVAL_SECONDS: ${{ vars.RENTAL_591_REQUEST_INTERVAL_SECONDS || '1.5' }}
           RENTAL_591_PROXY_SERVER: ${{ secrets.RENTAL_591_PROXY_SERVER }}
           RENTAL_591_PROXY_USERNAME: ${{ secrets.RENTAL_591_PROXY_USERNAME }}
           RENTAL_591_PROXY_PASSWORD: ${{ secrets.RENTAL_591_PROXY_PASSWORD }}
