@@ -88,6 +88,32 @@ class Extract591Tests(unittest.TestCase):
         DIGEST._591_BFF_CACHE_IDS.clear()
         DIGEST._591_REJECTS.clear()
 
+    @staticmethod
+    def _bff_listing(item_id: str, refresh_time: str) -> dict[str, DIGEST.Listing]:
+        return DIGEST.parse_591_bff_cards(
+            {
+                "status": 1,
+                "data": {
+                    "items": [
+                        {
+                            "id": item_id,
+                            "kind_name": "整層住家",
+                            "title": "桃園區四房整層住家",
+                            "price": "32,000",
+                            "floor_name": "6F/12F",
+                            "area_name": "35坪",
+                            "layoutStr": "4房2廳",
+                            "address": "桃園區-中正路",
+                            "role_name": "屋主林先生",
+                            "refresh_time": refresh_time,
+                            "cover": "https://img1.591.com.tw/house/example.jpg",
+                            "tags": [],
+                        }
+                    ]
+                },
+            }
+        )
+
     def test_extracts_only_rental_card_ids(self) -> None:
         raw = (
             '<a href="https://market.591.com.tw/12345678">社區</a>'
@@ -120,14 +146,14 @@ class Extract591Tests(unittest.TestCase):
         self.assertEqual(item.rent, 58_000)
         self.assertEqual(item.address, "桃園區 - 中正路 電梯大樓")
 
-    def test_crawler_uses_owner_filter_and_canonical_detail_url(self) -> None:
+    def test_crawler_uses_general_list_once_and_canonical_detail_url(self) -> None:
         requested: list[str] = []
 
         def fake_fetch(url: str, **_: object) -> tuple[None, str]:
             requested.append(url)
             if (
                 "section=73" in url
-                and "shType=host" in url
+                and "shType" not in url
                 and "page=1" in url
             ):
                 return None, list_card()
@@ -143,12 +169,8 @@ class Extract591Tests(unittest.TestCase):
             links = DIGEST.crawl_591_links(stats)
 
         self.assertEqual(links, ["https://rent.591.com.tw/21700001"])
-        self.assertTrue(
-            any(
-                "shType=host" in url and "page=1" in url
-                for url in requested
-            )
-        )
+        self.assertTrue(any("section=73" in url and "page=1" in url for url in requested))
+        self.assertFalse(any("shType=" in url for url in requested))
         self.assertTrue(any("page=2" in url for url in requested))
         self.assertFalse(any("firstRow=" in url for url in requested))
 
@@ -231,6 +253,26 @@ class Extract591Tests(unittest.TestCase):
         self.assertEqual(get.call_args.kwargs["params"]["firstRow"], "60")
         self.assertEqual(get.call_args.kwargs["params"]["shType"], "host")
 
+    def test_bff_request_preserves_final_429_status(self) -> None:
+        response = SimpleNamespace(status_code=429)
+        with (
+            patch.object(DIGEST.session_591, "get", return_value=response),
+            patch.object(DIGEST.time, "sleep"),
+        ):
+            status, first_row, cards = DIGEST.fetch_591_bff_cards(
+                {
+                    "kind": 1,
+                    "layout": 4,
+                    "region": 6,
+                    "section": "73",
+                    "page": 1,
+                }
+            )
+
+        self.assertEqual(status, 429)
+        self.assertEqual(first_row, 0)
+        self.assertEqual(cards, {})
+
     def test_crawler_prefers_bff_over_html(self) -> None:
         stats = DIGEST.empty_source_stats()
         bff_item = DIGEST.parse_591_bff_cards(
@@ -278,6 +320,15 @@ class Extract591Tests(unittest.TestCase):
 
         self.assertEqual(links, ["https://rent.591.com.tw/21700001"])
         fetch.assert_not_called()
+        self.assertTrue(stats["crawl_complete"])
+        self.assertEqual(set(stats["completed_sections"]), set(DIGEST.DISTRICTS_591))
+
+    def test_sorted_stale_page_is_a_complete_freshness_boundary(self) -> None:
+        fresh = self._bff_listing("21700001", "1小時內更新")
+        stale = self._bff_listing("21700002", "3天前更新")
+
+        self.assertFalse(DIGEST._591_page_is_outside_freshness(fresh))
+        self.assertTrue(DIGEST._591_page_is_outside_freshness(stale))
 
     def test_crawler_stops_after_two_fully_blocked_queries(self) -> None:
         stats = DIGEST.empty_source_stats()
@@ -302,8 +353,8 @@ class Extract591Tests(unittest.TestCase):
             links = DIGEST.crawl_591_links(stats)
 
         self.assertEqual(links, [])
-        self.assertEqual(fetch.call_count, 2)
-        self.assertEqual(browser_fetch.call_count, 2)
+        fetch.assert_not_called()
+        browser_fetch.assert_not_called()
         self.assertEqual(stats["blocked_after_queries"], 2)
         self.assertEqual(stats["http_statuses"]["bff"]["403"], 2)
         self.assertIn("不是Chromium未安裝", stats["errors"][0])

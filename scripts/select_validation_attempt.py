@@ -56,10 +56,10 @@ def assert_fresh_591(payload: dict[str, Any]) -> None:
 def rate_limited_591(payload: dict[str, Any]) -> bool:
     """Only retry an explicit 403/429 block, not a legitimate empty result."""
     row = source_591(payload)
+    if row.get("blocked_after_queries") or row.get("partial_refresh"):
+        return True
     if int(row.get("validated", 0) or 0) > 0:
         return False
-    if row.get("blocked_after_queries"):
-        return True
     statuses = row.get("http_statuses", {})
     for channel in statuses.values() if isinstance(statuses, dict) else ():
         if isinstance(channel, dict) and any(
@@ -67,10 +67,55 @@ def rate_limited_591(payload: dict[str, Any]) -> bool:
             for code, count in channel.items()
         ):
             return True
-    return any(
+    explicitly_limited = any(
         "403/429" in str(message) or "出口IP" in str(message)
         for message in row.get("errors", [])
     )
+    if explicitly_limited:
+        return True
+    # A completed crawl with zero rows is a legitimate empty result. Older
+    # payloads may not have crawl_complete, so only use it when explicitly set.
+    return row.get("crawl_complete") is False
+
+
+def validated_source_items(
+    payload: dict[str, Any],
+    source: str,
+    final_generated_at: datetime,
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """Validate one attempt's published rows and apply the final time boundary."""
+
+    row = payload["stats"]["sources"][source]
+    source_items = [
+        copy.deepcopy(item)
+        for item in payload.get("items", [])
+        if item.get("source") == source
+    ]
+    if len(source_items) != int(row.get("published", 0) or 0):
+        raise ValueError(f"published count does not match items for {source}")
+
+    generated_at = parse_timestamp(payload.get("generated_at"))
+    freshness_window = source_freshness_window(source)
+    retained: list[dict[str, Any]] = []
+    boundary_rejected: set[str] = set()
+    for item in source_items:
+        validated_at = parse_timestamp(item.get("validated_at"))
+        source_timestamp = parse_timestamp(item.get("source_timestamp"))
+        if not timedelta(0) <= generated_at - source_timestamp <= freshness_window:
+            raise ValueError(
+                f"non-fresh source timestamp for {source}:{item.get('source_id')}"
+            )
+        if abs(generated_at - validated_at) > MAX_ATTEMPT_SPAN:
+            raise ValueError(
+                f"stale validation timestamp for {source}:{item.get('source_id')}"
+            )
+        if final_generated_at - source_timestamp > freshness_window:
+            boundary_rejected.add(
+                str(item.get("source_id") or item.get("url") or "unknown")
+            )
+            continue
+        retained.append(item)
+    return retained, boundary_rejected
 
 
 def validation_score(payload: dict[str, Any]) -> tuple[int, int, int, str]:
@@ -151,33 +196,90 @@ def merge_source_payloads(
             (name, payload)
             for name, payload in attempts
             if source in payload.get("stats", {}).get("sources", {})
+            and not payload["stats"]["sources"][source].get("validation_skipped")
         ]
         if not available:
             raise ValueError(f"missing source diagnostics: {source}")
         name, selected = max(available, key=lambda row: source_score(row[1], source))
         selected_row = copy.deepcopy(selected["stats"]["sources"][source])
-        source_items = [
-            copy.deepcopy(item)
-            for item in selected.get("items", [])
-            if item.get("source") == source
-        ]
-        if len(source_items) != int(selected_row.get("published", 0) or 0):
-            raise ValueError(f"published count does not match items for {source}")
-        retained_items: list[dict[str, Any]] = []
-        boundary_rejected = 0
-        for item in source_items:
-            validated_at = parse_timestamp(item.get("validated_at"))
-            source_timestamp = parse_timestamp(item.get("source_timestamp"))
-            generated_at = parse_timestamp(selected.get("generated_at"))
-            if not timedelta(0) <= generated_at - source_timestamp <= freshness_window:
-                raise ValueError(f"non-fresh source timestamp for {source}:{item.get('source_id')}")
-            if abs(generated_at - validated_at) > MAX_ATTEMPT_SPAN:
-                raise ValueError(f"stale validation timestamp for {source}:{item.get('source_id')}")
-            if final_generated_at - source_timestamp > freshness_window:
-                boundary_rejected += 1
-                continue
-            retained_items.append(item)
-        source_items = retained_items
+        boundary_keys: set[str] = set()
+
+        if source == "591":
+            complete = [
+                (attempt_name, payload)
+                for attempt_name, payload in available
+                if payload["stats"]["sources"]["591"].get("crawl_complete") is True
+            ]
+            if complete:
+                # A complete later crawl is authoritative; do not re-add rows that
+                # appeared in an earlier partial checkpoint but disappeared later.
+                name, selected = max(
+                    complete,
+                    key=lambda row: (
+                        parse_timestamp(row[1]["generated_at"]),
+                        source_score(row[1], source),
+                    ),
+                )
+                selected_row = copy.deepcopy(selected["stats"]["sources"][source])
+                source_items, boundary_keys = validated_source_items(
+                    selected, source, final_generated_at
+                )
+                selected_row["checkpoint_attempts"] = [name]
+            else:
+                # Every row is still from this validation window. Union partial
+                # checkpoints by stable source id so a later runner can continue
+                # where the first runner was rate-limited, without using old data.
+                checkpoint_items: dict[str, dict[str, Any]] = {}
+                contributing: list[str] = []
+                for attempt_name, payload in sorted(
+                    available, key=lambda row: parse_timestamp(row[1]["generated_at"])
+                ):
+                    retained, rejected = validated_source_items(
+                        payload, source, final_generated_at
+                    )
+                    boundary_keys.update(rejected)
+                    if retained:
+                        contributing.append(attempt_name)
+                    for item in retained:
+                        key = str(item.get("source_id") or item.get("url") or "")
+                        if not key:
+                            raise ValueError("591 checkpoint item is missing source identity")
+                        previous = checkpoint_items.get(key)
+                        if previous is None or parse_timestamp(
+                            item.get("validated_at")
+                        ) > parse_timestamp(previous.get("validated_at")):
+                            checkpoint_items[key] = item
+                source_items = sorted(
+                    checkpoint_items.values(),
+                    key=lambda item: parse_timestamp(item.get("source_timestamp")),
+                    reverse=True,
+                )
+                selected_row["crawl_complete"] = False
+                selected_row["partial_refresh"] = True
+                selected_row["checkpoint_attempts"] = contributing
+                selected_row["checkpoint_union_items"] = len(source_items)
+                selected_row["candidate_links"] = max(
+                    len(source_items),
+                    max(
+                        int(payload["stats"]["sources"][source].get("candidate_links", 0) or 0)
+                        for _, payload in available
+                    ),
+                )
+                selected_row.setdefault("notices", []).append(
+                    f"同一驗證時窗合併{len(contributing)}次591 checkpoint，"
+                    f"共{len(source_items)}筆不重複且本輪重新驗證成功的物件。"
+                )
+                name = (
+                    contributing[0]
+                    if len(contributing) == 1
+                    else "checkpoint-union:" + ",".join(contributing)
+                )
+        else:
+            source_items, boundary_keys = validated_source_items(
+                selected, source, final_generated_at
+            )
+
+        boundary_rejected = len(boundary_keys)
         if boundary_rejected:
             rejects = selected_row.setdefault("rejects", {})
             reason = f"source_older_than_{freshness_days}_days"
@@ -199,6 +301,8 @@ def merge_source_payloads(
                 f"逐來源合併時另排除{boundary_rejected}筆已跨過{freshness_days}天邊界的物件。"
             )
         selected_row["freshness_window_days"] = freshness_days
+        selected_row[f"fresh_within_{freshness_days}_days"] = len(source_items)
+        selected_row["validated"] = len(source_items)
         selected_row["published"] = len(source_items)
         merged_sources[source] = selected_row
         merged_items.extend(source_items)

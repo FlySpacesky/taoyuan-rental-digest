@@ -56,6 +56,12 @@ class WorkflowReliabilityTests(unittest.TestCase):
         self.assertIn("--attempt initial=.validation/initial", self.workflow)
         self.assertIn("--attempt retry=.validation/retry", self.workflow)
         self.assertIn("needs.retry_591_validation.result", self.workflow)
+        self.assertIn('RENTAL_SOURCE_ONLY: "591"', self.workflow)
+        self.assertIn("RENTAL_591_RETRY_RUNNER || 'ubuntu-latest'", self.workflow)
+        self.assertGreaterEqual(
+            self.workflow.count("RENTAL_591_REQUEST_INTERVAL_SECONDS:"),
+            2,
+        )
 
     def test_stable_591_proxy_is_optional_and_secret_backed(self) -> None:
         self.assertGreaterEqual(self.workflow.count("RENTAL_591_PROXY_SERVER:"), 2)
