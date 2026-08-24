@@ -5,7 +5,7 @@
 - 來源：591、Facebook真實貼文、樂屋網、Threads官方API、信義房屋、永慶房屋
 - 地區：桃園區、中壢區、平鎮區、八德區
 - 格局：房仲網站維持4房以上；FB與Threads接受3房以上
-- 驗證：樂屋網逐筆檢查單筆頁；591 優先讀網站前端使用的官方 BFF，並以 `role_name` 驗證屋主、以 `diff_price` 驗證降價，BFF 失效時才退回 SSR HTML／Chromium；BFF 清單不再逐筆重打詳情頁，以避免 GitHub Runner 出口 IP 被限流
+- 驗證：樂屋網逐筆檢查單筆頁；591 只讀一次已包含屋主的官方一般 BFF 清單，並以 `role_name` 驗證屋主、以 `diff_price` 驗證降價；明確 403／429 時不再用同一出口連打 SSR HTML／Chromium，BFF 清單也不逐筆重打詳情頁，以避免加重 Runner 出口 IP 限流
 - 分頁：591 公開搜尋網址使用 `page=1,2,3...`，官方 BFF 對應使用 `firstRow=0,30,60...`
 - 去重：同一輪跨來源相同房源只顯示一次；近48小時紀錄僅供診斷，不隱藏仍有效物件
 - 排程：台灣時間每天09:30、16:00、22:00；Cloudflare Worker 在每個時段後的
@@ -50,10 +50,15 @@
 - 591 成功抓取後仍會保存 `docs/rental-data/last-success-591.json` 作診斷與租金比較，
   但任何新電子報都不會沿用未重新驗證的舊物件。只有本輪重新驗證成功、確認仍在
   刊登且來源新增或更新時間在2天內的物件可以發布。
-- 591 若明確遭遇 403／429，正式流程預設等待15分鐘，再以新的 GitHub Runner
-  出口重新驗證一次；變數 `RENTAL_591_RETRY_DELAY_SECONDS` 可在300至3600秒間調整。
-  初次與重試結果都必須通過「無 `snapshot_used`／無 `fallback`」閘門，之後才選擇
-  本輪重新驗證數較完整的一份部署與發送。
+- 591 若明確遭遇 403／429（包括已有部分成功資料），正式流程預設等待15分鐘，
+  再以新的出口只重驗591一次；同一小時內的 partial checkpoint 會依物件ID去重合併，
+  但只有本輪各次確實重新驗證成功的物件會發布。變數
+  `RENTAL_591_RETRY_DELAY_SECONDS` 可在300至3600秒間調整，
+  `RENTAL_591_REQUEST_INTERVAL_SECONDS` 可在1至10秒間調整。
+  初次與重試結果都必須通過「無 `snapshot_used`／無 `fallback`」閘門。
+- 若有自有且獲授權的穩定 Linux 執行環境，可把 Repository variable
+  `RENTAL_591_RETRY_RUNNER` 設為該 self-hosted runner 的自訂標籤；未設定時仍使用
+  `ubuntu-latest`。這比反覆更換大量雲端IP更穩定，也保留網站限流邊界。
 - 若有合規且可長期使用的固定出口，可設定 GitHub Actions Secrets
   `RENTAL_591_PROXY_SERVER`、`RENTAL_591_PROXY_USERNAME`、
   `RENTAL_591_PROXY_PASSWORD`。代理只套用於 591 的 HTTP 與 Chromium 請求，
