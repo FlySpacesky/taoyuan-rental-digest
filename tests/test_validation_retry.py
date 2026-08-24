@@ -99,6 +99,12 @@ class ValidationRetryTests(unittest.TestCase):
         fresh = payload(validated_591=3, statuses={"bff": {"200": 2, "403": 1}})
         self.assertFalse(RETRY.rate_limited_591(fresh))
 
+    def test_partial_fresh_591_result_still_retries(self) -> None:
+        partial = payload(validated_591=3, statuses={"bff": {"200": 2, "403": 2}})
+        RETRY.source_591(partial)["partial_refresh"] = True
+        RETRY.source_591(partial)["blocked_after_queries"] = 2
+        self.assertTrue(RETRY.rate_limited_591(partial))
+
     def test_selector_prefers_retry_with_fresh_591_rows(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -140,6 +146,85 @@ class ValidationRetryTests(unittest.TestCase):
         self.assertEqual(choices["永慶房屋"], "stable")
         self.assertEqual(merged["stats"]["published"], 192)
         self.assertEqual(len(merged["items"]), 192)
+
+    def test_source_merge_unions_partial_591_checkpoints(self) -> None:
+        initial = merge_payload(
+            generated_at="2026-08-21T09:30:00+08:00",
+            source_rows={"591": (1, 1)},
+        )
+        retry = merge_payload(
+            generated_at="2026-08-21T09:40:00+08:00",
+            source_rows={"591": (1, 1)},
+        )
+        for data in (initial, retry):
+            row = data["stats"]["sources"]["591"]
+            row["partial_refresh"] = True
+            row["blocked_after_queries"] = 2
+            row["crawl_complete"] = False
+        retry_item = next(item for item in retry["items"] if item["source"] == "591")
+        retry_item["source_id"] = "591-retry"
+        retry_item["url"] = "https://example.com/591/retry"
+
+        merged, choices = RETRY.merge_source_payloads(
+            (("initial", initial), ("retry", retry))
+        )
+
+        row = merged["stats"]["sources"]["591"]
+        self.assertEqual(row["published"], 2)
+        self.assertEqual(row["checkpoint_union_items"], 2)
+        self.assertEqual(row["checkpoint_attempts"], ["initial", "retry"])
+        self.assertEqual(choices["591"], "checkpoint-union:initial,retry")
+
+    def test_complete_591_attempt_supersedes_partial_checkpoint(self) -> None:
+        partial = merge_payload(
+            generated_at="2026-08-21T09:30:00+08:00",
+            source_rows={"591": (1, 1)},
+        )
+        complete = merge_payload(
+            generated_at="2026-08-21T09:40:00+08:00",
+            source_rows={"591": (1, 1)},
+        )
+        partial_row = partial["stats"]["sources"]["591"]
+        partial_row["partial_refresh"] = True
+        partial_row["crawl_complete"] = False
+        complete_row = complete["stats"]["sources"]["591"]
+        complete_row["crawl_complete"] = True
+        complete_item = next(item for item in complete["items"] if item["source"] == "591")
+        complete_item["source_id"] = "591-complete"
+        complete_item["url"] = "https://example.com/591/complete"
+
+        merged, choices = RETRY.merge_source_payloads(
+            (("partial", partial), ("complete", complete))
+        )
+
+        items = [item for item in merged["items"] if item["source"] == "591"]
+        self.assertEqual([item["source_id"] for item in items], ["591-complete"])
+        self.assertEqual(choices["591"], "complete")
+        self.assertTrue(merged["stats"]["sources"]["591"]["crawl_complete"])
+
+    def test_source_only_retry_cannot_replace_other_source_diagnostics(self) -> None:
+        initial = merge_payload(
+            generated_at="2026-08-21T09:30:00+08:00",
+            source_rows={"591": (1, 1)},
+        )
+        retry = merge_payload(
+            generated_at="2026-08-21T09:40:00+08:00",
+            source_rows={"591": (1, 1)},
+        )
+        for source in RETRY.SOURCE_ORDER:
+            if source != "591":
+                retry["stats"]["sources"][source]["validation_skipped"] = True
+        initial["stats"]["sources"]["FB"]["errors"] = ["initial diagnostic"]
+
+        merged, choices = RETRY.merge_source_payloads(
+            (("initial", initial), ("retry", retry))
+        )
+
+        self.assertEqual(choices["FB"], "initial")
+        self.assertEqual(
+            merged["stats"]["sources"]["FB"]["errors"],
+            ["initial diagnostic"],
+        )
 
     def test_source_merge_rejects_non_delivery_comparison(self) -> None:
         first = merge_payload(
