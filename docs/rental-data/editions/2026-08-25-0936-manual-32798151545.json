@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-08-25T09:56:10.672711+08:00",
-  "edition_id": "2026-08-25-0956-manual-32798151545",
-  "edition_url": "https://flyspacesky.github.io/taoyuan-rental-digest/archive/2026-08-25-0956-manual-32798151545.html",
+  "generated_at": "2026-08-25T09:36:28.436884+08:00",
+  "edition_id": "2026-08-25-0936-manual-32798151545",
+  "edition_url": "https://flyspacesky.github.io/taoyuan-rental-digest/archive/2026-08-25-0936-manual-32798151545.html",
   "stats": {
     "sources": {
       "591": {
@@ -12,12 +12,10 @@
           "591官方BFF連續回應403/429；為避免加重限流，本輪不再以同一出口連打列表HTML與Chromium。這是Runner出口IP被591限制，不是Chromium未安裝或物件ID解析失敗。",
           "591本輪沒有重新驗證成功的物件；為避免發布未確認仍在刊登的舊物件，本輪不沿用上次快照。"
         ],
-        "notices": [
-          "同一驗證時窗合併0次591 checkpoint，共0筆不重複且本輪重新驗證成功的物件。"
-        ],
+        "notices": [],
         "list_cache": 0,
         "rejects": {},
-        "egress": "github-hosted-ubuntu-retry",
+        "egress": "github-hosted-ubuntu",
         "stable_egress_configured": false,
         "planned_sections": [
           "桃園區",
@@ -34,15 +32,11 @@
         "blocked_after_queries": 2,
         "completed_sections": [],
         "crawl_complete": false,
-        "source_only_validation": true,
         "validated_before_freshness": 0,
         "freshness_checked": 0,
         "freshness_window_days": 2,
         "fresh_within_2_days": 0,
-        "freshness_rejected": 0,
-        "partial_refresh": true,
-        "checkpoint_attempts": [],
-        "checkpoint_union_items": 0
+        "freshness_rejected": 0
       },
       "FB": {
         "candidate_links": 2,
@@ -312,7 +306,7 @@
     },
     "candidates": 125,
     "validated": 59,
-    "duplicates": 0,
+    "duplicates": 59,
     "published": 59,
     "new_listings": 0,
     "freshness_rejected": 40,
@@ -325,18 +319,7 @@
       "信義房屋": 168,
       "永慶房屋": 168
     },
-    "comparison_source": "delivery:2026-08-24-2200",
-    "validation_comparison_sources": [
-      "delivery:2026-08-24-2200"
-    ],
-    "validation_attempts": {
-      "591": "checkpoint-union:",
-      "FB": "initial",
-      "樂屋網": "initial",
-      "Threads": "initial",
-      "信義房屋": "initial",
-      "永慶房屋": "initial"
-    }
+    "comparison_source": "delivery:2026-08-24-2200"
   },
   "items": [
     {
