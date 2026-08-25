@@ -330,6 +330,65 @@ class Extract591Tests(unittest.TestCase):
         self.assertFalse(DIGEST._591_page_is_outside_freshness(fresh))
         self.assertTrue(DIGEST._591_page_is_outside_freshness(stale))
 
+    def test_crawler_resumes_first_unverified_page_in_same_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            latest = Path(temp_dir) / "latest.json"
+            progress = {
+                district: {
+                    "next_page": 1,
+                    "empty_pages": 0,
+                    "completed": district != "桃園區",
+                }
+                for district in DIGEST.DISTRICTS_591
+            }
+            progress["桃園區"]["next_page"] = 6
+            latest.write_text(
+                json.dumps(
+                    {
+                        "generated_at": DIGEST.NOW.isoformat(),
+                        "stats": {
+                            "sources": {
+                                "591": {
+                                    "validation_run_id": "12345",
+                                    "validation_attempt": "retry1",
+                                    "checkpoint_chain": ["initial", "retry1"],
+                                    "planned_sections": list(DIGEST.DISTRICTS_591),
+                                    "section_progress": progress,
+                                }
+                            }
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            requested_pages: list[int] = []
+
+            def fake_bff(query: dict[str, object]):
+                requested_pages.append(int(query["page"]))
+                return 200, 150, self._bff_listing("21700006", "3天前更新")
+
+            stats = DIGEST.empty_source_stats()
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        DIGEST.RENTAL_591_RESUME_PATH_ENV: str(latest),
+                        DIGEST.RENTAL_VALIDATION_ATTEMPT_ENV: "retry2",
+                        "GITHUB_RUN_ID": "12345",
+                    },
+                ),
+                patch.object(DIGEST, "fetch_591_bff_cards", side_effect=fake_bff),
+                patch.object(DIGEST.time, "sleep", return_value=None),
+            ):
+                links = DIGEST.crawl_591_links(stats)
+
+        self.assertEqual(requested_pages, [6])
+        self.assertEqual(links, ["https://rent.591.com.tw/21700006"])
+        self.assertTrue(stats["crawl_complete"])
+        self.assertEqual(stats["checkpoint_chain"], ["initial", "retry1", "retry2"])
+        self.assertTrue(stats["section_progress"]["桃園區"]["completed"])
+
     def test_crawler_stops_after_two_fully_blocked_queries(self) -> None:
         stats = DIGEST.empty_source_stats()
         forbidden = SimpleNamespace(status_code=403)

@@ -6,12 +6,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "rental-digest.yml"
+RETRY_WORKFLOW = ROOT / ".github" / "workflows" / "rental-591-retry.yml"
 
 
 class WorkflowReliabilityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
+        cls.retry_workflow = RETRY_WORKFLOW.read_text(encoding="utf-8")
 
     def test_production_does_not_wait_for_personal_offline_runner(self) -> None:
         self.assertIn("group: taoyuan-rental-digest-live-v2", self.workflow)
@@ -20,7 +22,7 @@ class WorkflowReliabilityTests(unittest.TestCase):
             self.workflow,
         )
         self.assertIn("VALIDATION_EGRESS: github-hosted-ubuntu", self.workflow)
-        self.assertIn("591 若封鎖 GitHub-hosted Runner", self.workflow)
+        self.assertIn("591 若限制 GitHub-hosted Runner", self.workflow)
 
     def test_hosted_validation_keeps_social_sources_and_line_delivery(self) -> None:
         self.assertGreaterEqual(self.workflow.count("THREADS_ACCESS_TOKEN:"), 2)
@@ -48,30 +50,32 @@ class WorkflowReliabilityTests(unittest.TestCase):
 
     def test_rate_limit_uses_delayed_fresh_runner_retry(self) -> None:
         self.assertIn("retry_591_validation:", self.workflow)
-        self.assertIn("REQUESTED_DELAY:", self.workflow)
-        self.assertIn('sleep "${DELAY}"', self.workflow)
+        self.assertIn("retry_591_validation_4:", self.workflow)
+        self.assertIn("REQUESTED_DELAY:", self.retry_workflow)
+        self.assertIn('sleep "${DELAY}"', self.retry_workflow)
         self.assertIn("fresh-rental-validation-initial", self.workflow)
-        self.assertIn("fresh-rental-validation-retry", self.workflow)
+        self.assertIn("fresh-rental-validation-retry-4", self.workflow)
         self.assertIn("select_validation_attempt.py merge", self.workflow)
         self.assertIn("--attempt initial=.validation/initial", self.workflow)
-        self.assertIn("--attempt retry=.validation/retry", self.workflow)
+        self.assertIn("--attempt retry4=.validation/retry4", self.workflow)
+        self.assertIn("--require-complete-591", self.workflow)
         self.assertIn("needs.retry_591_validation.result", self.workflow)
-        self.assertIn('RENTAL_SOURCE_ONLY: "591"', self.workflow)
+        self.assertIn('RENTAL_SOURCE_ONLY: "591"', self.retry_workflow)
+        self.assertIn("RENTAL_591_RESUME_PATH:", self.retry_workflow)
         self.assertIn("RENTAL_591_RETRY_RUNNER || 'ubuntu-latest'", self.workflow)
-        self.assertGreaterEqual(
-            self.workflow.count("RENTAL_591_REQUEST_INTERVAL_SECONDS:"),
-            2,
-        )
+        combined = self.workflow + self.retry_workflow
+        self.assertGreaterEqual(combined.count("RENTAL_591_REQUEST_INTERVAL_SECONDS:"), 2)
 
     def test_stable_591_proxy_is_optional_and_secret_backed(self) -> None:
-        self.assertGreaterEqual(self.workflow.count("RENTAL_591_PROXY_SERVER:"), 2)
+        combined = self.workflow + self.retry_workflow
+        self.assertGreaterEqual(combined.count("RENTAL_591_PROXY_SERVER:"), 2)
         self.assertIn(
             "RENTAL_591_PROXY_SERVER: ${{ secrets.RENTAL_591_PROXY_SERVER }}",
-            self.workflow,
+            combined,
         )
         self.assertIn(
             "RENTAL_591_PROXY_PASSWORD: ${{ secrets.RENTAL_591_PROXY_PASSWORD }}",
-            self.workflow,
+            combined,
         )
 
     def test_prevalidated_publish_is_time_bounded_and_explicit(self) -> None:
