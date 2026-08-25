@@ -156,6 +156,8 @@ RENTAL_591_PROXY_SERVER_ENV = "RENTAL_591_PROXY_SERVER"
 RENTAL_591_PROXY_USERNAME_ENV = "RENTAL_591_PROXY_USERNAME"
 RENTAL_591_PROXY_PASSWORD_ENV = "RENTAL_591_PROXY_PASSWORD"
 RENTAL_591_REQUEST_INTERVAL_ENV = "RENTAL_591_REQUEST_INTERVAL_SECONDS"
+RENTAL_591_RESUME_PATH_ENV = "RENTAL_591_RESUME_PATH"
+RENTAL_VALIDATION_ATTEMPT_ENV = "RENTAL_VALIDATION_ATTEMPT"
 RENTAL_SOURCE_ONLY_ENV = "RENTAL_SOURCE_ONLY"
 
 
@@ -1572,6 +1574,56 @@ def _591_page_is_outside_freshness(cards: Mapping[str, Listing]) -> bool:
     )
 
 
+def _591_resume_progress() -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
+    """Load only same-run crawl progress; listing rows remain artifact-merged later."""
+
+    path_text = os.environ.get(RENTAL_591_RESUME_PATH_ENV, "").strip()
+    if not path_text:
+        return {}, {}
+    path = Path(path_text)
+    if not path.is_file():
+        raise FileNotFoundError(f"591 checkpoint 不存在：{path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    row = payload.get("stats", {}).get("sources", {}).get("591", {})
+    if row.get("snapshot_used") or row.get("fallback"):
+        raise ValueError("591 checkpoint 不得來自舊快照")
+    current_run = os.environ.get("GITHUB_RUN_ID", "").strip()
+    checkpoint_run = str(row.get("validation_run_id", "")).strip()
+    if current_run and checkpoint_run != current_run:
+        raise ValueError("591 checkpoint 不屬於目前 workflow run")
+    generated_at = parse_state_time(payload.get("generated_at"))
+    if generated_at is None or not timedelta(0) <= NOW - generated_at <= timedelta(hours=2):
+        raise ValueError("591 checkpoint 已超出同一驗證時窗")
+    planned = row.get("planned_sections")
+    if planned != list(DISTRICTS_591):
+        raise ValueError("591 checkpoint 行政區範圍與目前設定不一致")
+
+    raw_progress = row.get("section_progress", {})
+    if not isinstance(raw_progress, dict):
+        raise ValueError("591 checkpoint section_progress 格式錯誤")
+    progress: dict[str, dict[str, Any]] = {}
+    for district in DISTRICTS_591:
+        raw = raw_progress.get(district, {})
+        if not isinstance(raw, dict):
+            raise ValueError(f"591 checkpoint {district} 進度格式錯誤")
+        next_page = int(raw.get("next_page", 1) or 1)
+        empty_pages = int(raw.get("empty_pages", 0) or 0)
+        if not 1 <= next_page <= 100 or not 0 <= empty_pages <= 1:
+            raise ValueError(f"591 checkpoint {district} 分頁進度超出範圍")
+        progress[district] = {
+            "next_page": next_page,
+            "empty_pages": empty_pages,
+            "completed": bool(raw.get("completed", False)),
+        }
+    metadata = {
+        "generated_at": payload.get("generated_at"),
+        "attempt": row.get("validation_attempt", ""),
+        "checkpoint_chain": list(row.get("checkpoint_chain", [])),
+        "freshness_boundaries": dict(row.get("freshness_boundaries", {})),
+    }
+    return progress, metadata
+
+
 def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
     source_stats["egress"] = (
         "stable_proxy"
@@ -1582,11 +1634,41 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
     links: list[str] = []
     seen: set[str] = set()
     blocked_streak = 0
+    unverified_streak = 0
     stop_after_block = False
-    completed_sections: list[str] = []
+    resume_progress, resume_metadata = _591_resume_progress()
+    section_progress: dict[str, dict[str, Any]] = {
+        district: dict(
+            resume_progress.get(
+                district,
+                {"next_page": 1, "empty_pages": 0, "completed": False},
+            )
+        )
+        for district in DISTRICTS_591
+    }
+    completed_sections: list[str] = [
+        district
+        for district in DISTRICTS_591
+        if section_progress[district].get("completed")
+    ]
     request_interval = _591_request_interval()
     source_stats["planned_sections"] = list(DISTRICTS_591)
     source_stats["request_interval_seconds"] = request_interval
+    source_stats["validation_run_id"] = os.environ.get("GITHUB_RUN_ID", "").strip()
+    attempt_name = os.environ.get(RENTAL_VALIDATION_ATTEMPT_ENV, "initial").strip()
+    source_stats["validation_attempt"] = attempt_name or "initial"
+    checkpoint_chain = [str(value) for value in resume_metadata.get("checkpoint_chain", [])]
+    if source_stats["validation_attempt"] not in checkpoint_chain:
+        checkpoint_chain.append(source_stats["validation_attempt"])
+    source_stats["checkpoint_chain"] = checkpoint_chain
+    source_stats["section_progress"] = section_progress
+    if resume_progress:
+        source_stats["resumed_from_checkpoint"] = True
+        source_stats["resume_from_generated_at"] = resume_metadata.get("generated_at")
+        source_stats["resume_from_attempt"] = resume_metadata.get("attempt")
+        source_stats["freshness_boundaries"] = resume_metadata.get(
+            "freshness_boundaries", {}
+        )
 
     def record_status(channel: str, status: int | None) -> None:
         statuses = source_stats.setdefault("http_statuses", {}).setdefault(channel, {})
@@ -1601,9 +1683,13 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
 
     for mode, extra_query in search_modes:
         for district, section in DISTRICTS_591.items():
-            empty_pages = 0
+            progress = section_progress[district]
+            if progress.get("completed"):
+                continue
+            empty_pages = int(progress.get("empty_pages", 0) or 0)
             district_completed = False
-            for page_no in range(1, 101):
+            start_page = int(progress.get("next_page", 1) or 1)
+            for page_no in range(start_page, 101):
                 query: dict[str, Any] = {
                     "kind": 1,
                     "layout": 4,
@@ -1672,6 +1758,21 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                 else:
                     blocked_streak = 0
 
+                page_verified = bool(
+                    cards
+                    or bff_status == 200
+                    or (
+                        response is not None
+                        and response.status_code == 200
+                        and not looks_blocked(raw)
+                    )
+                    or browser_result in {"valid", "no_cards"}
+                )
+                if page_verified:
+                    unverified_streak = 0
+                elif bff_status not in {401, 403, 429}:
+                    unverified_streak += 1
+
                 for item_id, item in cards.items():
                     existing = _591_LIST_CACHE.get(item_id)
                     if existing is None or len(item.summary) > len(existing.summary):
@@ -1699,14 +1800,24 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                     stop_after_block = True
                     source_stats["blocked_after_queries"] = 2
                     break
+                if unverified_streak >= 2:
+                    stop_after_block = True
+                    source_stats["unverified_after_queries"] = 2
+                    break
 
                 if not new_ids:
-                    empty_pages += 1
-                    if empty_pages >= 2:
-                        district_completed = True
-                        break
+                    if page_verified:
+                        empty_pages += 1
+                        progress["next_page"] = min(page_no + 1, 100)
+                        progress["empty_pages"] = empty_pages
+                        if empty_pages >= 2:
+                            district_completed = True
+                            break
                 else:
                     empty_pages = 0
+                    if page_verified:
+                        progress["next_page"] = min(page_no + 1, 100)
+                        progress["empty_pages"] = 0
 
                 for item_id in new_ids:
                     seen.add(item_id)
@@ -1721,7 +1832,10 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
 
                 time.sleep(request_interval)
             if district_completed:
-                completed_sections.append(district)
+                progress["completed"] = True
+                progress["empty_pages"] = 0
+                if district not in completed_sections:
+                    completed_sections.append(district)
             if stop_after_block:
                 break
         if stop_after_block:
@@ -1732,14 +1846,20 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
         not stop_after_block and set(completed_sections) == set(DISTRICTS_591)
     )
     source_stats["candidate_links"] = len(links)
+    source_stats["validated_candidate_ids"] = sorted(seen)
     source_stats["list_cache"] = len(_591_LIST_CACHE)
     source_stats["rejects"] = dict(sorted(_591_REJECTS.items()))
     if not links:
-        if stop_after_block:
+        if source_stats.get("blocked_after_queries"):
             source_stats["errors"].append(
                 "591官方BFF連續回應403/429；為避免加重限流，本輪不再以同一出口"
                 "連打列表HTML與Chromium。這是Runner出口IP被591限制，不是"
                 "Chromium未安裝或物件ID解析失敗。"
+            )
+        elif source_stats.get("unverified_after_queries"):
+            source_stats["errors"].append(
+                "591連續兩頁無法取得可驗證的BFF、HTML或瀏覽器內容；"
+                "本輪保留分頁checkpoint，未將網路錯誤誤判為清單結束。"
             )
         else:
             source_stats["errors"].append(
@@ -2106,13 +2226,22 @@ def collect_591_listings(source_stats: dict[str, Any]) -> list[Listing]:
 
     # 若前段已有少量成功資料、後續卻因 403/429 中止，這不是完整刷新。
     # 只發布本輪已重新驗證成功的資料；舊快照不得補進本輪發布清單。
-    if fresh and source_stats.get("blocked_after_queries"):
+    if fresh and (
+        source_stats.get("blocked_after_queries")
+        or source_stats.get("crawl_complete") is False
+    ):
         source_stats["fresh_validated"] = len(fresh)
         source_stats["partial_refresh"] = True
-        source_stats["errors"].append(
-            f"591本輪只重新驗證成功{len(fresh)}筆後即遭阻擋；"
-            "本輪只發布這些已驗證物件，不沿用上次快照。"
-        )
+        if source_stats.get("blocked_after_queries"):
+            source_stats["errors"].append(
+                f"591本輪只重新驗證成功{len(fresh)}筆後即遭阻擋；"
+                "本輪只保留這些已驗證物件作為checkpoint，不沿用上次快照。"
+            )
+        else:
+            source_stats["errors"].append(
+                f"591本輪只重新驗證成功{len(fresh)}筆後網路驗證中斷；"
+                "本輪只保留這些已驗證物件作為checkpoint，不沿用上次快照。"
+            )
         return fresh
 
     if fresh:

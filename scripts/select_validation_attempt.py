@@ -17,7 +17,7 @@ from typing import Any, Iterable
 
 
 SOURCE_ORDER = ("591", "FB", "樂屋網", "Threads", "信義房屋", "永慶房屋")
-MAX_ATTEMPT_SPAN = timedelta(hours=1)
+MAX_ATTEMPT_SPAN = timedelta(minutes=90)
 MAX_PREVALIDATED_AGE = timedelta(hours=2)
 SOURCE_FRESHNESS_DAYS = 7
 SOURCE_FRESHNESS_DAYS_BY_SOURCE = {"591": 2}
@@ -176,7 +176,7 @@ def merge_source_payloads(
         raise FileNotFoundError("no fresh validation artifact is available")
     generated = [parse_timestamp(payload.get("generated_at")) for _, payload in attempts]
     if max(generated) - min(generated) > MAX_ATTEMPT_SPAN:
-        raise ValueError("validation attempts are outside the one-hour merge window")
+        raise ValueError("validation attempts are outside the 90-minute merge window")
 
     comparisons = {
         str(payload.get("stats", {}).get("comparison_source", ""))
@@ -210,11 +210,18 @@ def merge_source_payloads(
                 for attempt_name, payload in available
                 if payload["stats"]["sources"]["591"].get("crawl_complete") is True
             ]
-            if complete:
+            standalone_complete = [
+                (attempt_name, payload)
+                for attempt_name, payload in complete
+                if not payload["stats"]["sources"]["591"].get(
+                    "resumed_from_checkpoint"
+                )
+            ]
+            if standalone_complete:
                 # A complete later crawl is authoritative; do not re-add rows that
                 # appeared in an earlier partial checkpoint but disappeared later.
                 name, selected = max(
-                    complete,
+                    standalone_complete,
                     key=lambda row: (
                         parse_timestamp(row[1]["generated_at"]),
                         source_score(row[1], source),
@@ -225,6 +232,77 @@ def merge_source_payloads(
                     selected, source, final_generated_at
                 )
                 selected_row["checkpoint_attempts"] = [name]
+            elif complete:
+                # A resumed completion proves full section/page coverage across a
+                # same-run checkpoint chain. Retain only the named attempts in that
+                # chain and union their freshly validated rows by stable source id.
+                name, selected = max(
+                    complete,
+                    key=lambda row: parse_timestamp(row[1]["generated_at"]),
+                )
+                selected_row = copy.deepcopy(selected["stats"]["sources"][source])
+                chain = [str(value) for value in selected_row.get("checkpoint_chain", [])]
+                relevant = [row for row in available if row[0] in chain]
+                if not chain or {attempt_name for attempt_name, _ in relevant} != set(chain):
+                    raise ValueError("591 completed checkpoint chain is incomplete")
+                checkpoint_items: dict[str, dict[str, Any]] = {}
+                candidate_ids: set[str] = set()
+                combined_rejects: dict[str, int] = {}
+                freshness_rejected = 0
+                for attempt_name, payload in sorted(
+                    relevant, key=lambda row: parse_timestamp(row[1]["generated_at"])
+                ):
+                    retained, rejected = validated_source_items(
+                        payload, source, final_generated_at
+                    )
+                    boundary_keys.update(rejected)
+                    row = payload["stats"]["sources"][source]
+                    for reason, count in row.get("rejects", {}).items():
+                        combined_rejects[str(reason)] = (
+                            combined_rejects.get(str(reason), 0) + int(count or 0)
+                        )
+                    freshness_rejected += int(row.get("freshness_rejected", 0) or 0)
+                    candidate_ids.update(
+                        str(value)
+                        for value in row.get("validated_candidate_ids", [])
+                        if str(value)
+                    )
+                    for item in retained:
+                        key = str(item.get("source_id") or item.get("url") or "")
+                        if not key:
+                            raise ValueError("591 checkpoint item is missing source identity")
+                        previous = checkpoint_items.get(key)
+                        if previous is None or parse_timestamp(
+                            item.get("validated_at")
+                        ) > parse_timestamp(previous.get("validated_at")):
+                            checkpoint_items[key] = item
+                source_items = sorted(
+                    checkpoint_items.values(),
+                    key=lambda item: parse_timestamp(item.get("source_timestamp")),
+                    reverse=True,
+                )
+                selected_row["crawl_complete"] = True
+                selected_row["partial_refresh"] = False
+                selected_row["checkpoint_attempts"] = chain
+                selected_row["checkpoint_union_items"] = len(source_items)
+                selected_row["rejects"] = dict(sorted(combined_rejects.items()))
+                selected_row["freshness_rejected"] = freshness_rejected
+                if candidate_ids:
+                    selected_row["validated_candidate_ids"] = sorted(candidate_ids)
+                    selected_row["candidate_links"] = len(candidate_ids)
+                    selected_row["fresh_validated"] = len(candidate_ids)
+                    selected_row["validated_before_freshness"] = len(candidate_ids)
+                    selected_row["freshness_checked"] = len(candidate_ids)
+                else:
+                    selected_row["candidate_links"] = max(
+                        int(payload["stats"]["sources"][source].get("candidate_links", 0) or 0)
+                        for _, payload in relevant
+                    )
+                selected_row.setdefault("notices", []).append(
+                    f"同一驗證時窗依序完成{len(chain)}個591 checkpoint，"
+                    "四個行政區的清單分頁均已完整驗證。"
+                )
+                choices[source] = "checkpoint-complete:" + ",".join(chain)
             else:
                 # Every row is still from this validation window. Union partial
                 # checkpoints by stable source id so a later runner can continue
@@ -306,7 +384,8 @@ def merge_source_payloads(
         selected_row["published"] = len(source_items)
         merged_sources[source] = selected_row
         merged_items.extend(source_items)
-        choices[source] = name
+        if source not in choices:
+            choices[source] = name
 
     newest_name, newest = max(attempts, key=lambda row: parse_timestamp(row[1]["generated_at"]))
     stats = copy.deepcopy(newest.get("stats", {}))
@@ -422,7 +501,11 @@ def select_command(initial: Path, retry: Path, output: Path) -> int:
 
 
 def merge_command(
-    attempts: list[str], output: Path, edition_id: str | None, site_url: str
+    attempts: list[str],
+    output: Path,
+    edition_id: str | None,
+    site_url: str,
+    require_complete_591: bool = False,
 ) -> int:
     available: list[tuple[str, Path, dict[str, Any]]] = []
     for raw in attempts:
@@ -441,6 +524,10 @@ def merge_command(
         if path.resolve() != output.resolve():
             shutil.copytree(path, output, dirs_exist_ok=True)
     merged, choices = merge_source_payloads((name, payload) for name, _, payload in available)
+    if require_complete_591 and not source_591(merged).get("crawl_complete"):
+        raise RuntimeError(
+            "591 四個行政區尚未完成本輪清單驗證；保留 checkpoint，禁止發布部分版。"
+        )
     final_payload = write_merged_edition(merged, output, edition_id, site_url)
     print("Merged validation sources:", json.dumps(choices, ensure_ascii=False))
     print("Merged edition:", final_payload["edition_url"])
@@ -465,6 +552,8 @@ def verify_command(latest: Path, docs: Path) -> int:
     if set(SOURCE_ORDER) - set(sources):
         raise ValueError("prevalidated bundle is missing source diagnostics")
     assert_fresh_591(payload)
+    if source_591(payload).get("crawl_complete") is not True:
+        raise ValueError("prevalidated 591 crawl is incomplete")
     items = payload.get("items", [])
     if len(items) != int(payload.get("stats", {}).get("published", -1)):
         raise ValueError("prevalidated published count does not match items")
@@ -519,6 +608,7 @@ def parser() -> argparse.ArgumentParser:
     merge.add_argument("--output", type=Path, required=True)
     merge.add_argument("--edition-id")
     merge.add_argument("--site-url", default="https://flyspacesky.github.io/taoyuan-rental-digest/")
+    merge.add_argument("--require-complete-591", action="store_true")
     verify = commands.add_parser("verify")
     verify.add_argument("--latest", type=Path, default=Path("docs/rental-data/latest.json"))
     verify.add_argument("--docs", type=Path, default=Path("docs"))
@@ -532,7 +622,13 @@ def main() -> int:
     if args.command == "select":
         return select_command(args.initial, args.retry, args.output)
     if args.command == "merge":
-        return merge_command(args.attempt, args.output, args.edition_id, args.site_url)
+        return merge_command(
+            args.attempt,
+            args.output,
+            args.edition_id,
+            args.site_url,
+            args.require_complete_591,
+        )
     return verify_command(args.latest, args.docs)
 
 

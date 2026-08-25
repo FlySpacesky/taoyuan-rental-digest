@@ -202,6 +202,48 @@ class ValidationRetryTests(unittest.TestCase):
         self.assertEqual(choices["591"], "complete")
         self.assertTrue(merged["stats"]["sources"]["591"]["crawl_complete"])
 
+    def test_resumed_complete_591_unions_exact_checkpoint_chain(self) -> None:
+        initial = merge_payload(
+            generated_at="2026-08-21T09:30:00+08:00",
+            source_rows={"591": (1, 1)},
+        )
+        retry = merge_payload(
+            generated_at="2026-08-21T09:40:00+08:00",
+            source_rows={"591": (1, 1)},
+        )
+        initial_row = initial["stats"]["sources"]["591"]
+        initial_row.update(
+            {
+                "crawl_complete": False,
+                "partial_refresh": True,
+                "validated_candidate_ids": ["591-0"],
+            }
+        )
+        retry_row = retry["stats"]["sources"]["591"]
+        retry_row.update(
+            {
+                "crawl_complete": True,
+                "resumed_from_checkpoint": True,
+                "checkpoint_chain": ["initial", "retry1"],
+                "validated_candidate_ids": ["591-retry"],
+            }
+        )
+        retry_item = next(item for item in retry["items"] if item["source"] == "591")
+        retry_item["source_id"] = "591-retry"
+        retry_item["url"] = "https://example.com/591/retry"
+
+        merged, choices = RETRY.merge_source_payloads(
+            (("initial", initial), ("retry1", retry))
+        )
+
+        row = merged["stats"]["sources"]["591"]
+        items = [item for item in merged["items"] if item["source"] == "591"]
+        self.assertEqual({item["source_id"] for item in items}, {"591-0", "591-retry"})
+        self.assertEqual(row["candidate_links"], 2)
+        self.assertEqual(row["checkpoint_attempts"], ["initial", "retry1"])
+        self.assertTrue(row["crawl_complete"])
+        self.assertEqual(choices["591"], "checkpoint-complete:initial,retry1")
+
     def test_source_only_retry_cannot_replace_other_source_diagnostics(self) -> None:
         initial = merge_payload(
             generated_at="2026-08-21T09:30:00+08:00",
