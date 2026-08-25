@@ -10,6 +10,7 @@ on:
       - "requirements.txt"
       - "data/**"
       - ".github/workflows/rental-digest.yml"
+      - ".github/workflows/rental-591-retry.yml"
   workflow_dispatch:
     inputs:
       reset_history:
@@ -127,8 +128,8 @@ jobs:
           path: docs
           retention-days: 3
 
-  # 正式排程不能依賴可能離線的個人電腦。591 若封鎖 GitHub-hosted Runner，
-  # 本輪就誠實發布 0 筆，不使用未重新驗證的舊快照；其他來源與 LINE 仍須完成。
+  # 正式排程不能依賴可能離線的個人電腦。591 若限制 GitHub-hosted Runner，
+  # 同輪會延後從未完成分頁續抓；四區未完整前不得部署，且不使用舊快照。
   # 只有真正會投遞 LINE 的排程或 main 人工執行才抓正式來源。
   fresh_source_validation:
     if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && !inputs.publish_prevalidated) }}
@@ -195,6 +196,7 @@ jobs:
           THREADS_POSTS_JSON_URL: ${{ secrets.THREADS_POSTS_JSON_URL || vars.THREADS_POSTS_JSON_URL }}
           GITHUB_TOKEN: ${{ github.token }}
           VALIDATION_EGRESS: github-hosted-ubuntu
+          RENTAL_VALIDATION_ATTEMPT: initial
           RENTAL_591_REQUEST_INTERVAL_SECONDS: ${{ vars.RENTAL_591_REQUEST_INTERVAL_SECONDS || '1.5' }}
           RENTAL_591_PROXY_SERVER: ${{ secrets.RENTAL_591_PROXY_SERVER }}
           RENTAL_591_PROXY_USERNAME: ${{ secrets.RENTAL_591_PROXY_USERNAME }}
@@ -218,96 +220,54 @@ jobs:
   retry_591_validation:
     if: ${{ needs.fresh_source_validation.outputs.retry_591 == 'true' }}
     needs: fresh_source_validation
-    # 可將 RENTAL_591_RETRY_RUNNER 設為自有 Linux runner 標籤；未設定時
-    # 仍以新的 GitHub-hosted runner 做一次延後 checkpoint。
-    runs-on: ${{ vars.RENTAL_591_RETRY_RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 70
-    outputs:
-      retry_591: ${{ steps.retry_gate.outputs.retry_591 }}
+    uses: ./.github/workflows/rental-591-retry.yml
+    with:
+      previous_artifact: fresh-rental-validation-initial
+      output_artifact: fresh-rental-validation-retry-1
+      attempt_name: retry1
+      runner: ${{ vars.RENTAL_591_RETRY_RUNNER || 'ubuntu-latest' }}
+      requested_delay: ${{ vars.RENTAL_591_RETRY_DELAY_SECONDS || '600' }}
+    secrets: inherit
 
-    steps:
-      - name: 延後後改用新的 Runner 出口
-        shell: bash
-        env:
-          REQUESTED_DELAY: ${{ vars.RENTAL_591_RETRY_DELAY_SECONDS }}
-        run: |
-          DELAY="${REQUESTED_DELAY:-900}"
-          if ! [[ "${DELAY}" =~ ^[0-9]+$ ]]; then DELAY=900; fi
-          if [ "${DELAY}" -lt 300 ]; then DELAY=300; fi
-          if [ "${DELAY}" -gt 3600 ]; then DELAY=3600; fi
-          echo "591 受限，等待 ${DELAY} 秒後以新的 GitHub Runner 重新驗證。"
-          sleep "${DELAY}"
+  retry_591_validation_2:
+    if: ${{ needs.retry_591_validation.outputs.retry_591 == 'true' }}
+    needs: retry_591_validation
+    uses: ./.github/workflows/rental-591-retry.yml
+    with:
+      previous_artifact: fresh-rental-validation-retry-1
+      output_artifact: fresh-rental-validation-retry-2
+      attempt_name: retry2
+      runner: ${{ vars.RENTAL_591_RETRY_RUNNER || 'ubuntu-latest' }}
+      requested_delay: ${{ vars.RENTAL_591_RETRY_DELAY_SECONDS || '600' }}
+    secrets: inherit
 
-      - name: 下載正式版
-        uses: actions/checkout@v6
-        with:
-          ref: main
+  retry_591_validation_3:
+    if: ${{ needs.retry_591_validation_2.outputs.retry_591 == 'true' }}
+    needs: retry_591_validation_2
+    uses: ./.github/workflows/rental-591-retry.yml
+    with:
+      previous_artifact: fresh-rental-validation-retry-2
+      output_artifact: fresh-rental-validation-retry-3
+      attempt_name: retry3
+      runner: ${{ vars.RENTAL_591_RETRY_RUNNER || 'ubuntu-latest' }}
+      requested_delay: ${{ vars.RENTAL_591_RETRY_DELAY_SECONDS || '600' }}
+    secrets: inherit
 
-      - name: 設定 Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: 安裝 Python 套件
-        run: python -m pip install -r requirements.txt
-
-      - name: 安裝 Chromium
-        run: |
-          if [ -f /etc/apt/apt-mirrors.txt ]; then
-            sudo sed -i '\|http://azure.archive.ubuntu.com/ubuntu|d' /etc/apt/apt-mirrors.txt
-          fi
-          python -m playwright install --with-deps chromium
-
-      - name: 決定重試快報版本
-        shell: bash
-        env:
-          EVENT_SCHEDULE: ${{ github.event.schedule }}
-        run: |
-          DATE=$(TZ=Asia/Taipei date +%F)
-          TIME=$(TZ=Asia/Taipei date +%H%M)
-          case "${EVENT_SCHEDULE}" in
-            "30 9 * * *") SUFFIX="0930" ;;
-            "0 16 * * *") SUFFIX="1600" ;;
-            "0 22 * * *") SUFFIX="2200" ;;
-            *) SUFFIX="${TIME}-manual-${GITHUB_RUN_ID}" ;;
-          esac
-          echo "RENTAL_EDITION_ID=${DATE}-${SUFFIX}" >> "${GITHUB_ENV}"
-
-      - name: 本輪延後重新抓取並驗證
-        env:
-          FACEBOOK_POSTS_JSON: ${{ secrets.FACEBOOK_POSTS_JSON }}
-          FACEBOOK_POSTS_JSON_URL: ${{ secrets.FACEBOOK_POSTS_JSON_URL || vars.FACEBOOK_POSTS_JSON_URL }}
-          FACEBOOK_PRIVATE_INBOX_TOKEN: ${{ secrets.FB_INBOX_READ_TOKEN }}
-          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
-          THREADS_POSTS_JSON: ${{ secrets.THREADS_POSTS_JSON }}
-          THREADS_POSTS_JSON_URL: ${{ secrets.THREADS_POSTS_JSON_URL || vars.THREADS_POSTS_JSON_URL }}
-          GITHUB_TOKEN: ${{ github.token }}
-          VALIDATION_EGRESS: github-hosted-ubuntu-retry
-          RENTAL_SOURCE_ONLY: "591"
-          RENTAL_591_REQUEST_INTERVAL_SECONDS: ${{ vars.RENTAL_591_REQUEST_INTERVAL_SECONDS || '1.5' }}
-          RENTAL_591_PROXY_SERVER: ${{ secrets.RENTAL_591_PROXY_SERVER }}
-          RENTAL_591_PROXY_USERNAME: ${{ secrets.RENTAL_591_PROXY_USERNAME }}
-          RENTAL_591_PROXY_PASSWORD: ${{ secrets.RENTAL_591_PROXY_PASSWORD }}
-          RENTAL_EDITION_ID: ${{ env.RENTAL_EDITION_ID }}
-          SITE_URL: https://flyspacesky.github.io/taoyuan-rental-digest/
-        run: python scripts/generate_rental_digest.py
-
-      - name: 重試 fresh validation 閘門與診斷
-        id: retry_gate
-        run: python scripts/select_validation_attempt.py inspect --latest docs/rental-data/latest.json
-
-      - name: 上傳重試驗證內容
-        uses: actions/upload-artifact@v4
-        with:
-          name: fresh-rental-validation-retry
-          path: docs
-          if-no-files-found: error
-          retention-days: 1
+  retry_591_validation_4:
+    if: ${{ needs.retry_591_validation_3.outputs.retry_591 == 'true' }}
+    needs: retry_591_validation_3
+    uses: ./.github/workflows/rental-591-retry.yml
+    with:
+      previous_artifact: fresh-rental-validation-retry-3
+      output_artifact: fresh-rental-validation-retry-4
+      attempt_name: retry4
+      runner: ${{ vars.RENTAL_591_RETRY_RUNNER || 'ubuntu-latest' }}
+      requested_delay: ${{ vars.RENTAL_591_RETRY_DELAY_SECONDS || '600' }}
+    secrets: inherit
 
   build_deploy_broadcast:
-    if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')) && ((github.event_name == 'workflow_dispatch' && inputs.publish_prevalidated) || (needs.fresh_source_validation.result == 'success' && needs.retry_591_validation.result != 'cancelled')) }}
-    needs: [fresh_source_validation, retry_591_validation]
+    if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')) && ((github.event_name == 'workflow_dispatch' && inputs.publish_prevalidated) || (needs.fresh_source_validation.result == 'success' && needs.retry_591_validation.result != 'failure' && needs.retry_591_validation.result != 'cancelled' && needs.retry_591_validation_2.result != 'failure' && needs.retry_591_validation_2.result != 'cancelled' && needs.retry_591_validation_3.result != 'failure' && needs.retry_591_validation_3.result != 'cancelled' && needs.retry_591_validation_4.result != 'failure' && needs.retry_591_validation_4.result != 'cancelled')) }}
+    needs: [fresh_source_validation, retry_591_validation, retry_591_validation_2, retry_591_validation_3, retry_591_validation_4]
     runs-on: ubuntu-latest
 
     environment:
@@ -327,12 +287,33 @@ jobs:
           name: fresh-rental-validation-initial
           path: .validation/initial
 
-      - name: 下載延後重試結果
+      - name: 下載第1次延後重試結果
         if: ${{ !inputs.publish_prevalidated && needs.retry_591_validation.result == 'success' }}
         uses: actions/download-artifact@v4
         with:
-          name: fresh-rental-validation-retry
-          path: .validation/retry
+          name: fresh-rental-validation-retry-1
+          path: .validation/retry1
+
+      - name: 下載第2次延後重試結果
+        if: ${{ !inputs.publish_prevalidated && needs.retry_591_validation_2.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: fresh-rental-validation-retry-2
+          path: .validation/retry2
+
+      - name: 下載第3次延後重試結果
+        if: ${{ !inputs.publish_prevalidated && needs.retry_591_validation_3.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: fresh-rental-validation-retry-3
+          path: .validation/retry3
+
+      - name: 下載第4次延後重試結果
+        if: ${{ !inputs.publish_prevalidated && needs.retry_591_validation_4.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: fresh-rental-validation-retry-4
+          path: .validation/retry4
 
       - name: 設定 Python
         uses: actions/setup-python@v6
@@ -349,8 +330,12 @@ jobs:
         run: |
           python scripts/select_validation_attempt.py merge \
             --attempt initial=.validation/initial \
-            --attempt retry=.validation/retry \
-            --output docs
+            --attempt retry1=.validation/retry1 \
+            --attempt retry2=.validation/retry2 \
+            --attempt retry3=.validation/retry3 \
+            --attempt retry4=.validation/retry4 \
+            --output docs \
+            --require-complete-591
 
       - name: 檢查 Python 語法
         run: python -m py_compile scripts/generate_rental_digest.py scripts/send_line.py scripts/select_validation_attempt.py
