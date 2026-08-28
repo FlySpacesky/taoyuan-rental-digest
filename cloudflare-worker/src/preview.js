@@ -69,7 +69,9 @@ export async function browserDetailProbe(binding, api) {
     });
     const work = (async () => {
       const page = await browser.newPage();
-      await page.setJavaScriptEnabled(false);
+      // A brand-new isolated session must be able to render the public site's
+      // JavaScript verification page. It has no cookies from a list request.
+      await page.setJavaScriptEnabled(true);
       audit("detail_start", { source_id: SAMPLE_ID });
       const detail = await readYungchingDetail(page, { source_id: SAMPLE_ID });
       const item = detail && normalizeYungchingWorkerItem(detail);

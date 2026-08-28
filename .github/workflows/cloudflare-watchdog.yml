@@ -81,10 +81,10 @@ jobs:
             --var "PREVIEW_COMMIT:${{ github.event.pull_request.head.sha }}" \
             --var "PREVIEW_EXPIRES_AT_MS:${PREVIEW_EXPIRES_AT_MS}"
           printf '%s' "${PREVIEW_PROBE_TOKEN}" | npx --yes wrangler@4.120.0 secret put PREVIEW_PROBE_TOKEN --config wrangler.preview.jsonc
-      - name: 單筆來源串流測試（不啟動瀏覽器）
+      - name: 單筆瀏覽器 CPU 測試（20秒截止、沒有重試）
         working-directory: cloudflare-worker
         env:
-          PREVIEW_PROBE_MODE: fetch
+          PREVIEW_PROBE_MODE: browser
           PREVIEW_EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha }}
         run: python3 scripts/preview_probe.py
       - name: 保存隔離驗證結果
