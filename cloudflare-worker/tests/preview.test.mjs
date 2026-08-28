@@ -20,9 +20,12 @@ test("preview config cannot bind production resources or scheduled handlers", ()
   assert.equal(createPreviewWorker().scheduled, undefined);
   const workflow = fs.readFileSync(new URL("../../.github/workflows/cloudflare-watchdog.yml", import.meta.url), "utf8").replaceAll("\r\n", "\n");
   const previewJob = workflow.split("  preview:\n")[1].split("  deploy:\n")[0];
+  assert.match(previewJob, /vars\.RENTAL_CPU_PREVIEW_ENABLED == 'true'/);
   assert.match(previewJob, /pull_request\.number == 44/);
   assert.match(previewJob, /head\.repo\.full_name == github\.repository/);
   assert.match(previewJob, /--config wrangler\.preview\.jsonc/);
+  assert.match(previewJob, /--secrets-file/);
+  assert.doesNotMatch(previewJob, /secret put/);
   assert.doesNotMatch(previewJob, /FB_INBOX|LINE_CHANNEL|secrets\.GITHUB_TOKEN/);
   assert.match(workflow.split("  deploy:\n")[1], /github\.ref == 'refs\/heads\/main'/);
 });

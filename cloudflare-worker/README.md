@@ -80,6 +80,10 @@ Worker 需要三個 Secret：
 ## 測試
 
 PR #44 的指定分支可部署 `taoyuan-rental-yungching-cpu-preview` 隔離診斷版。
+2026-08-28 單筆診斷已完成；後續PR更新預設不會再部署或消耗Browser Run額度。
+再次執行需另外確認後設定repository variable `RENTAL_CPU_PREVIEW_ENABLED=true`，
+完成後移除該開關。部署以 `--secrets-file` 同版本上傳程式與當次Secret，避免分開
+部署的認證競態；Secret檔只在runner暫存目錄，權限0600，結束即清理。
 它使用獨立 `wrangler.preview.jsonc`，不含正式 KV、GitHub／LINE Secret 或 Cron。
 只有健康檢查可匿名讀取；來源測試需每次部署重新產生、1小時失效的專用 Secret，
 只讀取固定的永慶公開測試物件，不能指定任意網址。先測原始HTML串流，解析在CI端
@@ -88,6 +92,13 @@ PR #44 的指定分支可部署 `taoyuan-rental-yungching-cpu-preview` 隔離診
 
 隔離端點不發布電子報；`preview-audit/result.json` 區分部署成功與房源讀取成功。
 測試版與正式版同帳戶，Browser Run額度仍共用，不能把獨立Worker誤稱為獨立配額。
+
+2026-08-28 隔離結果：純fetch CPU1ms，但上游回202／JavaScript驗證頁，未通過。
+正常瀏覽器單筆run `33138994567` 成功取得物件2415719（更新8/28、4房、租金25000、
+真實照片）；CPU186ms、wall4050ms，session已關閉。`crawl_complete=false`，只證明
+單筆讀取成功，不代表整輪完成。免費HTTP預算10ms，單次暫時容忍超額不能當作穩定
+容量；整輪必須再驗證分批／將Puppeteer客戶端移出Worker等方案，尚不可宣稱1102根治。
+CPU規則：https://developers.cloudflare.com/workers/platform/limits/#cpu-time
 
 ```bash
 node --test tests/*.test.mjs
