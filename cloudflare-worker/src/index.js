@@ -10,7 +10,7 @@ const YUNGCHING_BASE =
   "桃園市-中壢區,桃園市-平鎮區,桃園市-桃園區,桃園市-八德區_c/" +
   "整層住家_use/4-4_room";
 const YUNGCHING_FEED_CACHE_SECONDS = 2 * 60 * 60;
-const YUNGCHING_DETAIL_BATCH_SIZE = 6;
+const YUNGCHING_IN_FLIGHT = new Map();
 const YUNGCHING_ALLOWED_DISTRICTS = ["桃園區", "中壢區", "平鎮區", "八德區"];
 const FACEBOOK_INBOX_PREFIX = "facebook:";
 const FACEBOOK_INBOX_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -485,11 +485,14 @@ export function normalizeYungchingWorkerItem(row, newIds = new Set()) {
 async function readYungchingListPage(page, category, pageNo) {
   const suffix = category === "new" ? "/new_filter" : "";
   const url = `${YUNGCHING_BASE}${suffix}?od=80&pg=${pageNo}`;
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+  const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+  if (response && response.status() >= 400) throw new Error(`upstream_list_http_${response.status()}`);
   try {
     await page.waitForSelector('a[href*="/house/"]', { timeout: 12_000 });
   } catch {
-    return [];
+    const text = await page.evaluate(() => document.body?.innerText || "");
+    if (/(?:查無|沒有找到|無符合|共\s*0\s*筆)/.test(text)) return [];
+    throw new Error("upstream_list_unverified: no listing cards or explicit empty result");
   }
   return page.$$eval('a[href*="/house/"]', (anchors) =>
     anchors.map((anchor) => {
@@ -515,14 +518,16 @@ async function readYungchingListPage(page, category, pageNo) {
 }
 
 async function readYungchingDetail(page, candidate) {
-  await page.goto(`https://rent.yungching.com.tw/house/${candidate.source_id}`, {
+  const response = await page.goto(`https://rent.yungching.com.tw/house/${candidate.source_id}`, {
     waitUntil: "domcontentloaded",
     timeout: 30_000,
   });
+  if (response && [404, 410].includes(response.status())) return null;
+  if (response && response.status() >= 400) throw new Error(`upstream_detail_http_${response.status()}`);
   try {
     await page.waitForSelector("h1", { timeout: 12_000 });
   } catch {
-    return null;
+    throw new Error("upstream_detail_unverified: missing listing heading");
   }
   const expanded = await page.evaluate(() => {
     const target = [...document.querySelectorAll("button, a")].find((node) =>
@@ -538,7 +543,7 @@ async function readYungchingDetail(page, candidate) {
     const text = compact(document.body?.innerText || "");
     const imageValues = [];
     // 只取本物件相簿；排除地圖與「周邊熱門待租房屋」的其他物件照片。
-    document.querySelectorAll(".swiper-slide.gtmPushEvent img").forEach((image) => {
+    document.querySelectorAll(".swiper-slide.gtmPushEvent img, .yc-ng-album-v2-carousel__main-img, .yc-ng-album-v2-carousel__thumb img").forEach((image) => {
       imageValues.push(
         image.currentSrc,
         image.getAttribute("src"),
@@ -598,7 +603,7 @@ async function readYungchingDetail(page, candidate) {
     layout: match(/(\d+房(?:\(室\))?\d*廳\d*衛)/, candidate.layout),
     size: `${match(/坪數\s*(\d+(?:\.\d+)?)\s*坪/, String(candidate.size || "").replace("坪", ""))}坪`,
     floor: match(/((?:B?\d+(?:~|～|-)\d+|\d+)\s*\/\s*\d+樓)/i, candidate.floor),
-    updated: match(/更新日期\s*(\d{4}年\d{1,2}月\d{1,2}日)/),
+    updated: match(/更新日期\s*(\d{4}[年\/-]\d{1,2}[月\/-]\d{1,2}日?)/),
     building_type: buildingType,
     equipment,
     rent: detail.offerPrice || candidate.rent,
@@ -606,38 +611,77 @@ async function readYungchingDetail(page, candidate) {
     images: unique([candidate.image, ...detail.images]),
     summary: detail.summary,
     raw_text: text,
+    validated_at: new Date().toISOString(),
   };
 }
 
-export async function buildYungchingFeed(browserBinding, launchImpl) {
+export function browserFailureCode(error) {
+  const message = String(error?.message || error);
+  if (/time limit exceeded for today/i.test(message)) return "browser_daily_quota";
+  if (/429|rate limit|too many requests/i.test(message)) return "browser_rate_limited";
+  if (/Missing Cloudflare/i.test(message)) return "browser_not_configured";
+  if (/upstream_/.test(message)) return "upstream_unverified";
+  return "browser_failure";
+}
+
+export async function launchYungchingBrowser(binding, api, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await api.launch(binding);
+    } catch (error) {
+      // Daily quotas cannot be solved by rapid retries. Short-window limits can.
+      if (browserFailureCode(error) !== "browser_rate_limited" || attempt === 2) throw error;
+      const retryAfter = Number(error?.headers?.get?.("Retry-After") || 0);
+      let limits = null;
+      try { limits = await api.limits?.(binding); } catch { /* use conservative backoff */ }
+      const delay = Math.max(21_000, retryAfter * 1000,
+        Number(limits?.timeUntilNextAllowedBrowserAcquisition || 0) + 1000);
+      if (delay > 60_000) throw error;
+      await sleep(delay);
+    }
+  }
+}
+
+export async function buildYungchingFeed(browserBinding, launchImpl, options = {}) {
   if (!browserBinding) throw new Error("Missing Cloudflare Browser Run binding");
-  const launch = launchImpl || (await import("@cloudflare/puppeteer")).default.launch;
+  const api = launchImpl ? { launch: launchImpl, limits: options.limits } : (await import("@cloudflare/puppeteer")).default;
   const allCandidates = new Map();
   const newIds = new Set();
   let pagesRead = 0;
   const errors = [];
+  let rejectedCount = 0;
+  let session = null;
 
-  const openSession = async () => {
-    const browser = await launch(browserBinding);
-    const page = await browser.newPage();
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-      "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-    );
-    return { browser, page };
+  const openSession = async (details = false) => {
+    const browser = await launchYungchingBrowser(browserBinding, api, options.sleep);
+    try {
+      const page = await browser.newPage();
+      if (details) await page.setJavaScriptEnabled(false);
+      await page.setUserAgent(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+        "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+      );
+      return { browser, page };
+    } catch (error) {
+      await browser.close().catch(() => {});
+      throw error;
+    }
   };
 
-  // List navigation and detail navigation use separate Browser Run sessions. A single
-  // long-lived session was being closed by Browser Run after the list pass, causing all
-  // 25 detail pages to fail with TargetCloseError while the feed still reported healthy.
-  let listSession = null;
+  const closeSession = async () => {
+    if (session) await session.browser.close().catch(() => {});
+    session = null;
+  };
+  const items = [];
   try {
-    listSession = await openSession();
+    session = await openSession();
+    // Tabs in one active browser do not consume new-browser acquisition quota.
+    // Reopen only after a real failure, not once per six successful details.
     for (const category of ["all", "new"]) {
       for (let pageNo = 1; pageNo <= 5; pageNo += 1) {
         let rows = [];
         try {
-          rows = await readYungchingListPage(listSession.page, category, pageNo);
+          rows = await readYungchingListPage(session.page, category, pageNo);
         } catch (error) {
           errors.push(`${category}:${pageNo}:${String(error).slice(0, 160)}`);
           break;
@@ -655,43 +699,38 @@ export async function buildYungchingFeed(browserBinding, launchImpl) {
         if (!added || rows.length < 20) break;
       }
     }
-  } finally {
-    if (listSession) await listSession.browser.close().catch(() => {});
-  }
-
-  const items = [];
-  const orderedCandidates = [...allCandidates.values()].sort((first, second) =>
-    Number(newIds.has(second.source_id)) - Number(newIds.has(first.source_id)),
-  );
-  let detailSession = null;
-  let rowsInSession = 0;
-  try {
+    const orderedCandidates = [...allCandidates.values()].sort((first, second) =>
+      Number(newIds.has(second.source_id)) - Number(newIds.has(first.source_id)),
+    );
+    // Detail pages expose update date and album in server-rendered HTML.
+    // Avoid hydrating maps/recommendations and collapsing the date before reading.
+    await session.page.setJavaScriptEnabled(false);
     for (const candidate of orderedCandidates) {
       let completed = false;
       for (let attempt = 1; attempt <= 2 && !completed; attempt += 1) {
-        if (!detailSession || rowsInSession >= YUNGCHING_DETAIL_BATCH_SIZE) {
-          if (detailSession) await detailSession.browser.close().catch(() => {});
-          detailSession = await openSession();
-          rowsInSession = 0;
-        }
-        rowsInSession += 1;
         try {
-          const detail = await readYungchingDetail(detailSession.page, candidate);
+          if (!session) session = await openSession(true);
+          const detail = await readYungchingDetail(session.page, candidate);
           const normalized = detail && normalizeYungchingWorkerItem(detail, newIds);
-          if (normalized) items.push(normalized);
+          if (normalized) items.push({ ...normalized, validated_at: detail.validated_at });
+          else if (detail) rejectedCount += 1;
           completed = true;
         } catch (error) {
           errors.push(
             `detail:${candidate.source_id}:attempt-${attempt}:${String(error).slice(0, 160)}`,
           );
-          await detailSession.browser.close().catch(() => {});
-          detailSession = null;
-          rowsInSession = 0;
+          await closeSession();
+          if (["browser_daily_quota", "browser_rate_limited"].includes(browserFailureCode(error))) {
+            // Preserve already validated rows; do not restart the whole crawl.
+            throw error;
+          }
         }
       }
     }
+  } catch (error) {
+    errors.push(`${browserFailureCode(error)}:${String(error?.message || error).slice(0, 180)}`);
   } finally {
-    if (detailSession) await detailSession.browser.close().catch(() => {});
+    await closeSession();
   }
 
   return {
@@ -699,16 +738,24 @@ export async function buildYungchingFeed(browserBinding, launchImpl) {
     source: "永慶房屋公開搜尋與詳細頁",
     candidate_count: allCandidates.size,
     validated_count: items.length,
+    rejected_count: rejectedCount,
     new_category_count: newIds.size,
     pages_read: pagesRead,
+    crawl_complete: errors.length === 0,
     errors,
     items,
   };
 }
 
-async function yungchingFeedResponse(request, env, ctx) {
+export async function yungchingFeedResponse(request, env, ctx, build = buildYungchingFeed) {
+  const url = new URL(request.url);
+  const validationId = url.searchParams.get("validation_id") || "public";
+  if (!/^[A-Za-z0-9_-]{1,100}$/.test(validationId)) {
+    return Response.json({ error: "invalid validation_id" }, { status: 400 });
+  }
   const cache = globalThis.caches?.default;
-  const cacheKey = new Request(`${new URL(request.url).origin}/__cache/yungching-feed-v2`);
+  // An explicit validation round never receives an earlier round's cached feed.
+  const cacheKey = new Request(`${url.origin}/__cache/yungching-feed-v3/${validationId}`);
   if (cache) {
     const cached = await cache.match(cacheKey);
     if (cached) {
@@ -717,51 +764,44 @@ async function yungchingFeedResponse(request, env, ctx) {
       return response;
     }
   }
-  const attempts = [];
-  let payload = null;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const startedAt = Date.now();
-    try {
-      payload = await buildYungchingFeed(env.BROWSER);
-      attempts.push({ attempt, ok: true, elapsed_ms: Date.now() - startedAt });
-      break;
-    } catch (error) {
-      attempts.push({
-        attempt,
-        ok: false,
-        elapsed_ms: Date.now() - startedAt,
-        error: String(error?.message || error).slice(0, 180),
-      });
-      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 750 * (2 ** (attempt - 1))));
-    }
+  let pending = YUNGCHING_IN_FLIGHT.get(cacheKey.url);
+  if (!pending) {
+    pending = build(env.BROWSER);
+    YUNGCHING_IN_FLIGHT.set(cacheKey.url, pending);
   }
-  if (!payload) {
+  let payload;
+  try {
+    payload = await pending;
+  } catch (error) {
     return Response.json({
       status: "degraded",
       healthy: false,
       generated_at: new Date().toISOString(),
       source: "永慶房屋公開搜尋與詳細頁",
+      validation_id: validationId,
       candidate_count: 0,
       validated_count: 0,
       fresh_validation: { attempted: true, successful: false, published_eligible: 0 },
-      errors: attempts.filter((row) => !row.ok),
+      errors: [{ code: browserFailureCode(error), error: String(error?.message || error).slice(0, 180) }],
       items: [],
     }, {
       status: 200,
       headers: { "Cache-Control": "no-store", "X-Rental-Feed-Cache": "error" },
     });
+  } finally {
+    if (YUNGCHING_IN_FLIGHT.get(cacheKey.url) === pending) YUNGCHING_IN_FLIGHT.delete(cacheKey.url);
   }
-  const healthy = payload.candidate_count === 0 || payload.validated_count > 0;
+  const healthy = payload.crawl_complete === true && (payload.candidate_count === 0 || payload.validated_count > 0);
   payload = {
-    status: healthy ? "ok" : "degraded",
+    status: healthy ? "ok" : payload.validated_count > 0 ? "partial" : "degraded",
     healthy,
     ...payload,
+    validation_id: validationId,
     fresh_validation: {
       attempted: true,
-      successful: healthy,
+      successful: healthy || payload.validated_count > 0,
       published_eligible: payload.validated_count,
     },
-    attempts,
   };
   const response = Response.json(payload, {
     headers: {

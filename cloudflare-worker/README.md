@@ -35,7 +35,21 @@ LINE 發送程式會由 `delivery_slot` 產生固定 `X-Line-Retry-Key`。即使
 詳細頁，解決 GitHub Runner 出口被 CloudFront 回應403而使永慶區塊為0的問題。
 摘要只接受桃園區、中壢區、平鎮區、八德區、整層住家、4房以上、有租金與詳細頁
 更新日期的物件；照片只取該物件相簿的 `yccdn.yungching.com.tw` 真實圖片，不取
-地圖或其他推薦房源圖片。結果快取2小時以控制免費 Browser Run 用量。
+地圖或其他推薦房源圖片，支援新版 `yc-ng-album-v2-carousel` 相簿。
+
+每輪傳入不同的 `validation_id`，只可重用同一輪的成功結果（最長2小時）；
+Python 會核對回傳輪次與每筆實際 `validated_at`，不把前輪快取重新蓋上本輪時間。
+同一 isolate 的同輪併發請求共用工作；不宣稱跨機房全域鎖。
+
+列表與詳細頁重用同一瀏覽器，僅真正失敗時重建；不再每六筆啟動新瀏覽器。
+詳細頁使用伺服器已輸出的資訊，停用不必要的前端地圖與推薦模組，減少執行資源及日期被收合的競態。
+429 依 `Retry-After`／Browser Run limits 等待，至少21秒、單次最多60秒；
+每日額度耗盡不會快速重試。後續失敗保留本輪已驗證項目並回 `partial`；
+未知空白／受阻頁回 `degraded`，不能當成市場零物件。
+
+`HTTP 200` 只代表 JSON 可讀，還須檢查 `fresh_validation.successful`、
+`validated_count` 與 `errors`。Cloudflare 1102（CPU／記憶體資源限制）由平台
+終止執行，Worker 的 catch 無法攔截；需正式驗證資源用量，不能將它改寫成健康零筆。
 
 此功能不使用永慶帳號、密碼、Cookie或私人Session。`wrangler.jsonc` 中的
 `BROWSER` binding 由正式部署流程建立及更新。

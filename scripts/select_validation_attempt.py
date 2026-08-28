@@ -20,15 +20,16 @@ SOURCE_ORDER = ("591", "FB", "樂屋網", "Threads", "信義房屋", "永慶房�
 MAX_ATTEMPT_SPAN = timedelta(minutes=90)
 MAX_PREVALIDATED_AGE = timedelta(hours=2)
 SOURCE_FRESHNESS_DAYS = 7
-SOURCE_FRESHNESS_DAYS_BY_SOURCE = {"591": 2}
+SOURCE_FRESHNESS_DAYS_BY_SOURCE = {"591": None}
 
 
-def source_freshness_days(source: str) -> int:
+def source_freshness_days(source: str) -> int | None:
     return SOURCE_FRESHNESS_DAYS_BY_SOURCE.get(source, SOURCE_FRESHNESS_DAYS)
 
 
-def source_freshness_window(source: str) -> timedelta:
-    return timedelta(days=source_freshness_days(source))
+def source_freshness_window(source: str) -> timedelta | None:
+    days = source_freshness_days(source)
+    return timedelta(days=days) if days is not None else None
 
 
 def load_payload(root: Path) -> dict[str, Any]:
@@ -51,6 +52,8 @@ def assert_fresh_591(payload: dict[str, Any]) -> None:
         raise AssertionError("591 不得以舊快照通過本輪驗證")
     if row.get("fallback"):
         raise AssertionError("591 不得以舊快照補入本輪發布清單")
+    if row.get("crawl_policy") != "active-all-v1":
+        raise AssertionError("591 必須使用不限來源日期的完整現刊抓取範圍")
 
 
 def rate_limited_591(payload: dict[str, Any]) -> bool:
@@ -100,16 +103,18 @@ def validated_source_items(
     boundary_rejected: set[str] = set()
     for item in source_items:
         validated_at = parse_timestamp(item.get("validated_at"))
-        source_timestamp = parse_timestamp(item.get("source_timestamp"))
-        if not timedelta(0) <= generated_at - source_timestamp <= freshness_window:
-            raise ValueError(
-                f"non-fresh source timestamp for {source}:{item.get('source_id')}"
-            )
+        source_timestamp = None
+        if freshness_window is not None:
+            source_timestamp = parse_timestamp(item.get("source_timestamp"))
+            if not timedelta(0) <= generated_at - source_timestamp <= freshness_window:
+                raise ValueError(
+                    f"non-fresh source timestamp for {source}:{item.get('source_id')}"
+                )
         if abs(generated_at - validated_at) > MAX_ATTEMPT_SPAN:
             raise ValueError(
                 f"stale validation timestamp for {source}:{item.get('source_id')}"
             )
-        if final_generated_at - source_timestamp > freshness_window:
+        if source_timestamp is not None and final_generated_at - source_timestamp > freshness_window:
             boundary_rejected.add(
                 str(item.get("source_id") or item.get("url") or "unknown")
             )
@@ -182,8 +187,8 @@ def merge_source_payloads(
         str(payload.get("stats", {}).get("comparison_source", ""))
         for _, payload in attempts
     }
-    if not comparisons or any(not value.startswith("delivery:") for value in comparisons):
-        raise ValueError("validation attempts must use a successful delivery comparison")
+    if len(comparisons) != 1 or any(not value.startswith(("latest:", "delivery:")) for value in comparisons):
+        raise ValueError("validation attempts must use the same previous edition comparison")
 
     final_generated_at = max(generated)
     merged_sources: dict[str, Any] = {}
@@ -278,7 +283,7 @@ def merge_source_payloads(
                             checkpoint_items[key] = item
                 source_items = sorted(
                     checkpoint_items.values(),
-                    key=lambda item: parse_timestamp(item.get("source_timestamp")),
+                    key=lambda item: parse_timestamp(item.get("validated_at")),
                     reverse=True,
                 )
                 selected_row["crawl_complete"] = True
@@ -329,7 +334,7 @@ def merge_source_payloads(
                             checkpoint_items[key] = item
                 source_items = sorted(
                     checkpoint_items.values(),
-                    key=lambda item: parse_timestamp(item.get("source_timestamp")),
+                    key=lambda item: parse_timestamp(item.get("validated_at")),
                     reverse=True,
                 )
                 selected_row["crawl_complete"] = False
@@ -379,7 +384,8 @@ def merge_source_payloads(
                 f"逐來源合併時另排除{boundary_rejected}筆已跨過{freshness_days}天邊界的物件。"
             )
         selected_row["freshness_window_days"] = freshness_days
-        selected_row[f"fresh_within_{freshness_days}_days"] = len(source_items)
+        selected_row["active_validated" if freshness_days is None else f"fresh_within_{freshness_days}_days"] = len(source_items)
+        selected_row["freshness_policy"] = "active_listing" if freshness_days is None else "source_activity"
         selected_row["validated"] = len(source_items)
         selected_row["published"] = len(source_items)
         merged_sources[source] = selected_row
@@ -414,7 +420,8 @@ def merge_source_payloads(
     stats.pop("freshness_window_hours", None)
     stats["default_freshness_window_hours"] = SOURCE_FRESHNESS_DAYS * 24
     stats["freshness_window_hours_by_source"] = {
-        source: source_freshness_days(source) * 24 for source in SOURCE_ORDER
+        source: source_freshness_days(source) * 24 if source_freshness_days(source) is not None else None
+        for source in SOURCE_ORDER
     }
     return {
         "generated_at": newest["generated_at"],
@@ -446,10 +453,13 @@ def write_merged_edition(
     final_payload["edition_id"] = final_edition
     final_payload["edition_url"] = edition_url
     listings = [digest.Listing(**item) for item in final_payload["items"]]
-    previous_keys, comparison_source = digest.load_previous_edition_keys()
-    listings = digest.assign_previous_edition_new_flags(listings, previous_keys)
+    # The baseline was captured before the crawl. The artifact copy has already
+    # overwritten latest.json here; comparing against it would erase new badges.
+    generated_at = parse_timestamp(final_payload["generated_at"])
+    for item in listings:
+        since = digest.parse_state_time(item.new_since_at if item.source == "591" else item.first_seen_at)
+        item.new_listing = bool(item.new_listing and since and timedelta(0) <= generated_at - since < digest.NEW_LISTING_BADGE_WINDOW)
     final_payload["items"] = [asdict(item) for item in listings]
-    final_payload["stats"]["comparison_source"] = comparison_source
     final_payload["stats"]["new_listings"] = sum(item.new_listing for item in listings)
     rendered = digest.render_html(listings, final_payload["stats"])
     payload_text = json.dumps(final_payload, ensure_ascii=False, indent=2)
@@ -564,9 +574,10 @@ def verify_command(latest: Path, docs: Path) -> int:
             raise ValueError(f"prevalidated source count does not match: {source}")
         for item in source_items:
             validated_at = parse_timestamp(item.get("validated_at"))
-            source_timestamp = parse_timestamp(item.get("source_timestamp"))
-            if not timedelta(0) <= generated_at - source_timestamp <= freshness_window:
-                raise ValueError(f"non-fresh source timestamp for {source}:{item.get('source_id')}")
+            if freshness_window is not None:
+                source_timestamp = parse_timestamp(item.get("source_timestamp"))
+                if not timedelta(0) <= generated_at - source_timestamp <= freshness_window:
+                    raise ValueError(f"non-fresh source timestamp for {source}:{item.get('source_id')}")
             if abs(generated_at - validated_at) > MAX_ATTEMPT_SPAN:
                 raise ValueError(f"stale validation timestamp for {source}:{item.get('source_id')}")
 

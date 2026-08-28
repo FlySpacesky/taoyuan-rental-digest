@@ -4,6 +4,9 @@ import test from "node:test";
 import {
   assessWorkflowRuns,
   buildYungchingFeed,
+  browserFailureCode,
+  launchYungchingBrowser,
+  yungchingFeedResponse,
   deliverySlotFor,
   handleScheduled,
   normalizeYungchingWorkerItem,
@@ -403,7 +406,7 @@ test("Yungching feed returns a stable degraded schema when Browser Run is absent
   assert.equal(payload.fresh_validation.successful, false);
 });
 
-test("Yungching feed separates list and detail Browser Run sessions", async () => {
+test("Yungching feed reuses one browser for list and detail navigation", async () => {
   let launchCount = 0;
   let closeCount = 0;
   const launch = async () => {
@@ -413,6 +416,7 @@ test("Yungching feed separates list and detail Browser Run sessions", async () =
     let evaluateCount = 0;
     const page = {
       async setUserAgent() {},
+      async setJavaScriptEnabled(value) { assert.equal(value, false); },
       async goto(url) { currentUrl = url; },
       async waitForSelector() {},
       async $$eval() {
@@ -452,6 +456,107 @@ test("Yungching feed separates list and detail Browser Run sessions", async () =
   assert.equal(payload.candidate_count, 1);
   assert.equal(payload.validated_count, 1);
   assert.equal(payload.items[0].source_id, "2411508");
-  assert.ok(launchCount >= 2);
+  assert.equal(launchCount, 1);
   assert.equal(closeCount, launchCount);
+  assert.equal(payload.crawl_complete, true);
+  assert.ok(payload.items[0].validated_at);
+});
+
+test("browser launch respects Retry-After and never rapidly retries daily quota", async () => {
+  let calls = 0;
+  const delays = [];
+  const browser = {};
+  const api = {
+    async launch() {
+      calls += 1;
+      if (calls === 1) throw Object.assign(new Error("429 Rate limit exceeded"), { headers: new Headers({ "Retry-After": "30" }) });
+      return browser;
+    },
+    async limits() { return { timeUntilNextAllowedBrowserAcquisition: 10_000 }; },
+  };
+  assert.equal(await launchYungchingBrowser({}, api, async ms => delays.push(ms)), browser);
+  assert.deepEqual(delays, [30_000]);
+  calls = 0;
+  await assert.rejects(launchYungchingBrowser({}, { async launch() {
+    calls += 1;
+    throw new Error("429 Browser time limit exceeded for today");
+  } }, async () => assert.fail("daily quota must not be retried")), /today/);
+  assert.equal(calls, 1);
+  assert.equal(browserFailureCode(new Error("429 Browser time limit exceeded for today")), "browser_daily_quota");
+});
+
+test("unverified list failure is degraded, never a healthy empty market", async () => {
+  const payload = await buildYungchingFeed({}, async () => ({
+    async newPage() { return { async setUserAgent() {}, async goto() { throw new Error("upstream_list_http_403"); } }; },
+    async close() {},
+  }));
+  assert.equal(payload.candidate_count, 0);
+  assert.equal(payload.crawl_complete, false);
+  const response = await yungchingFeedResponse(new Request("https://example.com/yungching-feed?validation_id=round1"), {}, null, async () => payload);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.healthy, false);
+  assert.equal(body.fresh_validation.successful, false);
+});
+
+test("same validation requests share in-flight work but new rounds never use old results", async () => {
+  let calls = 0;
+  let finish;
+  const build = () => { calls += 1; return new Promise(resolve => { finish = resolve; }); };
+  const request = new Request("https://example.com/yungching-feed?validation_id=concurrent1");
+  const first = yungchingFeedResponse(request, {}, null, build);
+  const second = yungchingFeedResponse(request, {}, null, build);
+  finish({ candidate_count: 0, validated_count: 0, crawl_complete: true, items: [], errors: [] });
+  const results = await Promise.all([first, second]);
+  assert.equal(calls, 1);
+  assert.equal((await results[0].json()).validation_id, "concurrent1");
+  const next = await yungchingFeedResponse(new Request("https://example.com/yungching-feed?validation_id=concurrent2"), {}, null, async () => {
+    calls += 1;
+    return { candidate_count: 3, validated_count: 1, crawl_complete: false, items: [{ source_id: "1" }], errors: ["429"] };
+  });
+  const body = await next.json();
+  assert.equal(calls, 2);
+  assert.equal(body.status, "partial");
+  assert.equal(body.fresh_validation.successful, true);
+  assert.equal(body.items.length, 1);
+});
+
+test("browser is closed if page setup fails", async () => {
+  let closed = 0;
+  const payload = await buildYungchingFeed({}, async () => ({
+    async newPage() { throw new Error("TargetCloseError"); },
+    async close() { closed += 1; },
+  }));
+  assert.equal(closed, 1);
+  assert.equal(payload.crawl_complete, false);
+});
+
+test("real crawl preserves validated items when a later browser cannot be reopened", async () => {
+  let launches = 0;
+  let evaluation = 0;
+  let details = 0;
+  const candidates = ["2415719", "2415405"].map(source_id => ({
+    source_id, title: "四房", address: "桃園市桃園區上海路", layout: "4房2廳2衛",
+    rent: 25000, image: "https://yccdn.yungching.com.tw/photo.jpg",
+  }));
+  const page = {
+    async setUserAgent() {}, async setJavaScriptEnabled() {}, async waitForSelector() {},
+    async goto(url) {
+      if (url.includes("/house/") && ++details > 1) throw new Error("TargetCloseError");
+    },
+    async $$eval() { return candidates; },
+    async evaluate() {
+      if (++evaluation % 2) return false;
+      return { title: "四房", text: "桃園市桃園區上海路 4房2廳2衛 更新日期2026年08月27日", images: [], offerPrice: "25000" };
+    },
+  };
+  const result = await buildYungchingFeed({}, async () => {
+    if (++launches > 1) throw new Error("429 Rate limit exceeded");
+    return { async newPage() { return page; }, async close() {} };
+  }, { sleep: async () => {} });
+  assert.equal(result.candidate_count, 2);
+  assert.equal(result.validated_count, 1);
+  assert.equal(result.items[0].source_id, "2415719");
+  assert.equal(result.crawl_complete, false);
+  assert.ok(result.errors.some(error => error.includes("browser_rate_limited")));
 });

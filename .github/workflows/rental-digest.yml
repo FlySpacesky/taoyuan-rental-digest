@@ -1,6 +1,13 @@
 name: 桃園租屋快報
 
 on:
+  pull_request:
+    paths:
+      - "scripts/**"
+      - "tests/**"
+      - "requirements.txt"
+      - ".github/workflows/rental-digest.yml"
+      - ".github/workflows/rental-591-retry.yml"
   push:
     branches:
       - main
@@ -62,7 +69,7 @@ jobs:
   validate-branch:
     # 程式推送與投稿更新只跑測試，避免在不發 LINE 的執行中先消耗 591 限流額度。
     # 非 main 的人工執行仍可產生分支預覽。
-    if: ${{ github.event_name == 'push' || github.event_name == 'issues' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main') }}
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'issues' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main') }}
     runs-on: ubuntu-latest
 
     steps:
