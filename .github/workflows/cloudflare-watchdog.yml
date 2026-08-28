@@ -40,7 +40,9 @@ jobs:
 
       - name: 測試 Worker
         working-directory: cloudflare-worker
-        run: node --test tests/*.test.mjs
+        run: |
+          node --test tests/*.test.mjs
+          python3 -m unittest discover -s scripts -p 'test_*.py' -v
 
   preview:
     # Explicitly approved isolated deployment for PR #44 only. Fork PRs and
@@ -83,6 +85,7 @@ jobs:
         working-directory: cloudflare-worker
         env:
           PREVIEW_PROBE_MODE: fetch
+          PREVIEW_EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha }}
         run: python3 scripts/preview_probe.py
       - name: 保存隔離驗證結果
         if: ${{ always() }}

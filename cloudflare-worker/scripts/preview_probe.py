@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import time
 import urllib.error
 import urllib.request
 
@@ -51,13 +52,37 @@ def analyze_html(raw):
     }
 
 
+def wait_for_health(call_fn=call, sleep=time.sleep, expected_commit=None):
+    attempts = []
+    # New workers.dev routes and secret versions can take a few seconds to
+    # propagate. Retry only this inert GET, never a source/browser probe.
+    for delay in (0, 2, 4, 8, 12):
+        if delay:
+            sleep(delay)
+        try:
+            status, _, body = call_fn("/health")
+            try:
+                health = json.loads(body)
+            except json.JSONDecodeError:
+                health = {}
+            attempts.append({"status": status, "body_excerpt": body[:400]})
+            if (status == 200 and health.get("isolated") is True
+                    and health.get("service") == "taoyuan-rental-yungching-cpu-preview"
+                    and all(health.get(key) is False for key in ("production_handlers", "cron", "kv", "line"))
+                    and (not expected_commit or health.get("commit") == expected_commit)):
+                return health, attempts
+        except (urllib.error.URLError, TimeoutError) as error:
+            attempts.append({"error": str(error)[:400]})
+    raise RuntimeError("Preview health not ready: " + json.dumps(attempts))
+
+
 def main():
     OUT.mkdir(exist_ok=True)
-    status, _, body = call("/health")
-    health = json.loads(body)
-    assert status == 200 and health["isolated"] is True
-    assert health["service"] == "taoyuan-rental-yungching-cpu-preview"
-    assert all(health[key] is False for key in ("production_handlers", "cron", "kv", "line"))
+    try:
+        health, health_attempts = wait_for_health(expected_commit=os.environ.get("PREVIEW_EXPECTED_COMMIT"))
+    except RuntimeError as error:
+        OUT.joinpath("health-error.txt").write_text(str(error), encoding="utf-8")
+        raise
     for path in ("/yungching-feed", "/facebook-inbox", "/probe-fetch"):
         assert call(path)[0] == 404, path  # GET cannot trigger a source crawl
     assert call("/probe-fetch", token="unauthorized")[0] == 401
@@ -70,6 +95,7 @@ def main():
         "preview": BASE,
         "mode": mode,
         "health": health,
+        "health_attempts": health_attempts,
         "status": status,
         "cf_ray": headers.get("cf-ray"),
         "source_url": SOURCE_URL,
