@@ -79,6 +79,16 @@ Worker 需要三個 Secret：
 
 ## 測試
 
+PR #44 的指定分支可部署 `taoyuan-rental-yungching-cpu-preview` 隔離診斷版。
+它使用獨立 `wrangler.preview.jsonc`，不含正式 KV、GitHub／LINE Secret 或 Cron。
+只有健康檢查可匿名讀取；來源測試需每次部署重新產生、1小時失效的專用 Secret，
+只讀取固定的永慶公開測試物件，不能指定任意網址。先測原始HTML串流，解析在CI端
+執行，不使用Browser Run額度。備用單筆瀏覽器探測最多20秒、不重試，遇到其他
+活動session就略過，絕不接管或關閉正式session。整輪抓取的CPU與完整率仍需另外驗證。
+
+隔離端點不發布電子報；`preview-audit/result.json` 區分部署成功與房源讀取成功。
+測試版與正式版同帳戶，Browser Run額度仍共用，不能把獨立Worker誤稱為獨立配額。
+
 ```bash
 node --test tests/*.test.mjs
 ```

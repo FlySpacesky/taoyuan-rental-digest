@@ -1,0 +1,101 @@
+"""Bounded public-source smoke test. Never calls the production Worker or LINE."""
+import datetime as dt
+import html
+import json
+import os
+from pathlib import Path
+import re
+import urllib.error
+import urllib.request
+
+BASE = "https://taoyuan-rental-yungching-cpu-preview.flysky3345678.workers.dev"
+SOURCE_URL = "https://rent.yungching.com.tw/house/2415719"
+OUT = Path("preview-audit")
+
+
+def call(path, *, token=None):
+    request = urllib.request.Request(
+        BASE + path,
+        data=b"{}" if token else None,
+        headers={"Authorization": "Bearer " + token} if token else {},
+    )
+    try:
+        response = urllib.request.urlopen(request, timeout=35)
+    except urllib.error.HTTPError as error:
+        response = error
+    with response:
+        raw = response.read(2_000_001)
+        if len(raw) > 2_000_000:
+            raise RuntimeError("Preview response exceeded audit size cap")
+        return response.status, {key.lower(): value for key, value in response.headers.items()}, raw.decode("utf-8", errors="replace")
+
+
+def analyze_html(raw):
+    # This is a smoke check, not a production listing parser or publication step.
+    heading = re.search(r"<h1\b[^>]*>(.*?)</h1>", raw, re.S | re.I)
+    title = html.unescape(re.sub(r"<[^>]+>", " ", heading.group(1))) if heading else ""
+    plain = html.unescape(re.sub(r"<[^>]+>", " ", raw))
+    updated = re.search(r"更新日期\s*[:：]?\s*(\d{4})[年/-](\d{1,2})[月/-](\d{1,2})日?", plain)
+    photos = set(re.findall(r'https://yccdn\.yungching\.com\.tw/[^\s"<>]+', raw))
+    age_days = None
+    source_date = None
+    if updated:
+        source_date = dt.date(*map(int, updated.groups()))
+        age_days = (dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).date() - source_date).days
+    return {
+        "title": " ".join(title.split()),
+        "source_date": str(source_date) if source_date else None,
+        "source_age_days": age_days,
+        "photo_url_count": len(photos),
+        "recent_source_date": age_days is not None and 0 <= age_days <= 7,
+    }
+
+
+def main():
+    OUT.mkdir(exist_ok=True)
+    status, _, body = call("/health")
+    health = json.loads(body)
+    assert status == 200 and health["isolated"] is True
+    assert health["service"] == "taoyuan-rental-yungching-cpu-preview"
+    assert all(health[key] is False for key in ("production_handlers", "cron", "kv", "line"))
+    for path in ("/yungching-feed", "/facebook-inbox", "/probe-fetch"):
+        assert call(path)[0] == 404, path  # GET cannot trigger a source crawl
+    assert call("/probe-fetch", token="unauthorized")[0] == 401
+
+    mode = os.environ.get("PREVIEW_PROBE_MODE", "fetch")
+    assert mode in ("fetch", "browser")
+    status, headers, body = call("/probe-" + mode, token=os.environ["PREVIEW_PROBE_TOKEN"])
+    report = {
+        "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "preview": BASE,
+        "mode": mode,
+        "health": health,
+        "status": status,
+        "cf_ray": headers.get("cf-ray"),
+        "source_url": SOURCE_URL,
+        "production_modified": False,
+        "line_sent": False,
+    }
+    if mode == "fetch":
+        OUT.joinpath("source.html").write_text(body, encoding="utf-8")
+        report.update(analyze_html(body))
+        report["observed_at"] = headers.get("x-preview-observed-at")
+        report["source_read_verified"] = (
+            status == 200 and bool(report["title"]) and report["recent_source_date"]
+            and report["photo_url_count"] > 0
+            and headers.get("x-preview-source-url") == SOURCE_URL
+        )
+    else:
+        try:
+            report["response"] = json.loads(body)
+        except json.JSONDecodeError:
+            report["response_excerpt"] = body[:1000]
+        report["source_read_verified"] = status == 200 and report.get("response", {}).get("validated_count") == 1
+    OUT.joinpath("result.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    # A successful deployment is not a successful source validation.
+    assert report["source_read_verified"], "Isolated Worker deployed, but source probe did not validate a live listing"
+
+
+if __name__ == "__main__":
+    main()

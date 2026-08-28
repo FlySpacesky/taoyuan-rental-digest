@@ -517,7 +517,7 @@ async function readYungchingListPage(page, category, pageNo) {
   );
 }
 
-async function readYungchingDetail(page, candidate) {
+export async function readYungchingDetail(page, candidate) {
   const response = await page.goto(`https://rent.yungching.com.tw/house/${candidate.source_id}`, {
     waitUntil: "domcontentloaded",
     timeout: 30_000,

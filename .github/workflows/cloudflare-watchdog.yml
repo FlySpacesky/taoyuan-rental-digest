@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloudflare-line-watchdog-deploy
+  group: cloudflare-line-watchdog-${{ github.event_name == 'pull_request' && 'preview' || 'deploy' }}
   cancel-in-progress: false
 
 jobs:
@@ -41,6 +41,57 @@ jobs:
       - name: 測試 Worker
         working-directory: cloudflare-worker
         run: node --test tests/*.test.mjs
+
+  preview:
+    # Explicitly approved isolated deployment for PR #44 only. Fork PRs and
+    # other branches cannot access deployment secrets or run this job.
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 44 && github.head_ref == 'fix/591-active-yungching-20260828' && github.event.pull_request.head.repo.full_name == github.repository }}
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: 安裝隔離測試依賴
+        working-directory: cloudflare-worker
+        run: npm install --no-audit --no-fund
+      - name: 確認隔離設定不含正式資源
+        working-directory: cloudflare-worker
+        run: node --test tests/preview.test.mjs
+      - name: 產生限時測試憑證
+        shell: bash
+        run: |
+          TOKEN=$(openssl rand -hex 32)
+          echo "::add-mask::${TOKEN}"
+          echo "PREVIEW_PROBE_TOKEN=${TOKEN}" >> "${GITHUB_ENV}"
+          echo "PREVIEW_EXPIRES_AT_MS=$(( ($(date +%s) + 3600) * 1000 ))" >> "${GITHUB_ENV}"
+      - name: 只部署獨立測試 Worker（沒有 Cron、KV、LINE）
+        working-directory: cloudflare-worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          npx --yes wrangler@4.120.0 deploy --config wrangler.preview.jsonc \
+            --var "PREVIEW_COMMIT:${{ github.event.pull_request.head.sha }}" \
+            --var "PREVIEW_EXPIRES_AT_MS:${PREVIEW_EXPIRES_AT_MS}"
+          printf '%s' "${PREVIEW_PROBE_TOKEN}" | npx --yes wrangler@4.120.0 secret put PREVIEW_PROBE_TOKEN --config wrangler.preview.jsonc
+      - name: 單筆來源串流測試（不啟動瀏覽器）
+        working-directory: cloudflare-worker
+        env:
+          PREVIEW_PROBE_MODE: fetch
+        run: python3 scripts/preview_probe.py
+      - name: 保存隔離驗證結果
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: yungching-cpu-preview-${{ github.run_id }}
+          path: cloudflare-worker/preview-audit
+          if-no-files-found: ignore
+          retention-days: 3
 
   deploy:
     if: ${{ github.ref == 'refs/heads/main' }}
