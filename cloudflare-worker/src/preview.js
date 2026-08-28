@@ -108,7 +108,9 @@ export function createPreviewWorker({ fetchImpl, browserProbe = browserDetailPro
       if (request.method !== "POST" || !["/ready", "/probe-fetch", "/probe-browser"].includes(path)) {
         return Response.json({ error: "not_found" }, { status: 404, headers: NO_STORE });
       }
-      if (!authorized(request, env)) return new Response("Unauthorized", { status: 401, headers: NO_STORE });
+      if (!authorized(request, env)) return new Response("Unauthorized", {
+        status: 401, headers: { ...NO_STORE, "X-Preview-Probe-Started": "false" },
+      });
       if (!(Number(env.PREVIEW_EXPIRES_AT_MS) > Date.now())) {
         return Response.json({ error: "preview_expired" }, { status: 410, headers: NO_STORE });
       }

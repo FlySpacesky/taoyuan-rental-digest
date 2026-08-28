@@ -2,10 +2,27 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
-from preview_probe import call, wait_for_health, wait_for_probe_ready
+from preview_probe import call, call_probe, wait_for_health, wait_for_probe_ready
 
 
 class PreviewHealthTests(unittest.TestCase):
+    def test_only_retries_definitive_pre_handler_auth_rejection(self):
+        responses = iter([(401, {"x-preview-probe-started": "false"}, "Unauthorized"),
+                          (502, {}, "browser error")])
+        attempts = []
+
+        def call_fn(path, **kwargs):
+            attempts.append(path)
+            return next(responses)
+
+        self.assertEqual(call_probe("browser", "test-token", call_fn, lambda _: None)[0], 502)
+        self.assertEqual(len(attempts), 2)
+        for status in (200, 401, 403, 429, 502, 503):
+            with self.subTest(status=status):
+                fn = MagicMock(return_value=(status, {}, "upstream"))
+                self.assertEqual(call_probe("browser", "test-token", fn, lambda _: None)[0], status)
+                fn.assert_called_once()
+
     def test_waits_for_rotated_secret_without_source_requests(self):
         responses = iter([(401, {}, "Unauthorized"), (200, {}, '{"ready":true}')])
         paths = []

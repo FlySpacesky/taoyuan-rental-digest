@@ -32,6 +32,7 @@ test("preview only exposes health and expiring authenticated probe endpoints", a
   const health = await worker.fetch(new Request("https://preview.example/health"), {});
   assert.equal((await health.json()).isolated, true);
   assert.equal((await worker.fetch(request("/probe-fetch", "bad"), env())).status, 401);
+  assert.equal((await worker.fetch(request("/probe-fetch", "bad"), env())).headers.get("X-Preview-Probe-Started"), "false");
   assert.equal((await worker.fetch(request("/probe-fetch"), {})).status, 401);
   assert.equal((await worker.fetch(request("/probe-fetch"), { ...env(), PREVIEW_EXPIRES_AT_MS: "0" })).status, 410);
   assert.equal((await worker.fetch(request("/ready", "bad"), env())).status, 401);

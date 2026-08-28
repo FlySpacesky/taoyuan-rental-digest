@@ -93,6 +93,20 @@ def wait_for_probe_ready(token, call_fn=call, sleep=time.sleep):
     raise RuntimeError("Preview credential not ready; statuses=" + json.dumps(statuses))
 
 
+def call_probe(mode, token, call_fn=call, sleep=time.sleep):
+    for delay in (0, 2, 4, 8, 12):
+        if delay:
+            sleep(delay)
+        result = call_fn("/probe-" + mode, token=token)
+        status, headers, _ = result
+        # Routing may hit an older secret version even after /ready succeeds.
+        # Only retry a definitive pre-handler auth rejection. Timeouts, 5xx,
+        # browser errors, and upstream 401 must NEVER acquire a second browser.
+        if status != 401 or headers.get("x-preview-probe-started") != "false":
+            return result
+    return result
+
+
 def main():
     OUT.mkdir(exist_ok=True)
     try:
@@ -107,7 +121,7 @@ def main():
 
     mode = os.environ.get("PREVIEW_PROBE_MODE", "fetch")
     assert mode in ("fetch", "browser")
-    status, headers, body = call("/probe-" + mode, token=os.environ["PREVIEW_PROBE_TOKEN"])
+    status, headers, body = call_probe(mode, os.environ["PREVIEW_PROBE_TOKEN"])
     report = {
         "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "preview": BASE,
