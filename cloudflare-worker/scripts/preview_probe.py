@@ -81,10 +81,23 @@ def wait_for_health(call_fn=call, sleep=time.sleep, expected_commit=None):
     raise RuntimeError("Preview health not ready: " + json.dumps(attempts))
 
 
+def wait_for_probe_ready(token, call_fn=call, sleep=time.sleep):
+    statuses = []
+    for delay in (0, 2, 4, 8, 12):
+        if delay:
+            sleep(delay)
+        status, _, body = call_fn("/ready", token=token)
+        statuses.append(status)
+        if status == 200 and json.loads(body).get("ready") is True:
+            return statuses
+    raise RuntimeError("Preview credential not ready; statuses=" + json.dumps(statuses))
+
+
 def main():
     OUT.mkdir(exist_ok=True)
     try:
         health, health_attempts = wait_for_health(expected_commit=os.environ.get("PREVIEW_EXPECTED_COMMIT"))
+        credential_attempts = wait_for_probe_ready(os.environ["PREVIEW_PROBE_TOKEN"])
     except RuntimeError as error:
         OUT.joinpath("health-error.txt").write_text(str(error), encoding="utf-8")
         raise
@@ -101,6 +114,7 @@ def main():
         "mode": mode,
         "health": health,
         "health_attempts": health_attempts,
+        "credential_attempts": credential_attempts,
         "status": status,
         "cf_ray": headers.get("cf-ray"),
         "source_url": SOURCE_URL,

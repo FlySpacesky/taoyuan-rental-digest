@@ -100,15 +100,19 @@ export function createPreviewWorker({ fetchImpl, browserProbe = browserDetailPro
           status: "ok", service: PREVIEW_NAME, isolated: true,
           production_handlers: false, cron: false, kv: false, line: false,
           commit: env.PREVIEW_COMMIT || "unknown",
+          probe_token_configured: String(env.PREVIEW_PROBE_TOKEN || "").length >= 32,
         }, { headers: NO_STORE });
       }
-      if (request.method !== "POST" || !["/probe-fetch", "/probe-browser"].includes(path)) {
+      if (request.method !== "POST" || !["/ready", "/probe-fetch", "/probe-browser"].includes(path)) {
         return Response.json({ error: "not_found" }, { status: 404, headers: NO_STORE });
       }
       if (!authorized(request, env)) return new Response("Unauthorized", { status: 401, headers: NO_STORE });
       if (!(Number(env.PREVIEW_EXPIRES_AT_MS) > Date.now())) {
         return Response.json({ error: "preview_expired" }, { status: 410, headers: NO_STORE });
       }
+      // Inert authenticated check: a newly rotated secret may propagate after
+      // the code version. This path never acquires a browser or fetches a source.
+      if (path === "/ready") return Response.json({ ready: true }, { headers: NO_STORE });
       try {
         if (path === "/probe-fetch") return await sourceFetchProbe(fetchImpl);
         return Response.json(await browserProbe(env.BROWSER), { headers: NO_STORE });

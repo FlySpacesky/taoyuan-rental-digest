@@ -34,6 +34,10 @@ test("preview only exposes health and expiring authenticated probe endpoints", a
   assert.equal((await worker.fetch(request("/probe-fetch", "bad"), env())).status, 401);
   assert.equal((await worker.fetch(request("/probe-fetch"), {})).status, 401);
   assert.equal((await worker.fetch(request("/probe-fetch"), { ...env(), PREVIEW_EXPIRES_AT_MS: "0" })).status, 410);
+  assert.equal((await worker.fetch(request("/ready", "bad"), env())).status, 401);
+  assert.equal((await worker.fetch(request("/ready"), { ...env(), PREVIEW_EXPIRES_AT_MS: "0" })).status, 410);
+  assert.deepEqual(await (await worker.fetch(request("/ready"), env())).json(), { ready: true });
+  assert.equal((await worker.fetch(new Request("https://preview.example/ready"), env())).status, 404);
   for (const path of ["/facebook-inbox", "/yungching-feed", "/dispatch"]) {
     assert.equal((await worker.fetch(request(path), env())).status, 404);
   }
