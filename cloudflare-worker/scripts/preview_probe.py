@@ -15,10 +15,15 @@ OUT = Path("preview-audit")
 
 
 def call(path, *, token=None):
+    # workers.dev rejects the generic Python-urllib signature with 1010.
+    # Identify this diagnostic client; do not weaken account security settings.
+    headers = {"User-Agent": "taoyuan-rental-isolated-cpu-probe/1.0", "Accept": "application/json,text/html"}
+    if token:
+        headers.update({"Authorization": "Bearer " + token, "Content-Type": "application/json"})
     request = urllib.request.Request(
         BASE + path,
         data=b"{}" if token else None,
-        headers={"Authorization": "Bearer " + token} if token else {},
+        headers=headers,
     )
     try:
         response = urllib.request.urlopen(request, timeout=35)

@@ -1,10 +1,27 @@
 import json
 import unittest
+from unittest.mock import MagicMock, patch
 
-from preview_probe import wait_for_health
+from preview_probe import call, wait_for_health
 
 
 class PreviewHealthTests(unittest.TestCase):
+    def test_identifies_client_and_only_authenticates_post(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.status, response.headers = 200, {}
+        response.read.return_value = b"{}"
+        with patch("preview_probe.urllib.request.urlopen", return_value=response) as urlopen:
+            call("/health")
+            request = urlopen.call_args.args[0]
+            self.assertEqual(request.get_header("User-agent"), "taoyuan-rental-isolated-cpu-probe/1.0")
+            self.assertEqual(request.get_method(), "GET")
+            self.assertIsNone(request.get_header("Authorization"))
+            call("/probe-fetch", token="test-token")
+            request = urlopen.call_args.args[0]
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(request.get_header("Authorization"), "Bearer test-token")
+
     def health(self, **overrides):
         return dict(status="ok", service="taoyuan-rental-yungching-cpu-preview",
                     isolated=True, production_handlers=False, cron=False,
