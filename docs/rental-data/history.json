@@ -1,13 +1,6 @@
 {
   "sent": [
     {
-      "source_key": "591:21771040",
-      "fingerprint": "d3dde3f8edfb0ec76202b6e6",
-      "sent_at": "2026-08-30T01:49:56.881673+08:00",
-      "title": "A19透天5房2衛浴可宿舍全配可談",
-      "url": "https://rent.591.com.tw/21771040"
-    },
-    {
       "source_key": "591:21884584",
       "fingerprint": "99a8f517fe5ed9015f4a5f82",
       "sent_at": "2026-08-30T22:43:14.278309+08:00",
@@ -1497,6 +1490,13 @@
       "sent_at": "2026-08-31T23:58:46.078807+08:00",
       "title": "佳麗堡三房車位",
       "url": "https://www.sinyi.com.tw/rent/houseno/C349318"
+    },
+    {
+      "source_key": "591:21771040",
+      "fingerprint": "d3dde3f8edfb0ec76202b6e6",
+      "sent_at": "2026-09-01T03:52:49.067570+08:00",
+      "title": "A19透天5房2衛浴可宿舍全配可談",
+      "url": "https://rent.591.com.tw/21771040"
     }
   ],
   "prices": {
