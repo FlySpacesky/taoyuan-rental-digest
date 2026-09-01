@@ -48,6 +48,29 @@ export async function sourceFetchProbe(fetchImpl = fetch) {
   });
 }
 
+export async function quickActionDetailProbe(binding) {
+  if (!binding?.quickAction) throw new Error("preview_browser_quick_action_not_configured");
+  audit("quick_action_start", { source_id: SAMPLE_ID });
+  const upstream = await binding.quickAction("content", {
+    url: SAMPLE_URL,
+    gotoOptions: { waitUntil: "networkidle2", timeout: 30_000 },
+    rejectResourceTypes: ["image", "font", "media"],
+  });
+  audit("quick_action_response", { upstream_status: upstream.status });
+  // Browser Rendering owns the Chromium protocol work. The Worker only
+  // authenticates this fixed request and streams rendered HTML to the caller.
+  return new Response(upstream.body, {
+    status: upstream.status,
+    headers: {
+      ...NO_STORE,
+      "Content-Type": upstream.headers.get("Content-Type") || "text/html; charset=utf-8",
+      "X-Preview-Observed-At": new Date().toISOString(),
+      "X-Preview-Source-Url": SAMPLE_URL,
+      "X-Preview-Mode": "browser-quick-action-stream",
+    },
+  });
+}
+
 export async function browserDetailProbe(binding, api) {
   if (!binding) throw new Error("preview_browser_not_configured");
   api ||= (await import("@cloudflare/puppeteer")).default;
@@ -93,7 +116,11 @@ export async function browserDetailProbe(binding, api) {
   }
 }
 
-export function createPreviewWorker({ fetchImpl, browserProbe = browserDetailProbe } = {}) {
+export function createPreviewWorker({
+  fetchImpl,
+  browserProbe = browserDetailProbe,
+  quickActionProbe = quickActionDetailProbe,
+} = {}) {
   return {
     async fetch(request, env) {
       const path = new URL(request.url).pathname;
@@ -105,7 +132,9 @@ export function createPreviewWorker({ fetchImpl, browserProbe = browserDetailPro
           probe_token_configured: String(env.PREVIEW_PROBE_TOKEN || "").length >= 32,
         }, { headers: NO_STORE });
       }
-      if (request.method !== "POST" || !["/ready", "/probe-fetch", "/probe-browser"].includes(path)) {
+      if (request.method !== "POST" || ![
+        "/ready", "/probe-fetch", "/probe-browser", "/probe-quickaction",
+      ].includes(path)) {
         return Response.json({ error: "not_found" }, { status: 404, headers: NO_STORE });
       }
       if (!authorized(request, env)) return new Response("Unauthorized", {
@@ -119,6 +148,7 @@ export function createPreviewWorker({ fetchImpl, browserProbe = browserDetailPro
       if (path === "/ready") return Response.json({ ready: true }, { headers: NO_STORE });
       try {
         if (path === "/probe-fetch") return await sourceFetchProbe(fetchImpl);
+        if (path === "/probe-quickaction") return await quickActionProbe(env.BROWSER);
         return Response.json(await browserProbe(env.BROWSER), { headers: NO_STORE });
       } catch (error) {
         const message = String(error?.message || error).slice(0, 300);

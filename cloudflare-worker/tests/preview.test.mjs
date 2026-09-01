@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
-import { browserDetailProbe, createPreviewWorker, PREVIEW_NAME, SAMPLE_ID } from "../src/preview.js";
+import { browserDetailProbe, createPreviewWorker, PREVIEW_NAME, quickActionDetailProbe, SAMPLE_ID } from "../src/preview.js";
 
 const token = "a".repeat(64);
 const env = () => ({ PREVIEW_PROBE_TOKEN: token, PREVIEW_EXPIRES_AT_MS: String(Date.now() + 60_000) });
@@ -20,7 +20,7 @@ test("preview config cannot bind production resources or scheduled handlers", ()
   assert.equal(createPreviewWorker().scheduled, undefined);
   const workflow = fs.readFileSync(new URL("../../.github/workflows/cloudflare-watchdog.yml", import.meta.url), "utf8").replaceAll("\r\n", "\n");
   const previewJob = workflow.split("  preview:\n")[1].split("  deploy:\n")[0];
-  assert.match(previewJob, /vars\.RENTAL_CPU_PREVIEW_ENABLED == 'true'/);
+  assert.doesNotMatch(previewJob, /vars\.RENTAL_CPU_PREVIEW_ENABLED == 'true'/);
   assert.match(previewJob, /pull_request\.number == 44/);
   assert.match(previewJob, /head\.repo\.full_name == github\.repository/);
   assert.match(previewJob, /--config wrangler\.preview\.jsonc/);
@@ -61,6 +61,25 @@ test("preview streams only the fixed live public source, preserves upstream fail
     assert.ok(result.headers.get("X-Preview-Observed-At"));
     assert.equal(await result.text(), "public source html");
   }
+});
+
+test("quick action renders only the fixed detail and streams outside Worker parsing", async () => {
+  const calls = [];
+  const binding = {
+    quickAction: async (...args) => {
+      calls.push(args);
+      return new Response("<h1>rendered</h1>", {
+        status: 200, headers: { "Content-Type": "text/html" },
+      });
+    },
+  };
+  const result = await quickActionDetailProbe(binding);
+  assert.equal(result.status, 200);
+  assert.equal(result.headers.get("X-Preview-Mode"), "browser-quick-action-stream");
+  assert.equal(await result.text(), "<h1>rendered</h1>");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], "content");
+  assert.equal(calls[0][1].url, `https://rent.yungching.com.tw/house/${SAMPLE_ID}`);
 });
 
 test("browser preview never acquires or closes active production sessions", async () => {

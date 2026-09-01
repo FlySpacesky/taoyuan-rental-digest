@@ -23,6 +23,11 @@ class PreviewHealthTests(unittest.TestCase):
                 self.assertEqual(call_probe("browser", "test-token", fn, lambda _: None)[0], status)
                 fn.assert_called_once()
 
+    def test_quick_action_uses_the_same_single_call_retry_rule(self):
+        fn = MagicMock(return_value=(200, {"x-preview-source-url": "fixed"}, "html"))
+        self.assertEqual(call_probe("quickaction", "test-token", fn, lambda _: None)[0], 200)
+        fn.assert_called_once_with("/probe-quickaction", token="test-token")
+
     def test_waits_for_rotated_secret_without_source_requests(self):
         responses = iter([(401, {}, "Unauthorized"), (200, {}, '{"ready":true}')])
         paths = []

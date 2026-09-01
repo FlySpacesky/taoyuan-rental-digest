@@ -120,7 +120,7 @@ def main():
     assert call("/probe-fetch", token="unauthorized")[0] == 401
 
     mode = os.environ.get("PREVIEW_PROBE_MODE", "fetch")
-    assert mode in ("fetch", "browser")
+    assert mode in ("fetch", "browser", "quickaction")
     status, headers, body = call_probe(mode, os.environ["PREVIEW_PROBE_TOKEN"])
     report = {
         "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -135,7 +135,7 @@ def main():
         "production_modified": False,
         "line_sent": False,
     }
-    if mode == "fetch":
+    if mode in ("fetch", "quickaction"):
         OUT.joinpath("source.html").write_text(body, encoding="utf-8")
         report.update(analyze_html(body))
         report["observed_at"] = headers.get("x-preview-observed-at")

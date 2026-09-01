@@ -47,8 +47,9 @@ jobs:
   preview:
     # Explicitly approved isolated deployment for PR #44 only. Fork PRs and
     # other branches cannot access deployment secrets or run this job. After
-    # the completed diagnostic, future runs require explicit operator opt-in.
-    if: ${{ vars.RENTAL_CPU_PREVIEW_ENABLED == 'true' && github.event_name == 'pull_request' && github.event.pull_request.number == 44 && github.head_ref == 'fix/591-active-yungching-20260828' && github.event.pull_request.head.repo.full_name == github.repository }}
+    # this follow-up quickAction diagnostic is explicitly approved. The guard
+    # is restored after the single result is recorded.
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 44 && github.head_ref == 'fix/591-active-yungching-20260828' && github.event.pull_request.head.repo.full_name == github.repository }}
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -86,12 +87,24 @@ jobs:
             --secrets-file "${PREVIEW_SECRET_FILE}" \
             --var "PREVIEW_COMMIT:${{ github.event.pull_request.head.sha }}" \
             --var "PREVIEW_EXPIRES_AT_MS:${PREVIEW_EXPIRES_AT_MS}"
-      - name: 單筆瀏覽器 CPU 測試（20秒截止、沒有重試）
+      - name: 單筆 quickAction 串流與 CPU tail 測試（沒有重試）
         working-directory: cloudflare-worker
         env:
-          PREVIEW_PROBE_MODE: browser
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          PREVIEW_PROBE_MODE: quickaction
           PREVIEW_EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha }}
-        run: python3 scripts/preview_probe.py
+        shell: bash
+        run: |
+          mkdir -p preview-audit
+          npx --yes wrangler@4.127.0 tail --config wrangler.preview.jsonc --format json \
+            > preview-audit/tail.jsonl 2>&1 &
+          TAIL_PID=$!
+          trap 'kill "${TAIL_PID}" 2>/dev/null || true; wait "${TAIL_PID}" 2>/dev/null || true' EXIT
+          sleep 5
+          python3 scripts/preview_probe.py
+          sleep 10
+
       - name: 保存隔離驗證結果
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -105,7 +118,7 @@ jobs:
     # PR #44 has explicit approval for an isolated CPU-offload validation.
     # This makes one Browser Rendering REST request and never invokes or deploys
     # the production Worker, publishes Pages, or sends LINE.
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 44 && github.head_ref == 'fix/591-active-yungching-20260828' && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ vars.RENTAL_BROWSER_REST_ENABLED == 'true' && github.event_name == 'pull_request' && github.event.pull_request.number == 44 && github.head_ref == 'fix/591-active-yungching-20260828' && github.event.pull_request.head.repo.full_name == github.repository }}
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 5
