@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -29,6 +30,7 @@ def payload(
     generated_at: str = "2026-08-21T09:30:00+08:00",
 ) -> dict[str, object]:
     row: dict[str, object] = {
+        "crawl_policy": "active-all-v1",
         "validated": validated_591,
         "published": validated_591,
         "http_statuses": statuses or {},
@@ -56,9 +58,10 @@ def merge_payload(
         candidate_count, published = source_rows.get(source, (0, 0))
         freshness_days = RETRY.source_freshness_days(source)
         sources[source] = {
+            "crawl_policy": "active-all-v1" if source == "591" else "",
             "candidate_links": candidate_count,
             "validated_before_freshness": candidate_count,
-            f"fresh_within_{freshness_days}_days": published,
+            ("active_validated" if freshness_days is None else f"fresh_within_{freshness_days}_days"): published,
             "freshness_window_days": freshness_days,
             "validated": published,
             "published": published,
@@ -84,13 +87,34 @@ def merge_payload(
             "comparison_source": "delivery:2026-08-21-0800",
             "default_freshness_window_hours": 168,
             "freshness_window_hours_by_source": {
-                source: RETRY.source_freshness_days(source) * 24
+                source: RETRY.source_freshness_days(source) * 24 if RETRY.source_freshness_days(source) is not None else None
                 for source in RETRY.SOURCE_ORDER
             },
         },
         "items": items,
     }
 class ValidationRetryTests(unittest.TestCase):
+    def test_old_two_day_policy_is_not_accepted_as_full_inventory(self) -> None:
+        old = payload(validated_591=1)
+        old["stats"]["sources"]["591"].pop("crawl_policy")
+        with self.assertRaises(AssertionError):
+            RETRY.assert_fresh_591(old)
+
+    def test_merged_edition_preserves_new_badge_without_comparing_to_itself(self) -> None:
+        now = datetime.now(timezone(timedelta(hours=8)))
+        data = merge_payload(generated_at=now.isoformat(), source_rows={"591": (1, 1)})
+        data["items"][0]["new_since_at"] = now.isoformat()
+        data["stats"].update(candidates=1, validated=1, published=1, duplicates=0)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            digest = RETRY.load_digest_module()
+            with (
+                patch.object(RETRY, "load_digest_module", return_value=digest),
+                patch.object(digest, "load_previous_edition_keys", side_effect=AssertionError("must not recompare")),
+            ):
+                result = RETRY.write_merged_edition(data, Path(temp_dir), now.strftime("%Y-%m-%d-0930"), "https://example.com/")
+            self.assertTrue(result["items"][0]["new_listing"])
+            self.assertEqual(result["stats"]["comparison_source"], data["stats"]["comparison_source"])
+
     def test_explicit_403_requests_delayed_retry(self) -> None:
         blocked = payload(statuses={"bff": {"403": 2}, "html": {"403": 2}})
         self.assertTrue(RETRY.rate_limited_591(blocked))
@@ -282,7 +306,7 @@ class ValidationRetryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             RETRY.merge_source_payloads((("first", first), ("second", second)))
 
-    def test_source_merge_drops_591_item_that_crosses_final_two_day_boundary(self) -> None:
+    def test_source_merge_keeps_live_591_item_regardless_of_source_age(self) -> None:
         first = merge_payload(
             generated_at="2026-08-21T09:30:00+08:00",
             source_rows={"591": (1, 1)},
@@ -296,9 +320,21 @@ class ValidationRetryTests(unittest.TestCase):
         merged, _ = RETRY.merge_source_payloads((("first", first), ("second", second)))
 
         row = merged["stats"]["sources"]["591"]
-        self.assertEqual(row["published"], 0)
-        self.assertEqual(row["validated"], 0)
-        self.assertEqual(row["rejects"]["source_older_than_2_days"], 1)
+        self.assertEqual(row["published"], 1)
+        self.assertEqual(row["validated"], 1)
+        self.assertEqual(row["active_validated"], 1)
+        self.assertIsNone(row["freshness_window_days"])
+
+    def test_591_missing_source_date_is_valid_but_stale_validation_is_not(self) -> None:
+        data = merge_payload(generated_at="2026-08-21T09:30:00+08:00", source_rows={"591": (1, 1)})
+        data["items"][0]["source_timestamp"] = ""
+        generated_at = RETRY.parse_timestamp(data["generated_at"])
+        retained, rejected = RETRY.validated_source_items(data, "591", generated_at)
+        self.assertEqual(len(retained), 1)
+        self.assertFalse(rejected)
+        data["items"][0]["validated_at"] = "2026-08-20T09:30:00+08:00"
+        with self.assertRaisesRegex(ValueError, "stale validation"):
+            RETRY.validated_source_items(data, "591", generated_at)
 
     def test_source_merge_keeps_non_591_item_inside_seven_day_boundary(self) -> None:
         first = merge_payload(

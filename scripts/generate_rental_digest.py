@@ -10,13 +10,13 @@
 
 本版重點：
 1. FB與Threads不使用帳號密碼、Cookie或瀏覽器Session；指定四區與3房以上為
-   硬條件。FB排除包租代管同行、保留一般房仲為C級；591只刊出近2天、其他來源近7天內資料。
+   硬條件。FB排除包租代管同行、保留一般房仲為C級；591刊出本輪現刊、其他來源近7天內資料。
 2. 591 列表優先讀網站前端使用的官方 BFF；失效時才退回 SSR HTML / Chromium。
 3. 591 屋主只接受 role_name / 詳情聯絡人角色明確以「屋主」開頭的物件。
 4. 591 降價優先使用 BFF 官方 diff_price，詳情頁阻擋時使用同輪嚴格列表快照。
 5. 404 / 410 / 已刪除 / 已關閉 / 已成交物件仍排除。
 6. 樂屋網原租金只接受明確舊價標示或歷史快照，避免把押金誤判為原租金。
-7. 591 兩天、其他來源七天的來源時間驗證與跨來源去重；真正降價物件可重新顯示。
+7. 591 不限刊登日期，其他來源七天的來源時間驗證與跨來源去重；真正降價物件可重新顯示。
 8. 新房源以上一封成功投遞的快報為比較基準，不以同一天判斷。
 9. 每封 LINE 使用日期加時段的永久快報網址，不連向可變的首頁。
 """
@@ -143,7 +143,8 @@ SOURCE_SNAPSHOT_MAX_AGE = _591_SNAPSHOT_MAX_AGE
 FIRST_SEEN_REGISTRY_LIMIT = 20_000
 SOURCE_FRESHNESS_DAYS = 7
 SOURCE_FRESHNESS_WINDOW = timedelta(days=SOURCE_FRESHNESS_DAYS)
-SOURCE_FRESHNESS_DAYS_BY_SOURCE = {"591": 2}
+SOURCE_FRESHNESS_DAYS_BY_SOURCE = {"591": None}
+CRAWL_591_POLICY = "active-all-v1"
 NEW_LISTING_BADGE_WINDOW = timedelta(days=1)
 SOCIAL_INITIAL_WINDOW = SOURCE_FRESHNESS_WINDOW
 SOCIAL_ONGOING_WINDOW = SOURCE_FRESHNESS_WINDOW
@@ -161,14 +162,15 @@ RENTAL_VALIDATION_ATTEMPT_ENV = "RENTAL_VALIDATION_ATTEMPT"
 RENTAL_SOURCE_ONLY_ENV = "RENTAL_SOURCE_ONLY"
 
 
-def source_freshness_days(source: str) -> int:
+def source_freshness_days(source: str) -> int | None:
     """Return the source-proven listing activity window in whole days."""
 
     return SOURCE_FRESHNESS_DAYS_BY_SOURCE.get(source, SOURCE_FRESHNESS_DAYS)
 
 
-def source_freshness_window(source: str) -> timedelta:
-    return timedelta(days=source_freshness_days(source))
+def source_freshness_window(source: str) -> timedelta | None:
+    days = source_freshness_days(source)
+    return timedelta(days=days) if days is not None else None
 
 SINYI_SEARCH_TEMPLATE = (
     "https://www.sinyi.com.tw/rent/list/Taoyuan-city/"
@@ -183,6 +185,13 @@ YUNGCHING_SEARCH_BASE = (
 YUNGCHING_FEED_URL = (
     "https://taoyuan-rental-line-watchdog.flysky3345678.workers.dev/"
     "yungching-feed"
+)
+YUNGCHING_RENDER_URL_ENV = "YUNGCHING_RENDER_URL"
+YUNGCHING_RENDER_TOKEN_ENV = "YUNGCHING_RENDER_TOKEN"
+YUNGCHING_RENDER_INTERVAL_ENV = "YUNGCHING_RENDER_INTERVAL_SECONDS"
+DEFAULT_YUNGCHING_RENDER_URL = (
+    "https://taoyuan-rental-line-watchdog.flysky3345678.workers.dev/"
+    "yungching-render"
 )
 SINYI_NON_RESIDENTIAL_MARKERS = (
     "店面",
@@ -447,6 +456,7 @@ class Listing:
     source_timestamp: str = ""
     first_seen_at: str = ""
     new_listing: bool = False
+    new_since_at: str = ""
     social_score: int = 0
     fb_lead_grade: str = ""
     social_notes: list[str] = field(default_factory=list)
@@ -1210,6 +1220,7 @@ def extract_591_ids(raw: str) -> list[str]:
 
 _591_LIST_CACHE: dict[str, Listing] = {}
 _591_BFF_CACHE_IDS: set[str] = set()
+_591_BFF_RAW_COUNT: int | None = None
 _591_REJECTS: dict[str, int] = {}
 
 
@@ -1496,6 +1507,8 @@ def fetch_591_bff_cards(
     query: dict[str, Any],
 ) -> tuple[int | None, int, dict[str, Listing]]:
     """讀取 591 官網自己的清單 BFF；分頁使用 firstRow=0,30,60...。"""
+    global _591_BFF_RAW_COUNT
+    _591_BFF_RAW_COUNT = None
     page_no = max(1, int(query.get("page", 1)))
     first_row = (page_no - 1) * 30
     params: dict[str, str] = {
@@ -1539,6 +1552,7 @@ def fetch_591_bff_cards(
                 or not isinstance(payload["data"].get("items"), list)
             ):
                 raise ValueError("unexpected 591 BFF response")
+            _591_BFF_RAW_COUNT = len(payload["data"]["items"])
             return response.status_code, first_row, parse_591_bff_cards(payload)
         except (requests.RequestException, ValueError) as exc:
             if attempt + 1 >= 3:
@@ -1562,18 +1576,6 @@ def _591_request_interval() -> float:
     return min(max(value, 1.0), 10.0)
 
 
-def _591_page_is_outside_freshness(cards: Mapping[str, Listing]) -> bool:
-    """Return true only when every sorted card has a proven time older than 2 days."""
-
-    if not cards:
-        return False
-    timestamps = [source_listing_time(item) for item in cards.values()]
-    return all(
-        timestamp is not None and NOW - timestamp > source_freshness_window("591")
-        for timestamp in timestamps
-    )
-
-
 def _591_resume_progress() -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     """Load only same-run crawl progress; listing rows remain artifact-merged later."""
 
@@ -1587,6 +1589,8 @@ def _591_resume_progress() -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     row = payload.get("stats", {}).get("sources", {}).get("591", {})
     if row.get("snapshot_used") or row.get("fallback"):
         raise ValueError("591 checkpoint 不得來自舊快照")
+    if row.get("crawl_policy") != CRAWL_591_POLICY:
+        raise ValueError("591 checkpoint 抓取範圍已變更，必須重新完整抓取")
     current_run = os.environ.get("GITHUB_RUN_ID", "").strip()
     checkpoint_run = str(row.get("validation_run_id", "")).strip()
     if current_run and checkpoint_run != current_run:
@@ -1619,18 +1623,19 @@ def _591_resume_progress() -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
         "generated_at": payload.get("generated_at"),
         "attempt": row.get("validation_attempt", ""),
         "checkpoint_chain": list(row.get("checkpoint_chain", [])),
-        "freshness_boundaries": dict(row.get("freshness_boundaries", {})),
     }
     return progress, metadata
 
 
 def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
+    global _591_BFF_RAW_COUNT
     source_stats["egress"] = (
         "stable_proxy"
         if _591_PROXY_CONFIG
         else os.environ.get("VALIDATION_EGRESS", "default")
     )
     source_stats["stable_egress_configured"] = bool(_591_PROXY_CONFIG)
+    source_stats["crawl_policy"] = CRAWL_591_POLICY
     links: list[str] = []
     seen: set[str] = set()
     blocked_streak = 0
@@ -1666,9 +1671,6 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
         source_stats["resumed_from_checkpoint"] = True
         source_stats["resume_from_generated_at"] = resume_metadata.get("generated_at")
         source_stats["resume_from_attempt"] = resume_metadata.get("attempt")
-        source_stats["freshness_boundaries"] = resume_metadata.get(
-            "freshness_boundaries", {}
-        )
 
     def record_status(channel: str, status: int | None) -> None:
         statuses = source_stats.setdefault("http_statuses", {}).setdefault(channel, {})
@@ -1703,6 +1705,7 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
 
                 # 優先讀 591 清單頁前端本身使用的官方 BFF。它提供明確角色、
                 # 主租金與官方降價差額，避免 HTML 額外費用覆蓋主租金。
+                _591_BFF_RAW_COUNT = None
                 bff_status, first_row, bff_cards = fetch_591_bff_cards(query)
                 record_status("bff", bff_status)
                 response: requests.Response | None = None
@@ -1805,7 +1808,10 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                     source_stats["unverified_after_queries"] = 2
                     break
 
-                if not new_ids:
+                raw_count = _591_BFF_RAW_COUNT if bff_status == 200 and _591_BFF_RAW_COUNT is not None else len(ids)
+                # An all-rejected or repeated page is not an empty source page.
+                # Continue past hard-filtered rows so later eligible listings survive.
+                if raw_count == 0:
                     if page_verified:
                         empty_pages += 1
                         progress["next_page"] = min(page_no + 1, 100)
@@ -1823,13 +1829,7 @@ def crawl_591_links(source_stats: dict[str, Any]) -> list[str]:
                     seen.add(item_id)
                     links.append(f"https://rent.591.com.tw/{item_id}")
 
-                # 清單依最新活動排序；整頁都有可證明超過2天的時間後，後頁不可能
-                # 再出現本期需要發布的物件，這是正常完成而不是被擋。
-                if _591_page_is_outside_freshness(cards):
-                    district_completed = True
-                    source_stats.setdefault("freshness_boundaries", {})[district] = page_no
-                    break
-
+                # 591 現刊不限新增／更新日期，不能以舊日期提早停止分頁。
                 time.sleep(request_interval)
             if district_completed:
                 progress["completed"] = True
@@ -2697,6 +2697,174 @@ def extract_yungching_list_cards(
     return items
 
 
+def yungching_validation_id() -> str:
+    identity = f"{os.environ.get('GITHUB_RUN_ID', 'local')}:{NOW.isoformat()}"
+    return "yc-" + hashlib.sha256(identity.encode()).hexdigest()[:32]
+
+
+def fetch_yungching_render_html(
+    payload: dict[str, Any],
+    source_stats: dict[str, Any],
+    rate_state: dict[str, float],
+) -> str:
+    """Render one allow-listed Yungching page; parse everything on the runner."""
+
+    token = os.environ.get(YUNGCHING_RENDER_TOKEN_ENV, "").strip()
+    if not token:
+        raise RuntimeError("yungching_render_token_missing")
+    endpoint = os.environ.get(
+        YUNGCHING_RENDER_URL_ENV, DEFAULT_YUNGCHING_RENDER_URL
+    ).strip()
+    interval = max(
+        0.0,
+        float(os.environ.get(YUNGCHING_RENDER_INTERVAL_ENV, "10.5") or 10.5),
+    )
+    started = time.monotonic()
+    wait = interval - (started - rate_state.get("last_started", -interval))
+    if wait > 0:
+        time.sleep(wait)
+    rate_state["last_started"] = time.monotonic()
+    source_stats["browser_render_requests"] = int(
+        source_stats.get("browser_render_requests", 0) or 0
+    ) + 1
+    response = session.post(
+        endpoint,
+        json=payload,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "taoyuan-rental-yungching-render/1.0",
+        },
+        timeout=(15, 55),
+    )
+    source_stats["browser_render_http_status"] = response.status_code
+    browser_ms = response.headers.get("X-Browser-Ms-Used", "").strip()
+    if browser_ms:
+        try:
+            source_stats["browser_render_ms_used"] = round(
+                float(source_stats.get("browser_render_ms_used", 0) or 0)
+                + float(browser_ms),
+                3,
+            )
+        except ValueError:
+            pass
+    if response.status_code == 429:
+        source_stats["browser_render_retry_after"] = response.headers.get(
+            "Retry-After", ""
+        )
+        raise RuntimeError(
+            "Cloudflare Browser Run 429；本輪停止新增瀏覽器請求，避免快速重試耗盡配額。"
+        )
+    response.raise_for_status()
+    try:
+        envelope = response.json()
+    except ValueError as exc:
+        raise RuntimeError("Browser Run 回應不是 JSON envelope。") from exc
+    raw = envelope.get("result") if isinstance(envelope, dict) else None
+    if not isinstance(raw, str) or envelope.get("success") is not True:
+        raise RuntimeError(
+            "Browser Run 未回傳可解析 HTML："
+            + clean(json.dumps(envelope, ensure_ascii=False), 300)
+        )
+    if not raw or looks_blocked(raw) or "JavaScript is disabled" in raw:
+        raise RuntimeError("Browser Run 仍停留在 JavaScript 驗證頁，未視為來源成功。")
+    return raw
+
+
+def load_yungching_render_feed(
+    source_stats: dict[str, Any],
+) -> dict[str, Listing] | None:
+    """Complete current-round crawl through the low-CPU private render stream.
+
+    ``None`` means the transport is not configured. An empty dict means it was
+    attempted but produced no verified rows, so callers must not use a snapshot.
+    """
+
+    if not os.environ.get(YUNGCHING_RENDER_TOKEN_ENV, "").strip():
+        return None
+    source_stats["transport"] = "cloudflare_browser_quick_action_stream"
+    rate_state: dict[str, float] = {}
+    candidates: dict[str, Listing] = {}
+    category_ids: dict[str, set[str]] = {"all": set(), "new": set()}
+    errors: list[str] = []
+    pages_read = 0
+    for category in ("all", "new"):
+        for page_no in range(1, 6):
+            try:
+                raw = fetch_yungching_render_html(
+                    {"kind": "list", "category": category, "page": page_no},
+                    source_stats,
+                    rate_state,
+                )
+            except (requests.RequestException, RuntimeError, ValueError) as exc:
+                errors.append(
+                    f"list:{category}:{page_no}:{clean(str(exc), 220)}"
+                )
+                break
+            pages_read += 1
+            cards = extract_yungching_list_cards(
+                raw, yungching_result_url(category, page_no), category
+            )
+            new_ids = set(cards) - category_ids[category]
+            category_ids[category].update(cards)
+            for source_id, item in cards.items():
+                if source_id in candidates:
+                    candidates[source_id].filter_tags = sorted(
+                        set(candidates[source_id].filter_tags)
+                        | set(item.filter_tags)
+                    )
+                else:
+                    candidates[source_id] = item
+            print(
+                f"[Yungching render] category={category} page={page_no} "
+                f"candidates={len(cards)} new={len(new_ids)}"
+            )
+            if not cards or not new_ids:
+                break
+
+    validated: dict[str, Listing] = {}
+    details_fetched = 0
+    for index, candidate in enumerate(candidates.values(), 1):
+        print(
+            f"[Yungching render detail] {index}/{len(candidates)} "
+            f"{candidate.source_id}"
+        )
+        try:
+            raw = fetch_yungching_render_html(
+                {"kind": "detail", "source_id": candidate.source_id},
+                source_stats,
+                rate_state,
+            )
+        except (requests.RequestException, RuntimeError, ValueError) as exc:
+            errors.append(
+                f"detail:{candidate.source_id}:{clean(str(exc), 220)}"
+            )
+            if "429" in str(exc) or "配額" in str(exc):
+                break
+            continue
+        details_fetched += 1
+        item = parse_yungching_detail_html(candidate, raw)
+        if item:
+            validated[item.source_id] = item
+
+    source_stats["pages_read"] = pages_read
+    source_stats["candidate_links"] = len(candidates)
+    source_stats["details_checked"] = len(candidates)
+    source_stats["details_fetched"] = details_fetched
+    source_stats["validated"] = len(validated)
+    source_stats["category_counts"] = {
+        category: len(ids) for category, ids in category_ids.items()
+    }
+    source_stats["crawl_complete"] = (
+        not errors and details_fetched == len(candidates)
+    )
+    if errors:
+        source_stats.setdefault("notices", []).append(
+            "永慶低CPU串流本輪未完整："
+            + clean("；".join(errors), 900)
+        )
+    return validated
+
+
 def load_yungching_browser_feed(source_stats: dict[str, Any]) -> dict[str, Listing]:
     """讀取 Cloudflare Browser Run 產生的永慶公開房源摘要。
 
@@ -2705,9 +2873,17 @@ def load_yungching_browser_feed(source_stats: dict[str, Any]) -> dict[str, Listi
     """
     payload: Any = None
     last_error: Exception | None = None
+    validation_id = yungching_validation_id()
+    source_stats["browser_feed_validation_id"] = validation_id
     for attempt in range(1, 4):
+        source_stats["browser_feed_attempts"] = attempt
         try:
-            response = session.get(YUNGCHING_FEED_URL, timeout=100)
+            response = session.get(YUNGCHING_FEED_URL, params={"validation_id": validation_id}, timeout=(15, 240))
+            source_stats["browser_feed_http_status"] = response.status_code
+            if response.status_code == 503 and "1102" in response.text:
+                source_stats["browser_feed_platform_error"] = "worker_resource_limit_1102"
+                last_error = ValueError("Cloudflare 1102：Worker超出CPU／記憶體資源限制；需檢查平台日誌，不能視為市場零房源。")
+                break
             response.raise_for_status()
             payload = response.json()
             source_stats["browser_feed_attempts"] = attempt
@@ -2715,16 +2891,19 @@ def load_yungching_browser_feed(source_stats: dict[str, Any]) -> dict[str, Listi
         except (requests.RequestException, ValueError) as exc:
             last_error = exc
             if attempt < 3:
-                time.sleep(2.5 * attempt)
+                time.sleep(21 * attempt)
 
     if payload is None:
-        source_stats["browser_feed_attempts"] = 3
         source_stats["notices"].append(
             f"Cloudflare永慶公開摘要暫時無法讀取：{last_error}"
         )
         return {}
 
-    if not isinstance(payload, dict) or payload.get("healthy") is False:
+    if (
+        not isinstance(payload, dict)
+        or not isinstance(payload.get("fresh_validation"), dict)
+        or payload["fresh_validation"].get("successful") is not True
+    ):
         details = payload.get("errors", []) if isinstance(payload, dict) else []
         source_stats["browser_feed_health"] = "degraded"
         source_stats["browser_feed_candidates"] = int(
@@ -2735,6 +2914,22 @@ def load_yungching_browser_feed(source_stats: dict[str, Any]) -> dict[str, Listi
             f" 診斷={clean(json.dumps(details, ensure_ascii=False), 600)}"
         )
         return {}
+
+    generated_at = parse_state_time(payload.get("generated_at"))
+    if (
+        payload.get("validation_id") != validation_id
+        or generated_at is None
+        or generated_at < NOW - timedelta(minutes=10)
+        or generated_at > datetime.now(TZ) + timedelta(minutes=10)
+    ):
+        source_stats["browser_feed_health"] = "stale_or_wrong_round"
+        source_stats["notices"].append("永慶摘要不屬於本輪驗證，拒絕使用先前快取或快照。")
+        return {}
+    if payload.get("status") == "partial":
+        source_stats["notices"].append(
+            "永慶部分來源驗證中斷；只保留本輪成功驗證的物件。"
+            f" 診斷={clean(json.dumps(payload.get('errors', []), ensure_ascii=False), 600)}"
+        )
 
     rows = payload.get("items") if isinstance(payload, dict) else None
     if not isinstance(rows, list):
@@ -2750,6 +2945,12 @@ def load_yungching_browser_feed(source_stats: dict[str, Any]) -> dict[str, Listi
         if not source_id or not re.fullmatch(r"\d+", source_id):
             continue
         if not re.search(rf"/house/{re.escape(source_id)}(?:$|[/?#])", url):
+            continue
+        if urllib.parse.urlparse(url).hostname != "rent.yungching.com.tw":
+            continue
+        validated_at = parse_state_time(row.get("validated_at"))
+        if validated_at is None or not NOW - timedelta(minutes=10) <= validated_at <= generated_at + timedelta(minutes=10):
+            source_stats["browser_feed_rejected_validation_time"] = int(source_stats.get("browser_feed_rejected_validation_time", 0)) + 1
             continue
         images = [
             str(value).strip()
@@ -2782,7 +2983,7 @@ def load_yungching_browser_feed(source_stats: dict[str, Any]) -> dict[str, Listi
             images=images[1:],
             summary=clean(row.get("summary", ""), 900),
             raw_text=clean(row.get("raw_text", ""), 12000),
-            validated_at=NOW.isoformat(),
+            validated_at=validated_at.isoformat(),
             filter_tags=sorted(set(tags)),
         )
         if not source_snapshot_item_valid(item, "永慶房屋"):
@@ -2801,7 +3002,7 @@ def load_yungching_browser_feed(source_stats: dict[str, Any]) -> dict[str, Listi
             "all": len(items),
             "new": sum(1 for item in items.values() if "new" in item.filter_tags),
         }
-        source_stats["candidate_links"] = len(items)
+        source_stats["candidate_links"] = source_stats["browser_feed_candidates"]
     return items
 
 
@@ -2897,6 +3098,22 @@ def parse_yungching_detail(candidate: Listing) -> Listing | None:
     )
     if not raw or looks_blocked(raw) or is_dead_page(response, raw, "yungching.com.tw"):
         return None
+    return parse_yungching_detail_html(
+        candidate,
+        raw,
+        normalize_item_url(response.url if response is not None else candidate.url),
+    )
+
+
+def parse_yungching_detail_html(
+    candidate: Listing,
+    raw: str,
+    final_url: str = "",
+) -> Listing | None:
+    """Parse already-rendered detail HTML without any network or browser work."""
+
+    if not raw or looks_blocked(raw) or is_dead_page(None, raw, "yungching.com.tw"):
+        return None
     soup = BeautifulSoup(raw, "html.parser")
     text = clean(soup.get_text(" "), 240000)
     title_node = soup.find("h1")
@@ -2910,7 +3127,7 @@ def parse_yungching_detail(candidate: Listing) -> Listing | None:
     floor = floor_match.group(1).replace(" ", "") if floor_match else candidate.floor
     address_match = re.search(r"桃園市(桃園區|中壢區|平鎮區|八德區)[^\s｜|]{0,80}", text)
     address = clean(address_match.group(0), 100) if address_match else candidate.address
-    updated_match = re.search(r"更新日期\s*(\d{4}年\d{1,2}月\d{1,2}日)", text)
+    updated_match = re.search(r"更新日期\s*(\d{4}[年/-]\d{1,2}[月/-]\d{1,2}日?)", text)
     updated = updated_match.group(1) if updated_match else ""
     building_type = next(
         (value for value in ("電梯大樓", "華廈", "公寓", "透天厝", "別墅", "樓中樓") if value in text),
@@ -2934,9 +3151,10 @@ def parse_yungching_detail(candidate: Listing) -> Listing | None:
     publisher_node = soup.select_one('a[href*="shop.yungching.com.tw"]')
     publisher = clean(publisher_node.get_text(" ") if publisher_node else "永慶房屋", 100)
     images = [
-        str(node.get("src", "")).strip()
-        for node in soup.select("figure img[src]")
-        if is_yungching_photo_url(str(node.get("src", "")).strip())
+        url
+        for node in soup.select("figure img[src], .yc-ng-album-v2-carousel__main-img")
+        if (url := urllib.parse.urljoin(candidate.url, str(node.get("src", "")).strip()))
+        if is_yungching_photo_url(url)
     ]
     images.extend(yungching_json_ld_images(soup))
     if is_yungching_photo_url(json_image):
@@ -2947,7 +3165,7 @@ def parse_yungching_detail(candidate: Listing) -> Listing | None:
     item = Listing(
         source="永慶房屋",
         source_id=candidate.source_id,
-        url=normalize_item_url(response.url if response is not None else candidate.url),
+        url=normalize_item_url(final_url or candidate.url),
         title=title or candidate.title,
         district=district_from_text(address),
         address=address,
@@ -2974,6 +3192,18 @@ def parse_yungching_detail(candidate: Listing) -> Listing | None:
 
 
 def collect_yungching_listings(source_stats: dict[str, Any]) -> list[Listing]:
+    render_feed = load_yungching_render_feed(source_stats)
+    if render_feed is not None:
+        fresh = list(render_feed.values())
+        if fresh:
+            save_source_snapshot("永慶房屋", fresh, LAST_SUCCESS_YUNGCHING)
+            source_stats["snapshot_updated_at"] = NOW.isoformat()
+            return fresh
+        source_stats["errors"].append(
+            "永慶低CPU渲染串流本輪沒有重新驗證成功的物件；本輪不沿用上次快照。"
+        )
+        return []
+
     browser_feed = load_yungching_browser_feed(source_stats)
     if browser_feed:
         fresh = list(browser_feed.values())
@@ -5177,7 +5407,7 @@ def filter_source_freshness(
     items: list[Listing],
     stats: dict[str, Any],
 ) -> list[Listing]:
-    """Keep source-proven activity within 2 days for 591 and 7 days otherwise."""
+    """Keep every live-validated 591 listing; require seven-day activity elsewhere."""
 
     kept: list[Listing] = []
     source_rows = stats.get("sources", {})
@@ -5187,15 +5417,23 @@ def filter_source_freshness(
         source_stats["validated_before_freshness"] = len(source_items)
         source_stats["freshness_checked"] = len(source_items)
         source_stats["freshness_window_days"] = freshness_days
-        source_stats[f"fresh_within_{freshness_days}_days"] = 0
+        source_stats["freshness_policy"] = "active_listing" if freshness_days is None else "source_activity"
+        source_stats["active_validated" if freshness_days is None else f"fresh_within_{freshness_days}_days"] = 0
         source_stats["freshness_rejected"] = 0
 
     for item in items:
         source_stats = source_rows.get(item.source, {})
         freshness_days = source_freshness_days(item.source)
         freshness_window = source_freshness_window(item.source)
-        fresh_key = f"fresh_within_{freshness_days}_days"
+        fresh_key = "active_validated" if freshness_days is None else f"fresh_within_{freshness_days}_days"
         timestamp = source_listing_time(item)
+        if freshness_window is None:
+            # Liveness comes from collect_591_listings, never from an old timestamp
+            # or a snapshot. Do not manufacture an update date when none is shown.
+            item.source_timestamp = timestamp.isoformat() if timestamp else ""
+            source_stats[fresh_key] = int(source_stats.get(fresh_key, 0) or 0) + 1
+            kept.append(item)
+            continue
         reason = ""
         if timestamp is None:
             reason = "missing_source_time"
@@ -5216,7 +5454,7 @@ def filter_source_freshness(
 
     for source, source_stats in source_rows.items():
         freshness_days = source_freshness_days(source)
-        fresh_key = f"fresh_within_{freshness_days}_days"
+        fresh_key = "active_validated" if freshness_days is None else f"fresh_within_{freshness_days}_days"
         source_stats["validated"] = int(source_stats.get(fresh_key, 0) or 0)
         rejected = int(source_stats.get("freshness_rejected", 0) or 0)
         if rejected:
@@ -5238,7 +5476,17 @@ def filter_source_freshness(
 
 
 def load_previous_edition_keys() -> tuple[set[str], str]:
-    """Load the last successful delivery, falling back once to the current page."""
+    """Compare with the previous published page, including skip-LINE editions."""
+
+    try:
+        previous = json.loads(OUTPUT_JSON.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        previous = None
+    if isinstance(previous, dict) and isinstance(previous.get("items"), list):
+        return {
+            key for row in previous["items"]
+            if isinstance(row, dict) and (key := listing_key(row))
+        }, f"latest:{previous.get('edition_id') or 'migration'}"
 
     try:
         receipt = json.loads(LAST_DELIVERY_FILE.read_text(encoding="utf-8"))
@@ -5251,25 +5499,40 @@ def load_previous_edition_keys() -> tuple[set[str], str]:
             if isinstance(value, str) and ":" in value
         }, f"delivery:{receipt.get('edition_id', '')}"
 
+    return set(), "latest:migration"
+
+
+def load_previous_new_since() -> dict[str, str]:
     try:
         previous = json.loads(OUTPUT_JSON.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        previous = {}
-    rows = previous.get("items", []) if isinstance(previous, dict) else []
-    keys = {
-        key
-        for row in rows
-        if isinstance(row, dict)
-        if (key := listing_key(row))
+        return {}
+    if not isinstance(previous, dict):
+        return {}
+    return {
+        listing_key(row): str(row["new_since_at"])
+        for row in previous.get("items", [])
+        if isinstance(row, dict) and row.get("new_since_at")
     }
-    return keys, "latest:migration"
 
 
 def assign_previous_edition_new_flags(
     items: list[Listing],
     previous_keys: set[str],
+    previous_new_since: Mapping[str, str] | None = None,
 ) -> list[Listing]:
     for item in items:
+        if item.source == "591":
+            key = listing_key(item)
+            since = (
+                NOW if key not in previous_keys
+                else parse_state_time((previous_new_since or {}).get(key, ""))
+            )
+            item.new_since_at = since.isoformat() if since else ""
+            item.new_listing = bool(
+                since and timedelta(0) <= NOW - since < NEW_LISTING_BADGE_WINDOW
+            )
+            continue
         first_seen = parse_state_time(item.first_seen_at) or NOW
         item.new_listing = (
             listing_key(item) not in previous_keys
@@ -5800,7 +6063,7 @@ def render_card(item: Listing, order: int = 0) -> str:
                onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
           <div class="photo-fallback">照片暫時無法載入<br>點擊前往來源頁</div>
           {f'<span class="source-badge">{esc(source_label(item.source))}</span>' if index == 1 else ''}
-          {f'<span class="new-listing-badge" title="上一封快報未出現，且首次發現未滿24小時">新房源</span>' if index == 1 and is_new_listing(item) else ''}
+          {f'<span class="new-listing-badge" title="相較前一輪新增的房源，標記保留24小時">新房源</span>' if index == 1 and is_new_listing(item) else ''}
           {f'<span class="photo-index">{index}/{len(images)}</span>' if len(images) > 1 else ''}
         </a>
         """
@@ -5812,7 +6075,7 @@ def render_card(item: Listing, order: int = 0) -> str:
            rel="noopener noreferrer" aria-label="{esc(item.title)} 來源頁">
           <div class="photo-fallback no-photo">來源未提供可讀取照片<br>點擊前往來源頁</div>
           <span class="source-badge">{esc(source_label(item.source))}</span>
-          {f'<span class="new-listing-badge" title="上一封快報未出現，且首次發現未滿24小時">新房源</span>' if is_new_listing(item) else ''}
+          {f'<span class="new-listing-badge" title="相較前一輪新增的房源，標記保留24小時">新房源</span>' if is_new_listing(item) else ''}
         </a>
         """
 
@@ -6302,7 +6565,7 @@ h3 a{{text-decoration:none}}
         {NOW.strftime('%Y/%m/%d %H:%M')}
       </time>
     </h1>
-    <p class="subtitle">六個來源分區顯示；每筆物件均包含照片與來源直達連結，591新增／更新2天內、其他來源7天內且本輪重新驗證成功的物件才會保留。</p>
+    <p class="subtitle">六個來源分區顯示；591保留本輪重新驗證仍在刊登的全部符合條件物件，不限新增／更新日期；其他來源保留7天內物件。</p>
     <nav class="source-nav">
       <a href="#source-591">591</a>
       <a href="#source-fb">FB社團</a>
@@ -6321,7 +6584,7 @@ h3 a{{text-decoration:none}}
 </div></div>
 
 <main class="wrap">
-<div class="notice">每個來源每輪都會重新檢查；591只顯示來源新增或更新在最近2天內，其他來源顯示最近7天內的物件；無法取得來源時間也不發布。「新房源」代表上一封成功投遞的快報未出現，且首次發現時間仍在24小時內。</div>
+<div class="notice">每個來源每輪都會重新檢查，不沿用舊快照。591不限新增／更新日期，仍須符合四區、整層住家、4房以上等原有條件；其他來源須有最近7天內的來源時間。「新房源」比對前一輪已發布頁面，591新出現的房源標記保留24小時；租金變動另以降價標示。</div>
 
 <div id="source-591" class="source-block">
   <div class="source-heading"><h2>591</h2><a href="https://rent.591.com.tw/list?kind=1&layout=4&region=6" target="_blank">開啟591搜尋 ↗</a></div>
@@ -6575,6 +6838,7 @@ def main() -> int:
         return 0
     state = load_state()
     previous_edition_keys, comparison_source = load_previous_edition_keys()
+    previous_new_since = load_previous_new_since()
     stats: dict[str, Any] = {
         "sources": {
             "591": empty_source_stats(),
@@ -6639,7 +6903,7 @@ def main() -> int:
 
     candidates = filter_source_freshness(candidates, stats)
     candidates = assign_first_seen(candidates, state)
-    candidates = assign_previous_edition_new_flags(candidates, previous_edition_keys)
+    candidates = assign_previous_edition_new_flags(candidates, previous_edition_keys, previous_new_since)
     candidates = apply_categories(candidates, state)
     published, duplicate_count = filter_recent_duplicates(candidates, state)
 
@@ -6661,7 +6925,7 @@ def main() -> int:
                 SOURCE_FRESHNESS_WINDOW.total_seconds() // 3600
             ),
             "freshness_window_hours_by_source": {
-                source: int(source_freshness_window(source).total_seconds() // 3600)
+                source: source_freshness_days(source) * 24 if source_freshness_days(source) is not None else None
                 for source in stats["sources"]
             },
             "comparison_source": comparison_source,
