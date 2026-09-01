@@ -52,7 +52,7 @@ jobs:
     if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 44 && github.head_ref == 'fix/591-active-yungching-20260828' && github.event.pull_request.head.repo.full_name == github.repository }}
     needs: test
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
         with:
@@ -66,6 +66,8 @@ jobs:
       - name: 確認隔離設定不含正式資源
         working-directory: cloudflare-worker
         run: node --test tests/preview.test.mjs
+      - name: 安裝整批 Python 解析依賴
+        run: python3 -m pip install -r requirements.txt
       - name: 產生限時測試憑證
         shell: bash
         run: |
@@ -112,6 +114,14 @@ jobs:
           trap - EXIT
           python3 scripts/tail_cpu_summary.py
           exit "${PROBE_STATUS}"
+
+      - name: 整批候選與詳細頁 fresh validation（低CPU串流）
+        working-directory: cloudflare-worker
+        env:
+          YUNGCHING_RENDER_URL: https://taoyuan-rental-yungching-cpu-preview.flysky3345678.workers.dev/yungching-render
+          YUNGCHING_RENDER_TOKEN: ${{ env.PREVIEW_PROBE_TOKEN }}
+          YUNGCHING_RENDER_INTERVAL_SECONDS: "10.5"
+        run: python3 ../scripts/yungching_batch_probe.py
 
       - name: 保存隔離驗證結果
         if: ${{ always() }}
@@ -230,6 +240,23 @@ jobs:
           )
           feed = json.load(urllib.request.urlopen(read_request, timeout=30))
           assert isinstance(feed.get("posts"), list)
+
+          render_request = urllib.request.Request(
+              f"{base}/yungching-render",
+              data=b'{"kind":"detail","source_id":"2415719"}',
+              headers={
+                  **common_headers,
+                  "Authorization": "Bearer unauthorized-smoke-token",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          try:
+              urllib.request.urlopen(render_request, timeout=30)
+          except urllib.error.HTTPError as exc:
+              assert exc.code == 401, exc.code
+          else:
+              raise AssertionError("永慶渲染端點不應接受錯誤Token")
 
           write_request = urllib.request.Request(
               f"{base}/facebook-inbox",

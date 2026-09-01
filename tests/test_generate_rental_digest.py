@@ -2199,6 +2199,109 @@ class SinyiAndYungchingTests(unittest.TestCase):
         blocked_crawl.assert_not_called()
         self.assertEqual(stats["validated"], 1)
 
+    def test_yungching_render_transport_uses_private_json_envelope(self) -> None:
+        response = Mock(status_code=200)
+        response.headers = {"X-Browser-Ms-Used": "6500.5"}
+        response.json.return_value = {
+            "success": True,
+            "result": "<html><h1>rendered</h1>" + ("x" * 900) + "</html>",
+        }
+        response.raise_for_status.return_value = None
+        stats = DIGEST.empty_source_stats()
+        with patch.dict(
+            DIGEST.os.environ,
+            {
+                DIGEST.YUNGCHING_RENDER_TOKEN_ENV: "private-token",
+                DIGEST.YUNGCHING_RENDER_URL_ENV: "https://preview.test/yungching-render",
+                DIGEST.YUNGCHING_RENDER_INTERVAL_ENV: "0",
+            },
+            clear=False,
+        ), patch.object(DIGEST.session, "post", return_value=response) as post:
+            raw = DIGEST.fetch_yungching_render_html(
+                {"kind": "detail", "source_id": "2415719"}, stats, {}
+            )
+        self.assertIn("rendered", raw)
+        self.assertEqual(stats["browser_render_requests"], 1)
+        self.assertEqual(stats["browser_render_ms_used"], 6500.5)
+        request = post.call_args
+        self.assertEqual(request.args[0], "https://preview.test/yungching-render")
+        self.assertEqual(request.kwargs["headers"]["Authorization"], "Bearer private-token")
+        self.assertEqual(request.kwargs["json"]["source_id"], "2415719")
+
+    def test_yungching_render_feed_fetches_every_candidate_detail_this_round(self) -> None:
+        list_html = """
+        <html><body>
+          <a href="https://rent.yungching.com.tw/house/2415719">
+            <div class="caseName">甲桂林3+1房</div>
+            <span class="address">桃園市桃園區上海路</span>
+            <span class="purpose">住宅</span>
+            <span class="regArea">43.99坪</span>
+            <span class="floor">5/12樓</span>
+            <span class="room">4房(室)2廳2衛</span>
+            <div class="price">25,000</div>
+          </a>
+        </body></html>
+        """ + ("x" * 900)
+        empty_html = "<html><body>查無其他物件" + ("x" * 900) + "</body></html>"
+        detail_html = """
+        <html><head><meta name="description" content="四房整層住家">
+          <script type="application/ld+json">{"@type":"Product","offers":{"price":"25000"},"image":["https://yccdn.yungching.com.tw/a.jpg"]}</script>
+        </head><body><h1>甲桂林3+1房</h1>
+          <div>桃園市桃園區上海路 住宅 電梯大樓 坪數43.99坪 5/12樓 4房(室)2廳2衛</div>
+          <div>更新日期 2026年08月28日</div>
+          <figure><img src="https://yccdn.yungching.com.tw/a.jpg"></figure>
+        </body></html>
+        """ + ("x" * 900)
+        calls = []
+
+        def fake_render(payload, stats, rate_state):
+            calls.append(payload)
+            if payload["kind"] == "detail":
+                return detail_html
+            if payload["page"] == 1:
+                return list_html
+            return empty_html
+
+        stats = DIGEST.empty_source_stats()
+        with patch.dict(
+            DIGEST.os.environ,
+            {DIGEST.YUNGCHING_RENDER_TOKEN_ENV: "private-token"},
+            clear=False,
+        ), patch.object(DIGEST, "fetch_yungching_render_html", side_effect=fake_render):
+            items = DIGEST.load_yungching_render_feed(stats)
+
+        assert items is not None
+        self.assertEqual(list(items), ["2415719"])
+        self.assertEqual(stats["candidate_links"], 1)
+        self.assertEqual(stats["details_fetched"], 1)
+        self.assertEqual(stats["validated"], 1)
+        self.assertTrue(stats["crawl_complete"])
+        self.assertEqual(sum(1 for call in calls if call["kind"] == "detail"), 1)
+        self.assertEqual(stats["category_counts"], {"all": 1, "new": 1})
+
+    def test_yungching_collect_does_not_fall_back_after_render_attempt(self) -> None:
+        item = DIGEST.Listing(
+            source="永慶房屋",
+            source_id="2415719",
+            url="https://rent.yungching.com.tw/house/2415719",
+            title="甲桂林3+1房",
+            district="桃園區",
+            address="桃園市桃園區上海路",
+            house_type="整層住家",
+            layout="4房2廳2衛",
+            rent=25000,
+            updated="2026年08月28日",
+        )
+        stats = DIGEST.empty_source_stats()
+        with patch.object(
+            DIGEST, "load_yungching_render_feed", return_value={item.source_id: item}
+        ), patch.object(DIGEST, "load_yungching_browser_feed") as old_feed, patch.object(
+            DIGEST, "save_source_snapshot"
+        ):
+            result = DIGEST.collect_yungching_listings(stats)
+        self.assertEqual(result, [item])
+        old_feed.assert_not_called()
+
     def test_sinyi_parser_keeps_40_ping_home_and_excludes_store(self) -> None:
         raw = """
         <a href="houseno/C357998">

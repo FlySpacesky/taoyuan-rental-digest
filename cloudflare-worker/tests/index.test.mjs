@@ -11,6 +11,8 @@ import {
   handleScheduled,
   normalizeYungchingWorkerItem,
   submitFacebookInbox,
+  yungchingRenderResponse,
+  yungchingRenderTarget,
 } from "../src/index.js";
 import worker from "../src/index.js";
 
@@ -519,6 +521,50 @@ test("same validation requests share in-flight work but new rounds never use old
   assert.equal(body.status, "partial");
   assert.equal(body.fresh_validation.successful, true);
   assert.equal(body.items.length, 1);
+});
+
+test("Yungching render accepts only bounded list and numeric detail targets", () => {
+  assert.match(yungchingRenderTarget({ kind: "list", category: "all", page: 1 }).url, /od=80&pg=1$/);
+  assert.match(yungchingRenderTarget({ kind: "list", category: "new", page: 5 }).url, /new_filter\?od=80&pg=5$/);
+  assert.equal(
+    yungchingRenderTarget({ kind: "detail", source_id: "2415719" }).url,
+    "https://rent.yungching.com.tw/house/2415719",
+  );
+  assert.throws(() => yungchingRenderTarget({ kind: "list", category: "all", page: 6 }), /invalid/);
+  assert.throws(() => yungchingRenderTarget({ kind: "detail", source_id: "../../admin" }), /invalid/);
+  assert.throws(() => yungchingRenderTarget({ kind: "url", url: "https://example.com" }), /invalid/);
+});
+
+test("private Yungching render streams one quick action and rejects the wrong token", async () => {
+  const calls = [];
+  const renderEnv = {
+    FB_INBOX_READ_TOKEN: "read-only-test-token",
+    BROWSER: {
+      async quickAction(...args) {
+        calls.push(args);
+        return new Response('{"success":true,"result":"<h1>rendered</h1>"}', {
+          status: 200,
+          headers: { "Content-Type": "application/json", "X-Browser-Ms-Used": "6500" },
+        });
+      },
+    },
+  };
+  const wrong = await yungchingRenderResponse(
+    facebookRequest("/yungching-render", "wrong", { kind: "detail", source_id: "2415719" }),
+    renderEnv,
+  );
+  assert.equal(wrong.status, 401);
+  assert.equal(calls.length, 0);
+  const result = await yungchingRenderResponse(
+    facebookRequest("/yungching-render", "read-only-test-token", { kind: "detail", source_id: "2415719" }),
+    renderEnv,
+  );
+  assert.equal(result.status, 200);
+  assert.equal(result.headers.get("X-Rental-Source-Id"), "2415719");
+  assert.equal(result.headers.get("X-Browser-Ms-Used"), "6500");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], "content");
+  assert.equal(calls[0][1].url, "https://rent.yungching.com.tw/house/2415719");
 });
 
 test("browser is closed if page setup fails", async () => {

@@ -1,6 +1,11 @@
 // Isolated, short-lived diagnostics only. Never import the production fetch or
 // scheduled handlers, bind its KV, or provision its GitHub/LINE secrets here.
-import { normalizeYungchingWorkerItem, readYungchingDetail } from "./index.js";
+import {
+  normalizeYungchingWorkerItem,
+  readYungchingDetail,
+  renderYungchingQuickAction,
+  yungchingRenderTarget,
+} from "./index.js";
 
 export const PREVIEW_NAME = "taoyuan-rental-yungching-cpu-preview";
 export const SAMPLE_ID = "2415719";
@@ -139,7 +144,7 @@ export function createPreviewWorker({
         }, { headers: NO_STORE });
       }
       if (request.method !== "POST" || ![
-        "/ready", "/probe-fetch", "/probe-browser", "/probe-quickaction",
+        "/ready", "/probe-fetch", "/probe-browser", "/probe-quickaction", "/yungching-render",
       ].includes(path)) {
         return Response.json({ error: "not_found" }, { status: 404, headers: NO_STORE });
       }
@@ -155,6 +160,9 @@ export function createPreviewWorker({
       try {
         if (path === "/probe-fetch") return await sourceFetchProbe(fetchImpl);
         if (path === "/probe-quickaction") return await quickActionProbe(env.BROWSER);
+        if (path === "/yungching-render") {
+          return await renderYungchingQuickAction(env.BROWSER, yungchingRenderTarget(await request.json()));
+        }
         return Response.json(await browserProbe(env.BROWSER), { headers: NO_STORE });
       } catch (error) {
         const message = String(error?.message || error).slice(0, 300);

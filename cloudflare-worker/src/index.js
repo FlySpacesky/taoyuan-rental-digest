@@ -615,6 +615,93 @@ export async function readYungchingDetail(page, candidate) {
   };
 }
 
+export function yungchingRenderTarget(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("invalid_render_request");
+  }
+  if (payload.kind === "list") {
+    const category = String(payload.category || "");
+    const page = Number(payload.page);
+    if (!["all", "new"].includes(category) || !Number.isInteger(page) || page < 1 || page > 5) {
+      throw new Error("invalid_render_list_target");
+    }
+    const suffix = category === "new" ? "/new_filter" : "";
+    return {
+      kind: "list",
+      category,
+      page,
+      url: `${YUNGCHING_BASE}${suffix}?od=80&pg=${page}`,
+    };
+  }
+  if (payload.kind === "detail") {
+    const sourceId = String(payload.source_id || "").trim();
+    if (!/^\d{5,12}$/.test(sourceId)) throw new Error("invalid_render_detail_target");
+    return {
+      kind: "detail",
+      source_id: sourceId,
+      url: `https://rent.yungching.com.tw/house/${sourceId}`,
+    };
+  }
+  throw new Error("invalid_render_kind");
+}
+
+export async function renderYungchingQuickAction(binding, target) {
+  if (!binding?.quickAction) throw new Error("browser_quick_action_not_configured");
+  const upstream = await binding.quickAction("content", {
+    url: target.url,
+    setJavaScriptEnabled: true,
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+      "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+    waitForTimeout: 6_000,
+  });
+  const browserMs = upstream.headers.get("X-Browser-Ms-Used");
+  return new Response(upstream.body, {
+    status: upstream.status,
+    headers: {
+      "Cache-Control": "no-store",
+      "Content-Type": upstream.headers.get("Content-Type") || "application/json; charset=utf-8",
+      "X-Rental-Render-Kind": target.kind,
+      ...(target.source_id ? { "X-Rental-Source-Id": target.source_id } : {}),
+      ...(target.category ? { "X-Rental-Category": target.category } : {}),
+      ...(target.page ? { "X-Rental-Page": String(target.page) } : {}),
+      ...(browserMs ? { "X-Browser-Ms-Used": browserMs } : {}),
+    },
+  });
+}
+
+export async function yungchingRenderResponse(request, env) {
+  if (!(await tokenMatches(request, env.FB_INBOX_READ_TOKEN))) {
+    return Response.json({ error: "unauthorized" }, {
+      status: 401,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+  const contentLength = Number(request.headers.get("Content-Length") || 0);
+  if (contentLength > 1_024) {
+    return Response.json({ error: "request_too_large" }, { status: 413 });
+  }
+  let target;
+  try {
+    target = yungchingRenderTarget(await request.json());
+  } catch (error) {
+    return Response.json({ error: String(error?.message || error).slice(0, 100) }, {
+      status: 400,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+  try {
+    return await renderYungchingQuickAction(env.BROWSER, target);
+  } catch (error) {
+    const code = browserFailureCode(error);
+    const status = code === "browser_rate_limited" || code === "browser_daily_quota" ? 429 : 502;
+    return Response.json({ error: code, detail: String(error?.message || error).slice(0, 180) }, {
+      status,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+}
+
 export function browserFailureCode(error) {
   const message = String(error?.message || error);
   if (/time limit exceeded for today/i.test(message)) return "browser_daily_quota";
@@ -841,6 +928,9 @@ export default {
     }
     if (request.method === "GET" && url.pathname === "/facebook-inbox-feed") {
       return readFacebookInbox(request, env);
+    }
+    if (request.method === "POST" && url.pathname === "/yungching-render") {
+      return yungchingRenderResponse(request, env);
     }
     if (request.method === "GET" && url.pathname === "/yungching-feed") {
       try {
