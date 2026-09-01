@@ -102,8 +102,16 @@ jobs:
           TAIL_PID=$!
           trap 'kill "${TAIL_PID}" 2>/dev/null || true; wait "${TAIL_PID}" 2>/dev/null || true' EXIT
           sleep 5
+          set +e
           python3 scripts/preview_probe.py
+          PROBE_STATUS=$?
+          set -e
           sleep 10
+          kill "${TAIL_PID}" 2>/dev/null || true
+          wait "${TAIL_PID}" 2>/dev/null || true
+          trap - EXIT
+          python3 scripts/tail_cpu_summary.py
+          exit "${PROBE_STATUS}"
 
       - name: 保存隔離驗證結果
         if: ${{ always() }}

@@ -51,11 +51,10 @@ export async function sourceFetchProbe(fetchImpl = fetch) {
 export async function quickActionDetailProbe(binding) {
   if (!binding?.quickAction) throw new Error("preview_browser_quick_action_not_configured");
   audit("quick_action_start", { source_id: SAMPLE_ID });
-  const upstream = await binding.quickAction("content", {
-    url: SAMPLE_URL,
-    gotoOptions: { waitUntil: "networkidle2", timeout: 30_000 },
-    rejectResourceTypes: ["image", "font", "media"],
-  });
+  // Keep the first offload probe to Cloudflare's documented minimal binding
+  // payload. Readiness options are added only after the transport itself is
+  // proven; unsupported option combinations return 422 before navigation.
+  const upstream = await binding.quickAction("content", { url: SAMPLE_URL });
   audit("quick_action_response", { upstream_status: upstream.status });
   // Browser Rendering owns the Chromium protocol work. The Worker only
   // authenticates this fixed request and streams rendered HTML to the caller.

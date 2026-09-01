@@ -136,9 +136,21 @@ def main():
         "line_sent": False,
     }
     if mode in ("fetch", "quickaction"):
-        OUT.joinpath("source.html").write_text(body, encoding="utf-8")
-        report.update(analyze_html(body))
+        rendered = body
+        if mode == "quickaction" and status == 200:
+            try:
+                envelope = json.loads(body)
+            except json.JSONDecodeError:
+                envelope = None
+            if isinstance(envelope, dict) and isinstance(envelope.get("result"), str):
+                rendered = envelope["result"]
+                report["quick_action_success"] = envelope.get("success") is True
+        OUT.joinpath("source.html").write_text(rendered, encoding="utf-8")
+        report.update(analyze_html(rendered))
         report["observed_at"] = headers.get("x-preview-observed-at")
+        report["browser_ms_used"] = headers.get("x-browser-ms-used")
+        if status != 200:
+            report["error_excerpt"] = body[:1000]
         report["source_read_verified"] = (
             status == 200 and bool(report["title"]) and report["recent_source_date"]
             and report["photo_url_count"] > 0
