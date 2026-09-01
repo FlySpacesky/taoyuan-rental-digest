@@ -45,11 +45,9 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_*.py' -v
 
   preview:
-    # Explicitly approved isolated deployment for PR #44 only. Fork PRs and
-    # other branches cannot access deployment secrets or run this job. After
-    # this follow-up quickAction diagnostic is explicitly approved. The guard
-    # is restored after the single result is recorded.
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 44 && github.head_ref == 'fix/591-active-yungching-20260828' && github.event.pull_request.head.repo.full_name == github.repository }}
+    # The complete Browser Run validation consumes daily browser minutes, so it
+    # stays opt-in. Fork PRs cannot access deployment secrets or run this job.
+    if: ${{ vars.RENTAL_CPU_PREVIEW_ENABLED == 'true' && github.event_name == 'pull_request' && github.event.pull_request.number == 44 && github.head_ref == 'fix/591-active-yungching-20260828' && github.event.pull_request.head.repo.full_name == github.repository }}
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -129,33 +127,6 @@ jobs:
         with:
           name: yungching-cpu-preview-${{ github.run_id }}
           path: cloudflare-worker/preview-audit
-          if-no-files-found: ignore
-          retention-days: 3
-
-  browser-rest-probe:
-    # PR #44 has explicit approval for an isolated CPU-offload validation.
-    # This makes one Browser Rendering REST request and never invokes or deploys
-    # the production Worker, publishes Pages, or sends LINE.
-    if: ${{ vars.RENTAL_BROWSER_REST_ENABLED == 'true' && github.event_name == 'pull_request' && github.event.pull_request.number == 44 && github.head_ref == 'fix/591-active-yungching-20260828' && github.event.pull_request.head.repo.full_name == github.repository }}
-    needs: test
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - name: 單筆 Browser Rendering REST CPU 移出測試
-        working-directory: cloudflare-worker
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: python3 scripts/browser_rest_probe.py
-      - name: 保存 REST 隔離驗證結果
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: yungching-browser-rest-${{ github.run_id }}
-          path: cloudflare-worker/browser-rest-audit
           if-no-files-found: ignore
           retention-days: 3
 
