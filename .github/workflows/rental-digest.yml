@@ -237,7 +237,7 @@ jobs:
       output_artifact: fresh-rental-validation-retry-1
       attempt_name: retry1
       runner: ${{ vars.RENTAL_591_RETRY_RUNNER || 'ubuntu-latest' }}
-      requested_delay: ${{ vars.RENTAL_591_RETRY_DELAY_SECONDS || '600' }}
+      requested_delay: ${{ vars.RENTAL_591_RETRY_DELAY_SECONDS || '300' }}
     secrets: inherit
 
   retry_591_validation_2:
@@ -249,7 +249,7 @@ jobs:
       output_artifact: fresh-rental-validation-retry-2
       attempt_name: retry2
       runner: ${{ vars.RENTAL_591_RETRY_RUNNER || 'ubuntu-latest' }}
-      requested_delay: ${{ vars.RENTAL_591_RETRY_DELAY_SECONDS || '600' }}
+      requested_delay: ${{ vars.RENTAL_591_RETRY_DELAY_SECONDS || '300' }}
     secrets: inherit
 
   retry_591_validation_3:
@@ -261,7 +261,7 @@ jobs:
       output_artifact: fresh-rental-validation-retry-3
       attempt_name: retry3
       runner: ${{ vars.RENTAL_591_RETRY_RUNNER || 'ubuntu-latest' }}
-      requested_delay: ${{ vars.RENTAL_591_RETRY_DELAY_SECONDS || '600' }}
+      requested_delay: ${{ vars.RENTAL_591_RETRY_DELAY_SECONDS || '300' }}
     secrets: inherit
 
   retry_591_validation_4:
@@ -273,12 +273,60 @@ jobs:
       output_artifact: fresh-rental-validation-retry-4
       attempt_name: retry4
       runner: ${{ vars.RENTAL_591_RETRY_RUNNER || 'ubuntu-latest' }}
-      requested_delay: ${{ vars.RENTAL_591_RETRY_DELAY_SECONDS || '600' }}
+      requested_delay: ${{ vars.RENTAL_591_RETRY_DELAY_SECONDS || '300' }}
+    secrets: inherit
+
+  retry_591_validation_5:
+    if: ${{ needs.retry_591_validation_4.outputs.retry_591 == 'true' }}
+    needs: retry_591_validation_4
+    uses: ./.github/workflows/rental-591-retry.yml
+    with:
+      previous_artifact: fresh-rental-validation-retry-4
+      output_artifact: fresh-rental-validation-retry-5
+      attempt_name: retry5
+      runner: ${{ vars.RENTAL_591_RETRY_RUNNER || 'ubuntu-latest' }}
+      requested_delay: ${{ vars.RENTAL_591_RETRY_DELAY_SECONDS || '300' }}
+    secrets: inherit
+
+  retry_591_validation_6:
+    if: ${{ needs.retry_591_validation_5.outputs.retry_591 == 'true' }}
+    needs: retry_591_validation_5
+    uses: ./.github/workflows/rental-591-retry.yml
+    with:
+      previous_artifact: fresh-rental-validation-retry-5
+      output_artifact: fresh-rental-validation-retry-6
+      attempt_name: retry6
+      runner: ${{ vars.RENTAL_591_RETRY_RUNNER || 'ubuntu-latest' }}
+      requested_delay: ${{ vars.RENTAL_591_RETRY_DELAY_SECONDS || '300' }}
+    secrets: inherit
+
+  retry_591_validation_7:
+    if: ${{ needs.retry_591_validation_6.outputs.retry_591 == 'true' }}
+    needs: retry_591_validation_6
+    uses: ./.github/workflows/rental-591-retry.yml
+    with:
+      previous_artifact: fresh-rental-validation-retry-6
+      output_artifact: fresh-rental-validation-retry-7
+      attempt_name: retry7
+      runner: ${{ vars.RENTAL_591_RETRY_RUNNER || 'ubuntu-latest' }}
+      requested_delay: ${{ vars.RENTAL_591_RETRY_DELAY_SECONDS || '300' }}
+    secrets: inherit
+
+  retry_591_validation_8:
+    if: ${{ needs.retry_591_validation_7.outputs.retry_591 == 'true' }}
+    needs: retry_591_validation_7
+    uses: ./.github/workflows/rental-591-retry.yml
+    with:
+      previous_artifact: fresh-rental-validation-retry-7
+      output_artifact: fresh-rental-validation-retry-8
+      attempt_name: retry8
+      runner: ${{ vars.RENTAL_591_RETRY_RUNNER || 'ubuntu-latest' }}
+      requested_delay: ${{ vars.RENTAL_591_RETRY_DELAY_SECONDS || '300' }}
     secrets: inherit
 
   build_deploy_broadcast:
-    if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')) && ((github.event_name == 'workflow_dispatch' && inputs.publish_prevalidated) || (needs.fresh_source_validation.result == 'success' && needs.retry_591_validation.result != 'failure' && needs.retry_591_validation.result != 'cancelled' && needs.retry_591_validation_2.result != 'failure' && needs.retry_591_validation_2.result != 'cancelled' && needs.retry_591_validation_3.result != 'failure' && needs.retry_591_validation_3.result != 'cancelled' && needs.retry_591_validation_4.result != 'failure' && needs.retry_591_validation_4.result != 'cancelled')) }}
-    needs: [fresh_source_validation, retry_591_validation, retry_591_validation_2, retry_591_validation_3, retry_591_validation_4]
+    if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')) && ((github.event_name == 'workflow_dispatch' && inputs.publish_prevalidated) || (needs.fresh_source_validation.result == 'success' && needs.retry_591_validation.result != 'failure' && needs.retry_591_validation.result != 'cancelled' && needs.retry_591_validation_2.result != 'failure' && needs.retry_591_validation_2.result != 'cancelled' && needs.retry_591_validation_3.result != 'failure' && needs.retry_591_validation_3.result != 'cancelled' && needs.retry_591_validation_4.result != 'failure' && needs.retry_591_validation_4.result != 'cancelled' && needs.retry_591_validation_5.result != 'failure' && needs.retry_591_validation_5.result != 'cancelled' && needs.retry_591_validation_6.result != 'failure' && needs.retry_591_validation_6.result != 'cancelled' && needs.retry_591_validation_7.result != 'failure' && needs.retry_591_validation_7.result != 'cancelled' && needs.retry_591_validation_8.result != 'failure' && needs.retry_591_validation_8.result != 'cancelled')) }}
+    needs: [fresh_source_validation, retry_591_validation, retry_591_validation_2, retry_591_validation_3, retry_591_validation_4, retry_591_validation_5, retry_591_validation_6, retry_591_validation_7, retry_591_validation_8]
     runs-on: ubuntu-latest
 
     environment:
@@ -326,6 +374,34 @@ jobs:
           name: fresh-rental-validation-retry-4
           path: .validation/retry4
 
+      - name: 下載第5次延後重試結果
+        if: ${{ !inputs.publish_prevalidated && needs.retry_591_validation_5.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: fresh-rental-validation-retry-5
+          path: .validation/retry5
+
+      - name: 下載第6次延後重試結果
+        if: ${{ !inputs.publish_prevalidated && needs.retry_591_validation_6.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: fresh-rental-validation-retry-6
+          path: .validation/retry6
+
+      - name: 下載第7次延後重試結果
+        if: ${{ !inputs.publish_prevalidated && needs.retry_591_validation_7.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: fresh-rental-validation-retry-7
+          path: .validation/retry7
+
+      - name: 下載第8次延後重試結果
+        if: ${{ !inputs.publish_prevalidated && needs.retry_591_validation_8.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: fresh-rental-validation-retry-8
+          path: .validation/retry8
+
       - name: 設定 Python
         uses: actions/setup-python@v6
         with:
@@ -345,8 +421,13 @@ jobs:
             --attempt retry2=.validation/retry2 \
             --attempt retry3=.validation/retry3 \
             --attempt retry4=.validation/retry4 \
+            --attempt retry5=.validation/retry5 \
+            --attempt retry6=.validation/retry6 \
+            --attempt retry7=.validation/retry7 \
+            --attempt retry8=.validation/retry8 \
             --output docs \
-            --require-complete-591
+            --require-complete-591 \
+            --require-complete-yungching
 
       - name: 檢查 Python 語法
         run: python -m py_compile scripts/generate_rental_digest.py scripts/send_line.py scripts/select_validation_attempt.py

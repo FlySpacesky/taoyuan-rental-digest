@@ -94,6 +94,29 @@ def merge_payload(
         "items": items,
     }
 class ValidationRetryTests(unittest.TestCase):
+    def test_merge_requires_complete_yungching_when_requested(self) -> None:
+        data = merge_payload(
+            generated_at="2026-08-21T09:30:00+08:00",
+            source_rows={"591": (1, 1), "永慶房屋": (2, 1)},
+        )
+        data["stats"]["sources"]["591"]["crawl_complete"] = True
+        data["stats"]["sources"]["永慶房屋"]["crawl_complete"] = False
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            attempt = root / "attempt"
+            latest = attempt / "rental-data" / "latest.json"
+            latest.parent.mkdir(parents=True)
+            latest.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "永慶房屋尚未完成"):
+                RETRY.merge_command(
+                    [f"initial={attempt}"],
+                    root / "output",
+                    None,
+                    "https://example.com/",
+                    require_complete_591=True,
+                    require_complete_yungching=True,
+                )
+
     def test_old_two_day_policy_is_not_accepted_as_full_inventory(self) -> None:
         old = payload(validated_591=1)
         old["stats"]["sources"]["591"].pop("crawl_policy")
