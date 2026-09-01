@@ -80,6 +80,8 @@ test("quick action renders only the fixed detail and streams outside Worker pars
   assert.equal(calls.length, 1);
   assert.equal(calls[0][0], "content");
   assert.equal(calls[0][1].url, `https://rent.yungching.com.tw/house/${SAMPLE_ID}`);
+  assert.equal(calls[0][1].setJavaScriptEnabled, true);
+  assert.equal(calls[0][1].waitForTimeout, 6000);
 });
 
 test("browser preview never acquires or closes active production sessions", async () => {

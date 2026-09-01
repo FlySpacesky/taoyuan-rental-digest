@@ -51,13 +51,19 @@ export async function sourceFetchProbe(fetchImpl = fetch) {
 export async function quickActionDetailProbe(binding) {
   if (!binding?.quickAction) throw new Error("preview_browser_quick_action_not_configured");
   audit("quick_action_start", { source_id: SAMPLE_ID });
-  // Keep the first offload probe to Cloudflare's documented minimal binding
-  // payload. Readiness options are added only after the transport itself is
-  // proven; unsupported option combinations return 422 before navigation.
-  const upstream = await binding.quickAction("content", { url: SAMPLE_URL });
+  // The minimal request reaches the site's JavaScript interstitial but returns
+  // before its redirect. Wait outside Worker CPU and use the same ordinary
+  // browser identity that succeeded in the one-page Puppeteer diagnostic.
+  const upstream = await binding.quickAction("content", {
+    url: SAMPLE_URL,
+    setJavaScriptEnabled: true,
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+    waitForTimeout: 6_000,
+  });
   audit("quick_action_response", { upstream_status: upstream.status });
   // Browser Rendering owns the Chromium protocol work. The Worker only
   // authenticates this fixed request and streams rendered HTML to the caller.
+  const browserMs = upstream.headers.get("X-Browser-Ms-Used");
   return new Response(upstream.body, {
     status: upstream.status,
     headers: {
@@ -66,6 +72,7 @@ export async function quickActionDetailProbe(binding) {
       "X-Preview-Observed-At": new Date().toISOString(),
       "X-Preview-Source-Url": SAMPLE_URL,
       "X-Preview-Mode": "browser-quick-action-stream",
+      ...(browserMs ? { "X-Browser-Ms-Used": browserMs } : {}),
     },
   });
 }
