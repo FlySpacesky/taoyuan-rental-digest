@@ -516,6 +516,7 @@ def merge_command(
     edition_id: str | None,
     site_url: str,
     require_complete_591: bool = False,
+    require_complete_yungching: bool = False,
 ) -> int:
     available: list[tuple[str, Path, dict[str, Any]]] = []
     for raw in attempts:
@@ -537,6 +538,13 @@ def merge_command(
     if require_complete_591 and not source_591(merged).get("crawl_complete"):
         raise RuntimeError(
             "591 四個行政區尚未完成本輪清單驗證；保留 checkpoint，禁止發布部分版。"
+        )
+    if (
+        require_complete_yungching
+        and merged["stats"]["sources"]["永慶房屋"].get("crawl_complete") is not True
+    ):
+        raise RuntimeError(
+            "永慶房屋尚未完成本輪全部候選詳細頁驗證；禁止發布部分版。"
         )
     final_payload = write_merged_edition(merged, output, edition_id, site_url)
     print("Merged validation sources:", json.dumps(choices, ensure_ascii=False))
@@ -620,6 +628,7 @@ def parser() -> argparse.ArgumentParser:
     merge.add_argument("--edition-id")
     merge.add_argument("--site-url", default="https://flyspacesky.github.io/taoyuan-rental-digest/")
     merge.add_argument("--require-complete-591", action="store_true")
+    merge.add_argument("--require-complete-yungching", action="store_true")
     verify = commands.add_parser("verify")
     verify.add_argument("--latest", type=Path, default=Path("docs/rental-data/latest.json"))
     verify.add_argument("--docs", type=Path, default=Path("docs"))
@@ -639,6 +648,7 @@ def main() -> int:
             args.edition_id,
             args.site_url,
             args.require_complete_591,
+            args.require_complete_yungching,
         )
     return verify_command(args.latest, args.docs)
 
