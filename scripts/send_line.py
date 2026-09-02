@@ -155,7 +155,8 @@ def main() -> int:
         "🏠 桃園四房以上租屋快報\n\n"
         f"本版符合：{len(items)}筆\n"
         f"新房源：{new_count}筆\n"
-        f"超過來源時效（591為2天、其他為7天）／無來源時間排除：{stats.get('freshness_rejected', 0)}筆\n\n"
+        f"本輪確認現有：{stats.get('current_inventory', len(items))}筆\n"
+        f"來源時間待補（仍顯示）：{stats.get('source_time_unknown', 0)}筆\n\n"
         f"{summary}\n\n"
         f"查看本版永久快報、照片與物件直達連結：\n{edition_url}"
     )

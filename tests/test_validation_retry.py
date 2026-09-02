@@ -56,16 +56,15 @@ def merge_payload(
     items: list[dict[str, object]] = []
     for source in RETRY.SOURCE_ORDER:
         candidate_count, published = source_rows.get(source, (0, 0))
-        freshness_days = RETRY.source_freshness_days(source)
         sources[source] = {
             "crawl_policy": "active-all-v1" if source == "591" else "",
             "candidate_links": candidate_count,
-            "validated_before_freshness": candidate_count,
-            ("active_validated" if freshness_days is None else f"fresh_within_{freshness_days}_days"): published,
-            "freshness_window_days": freshness_days,
+            "current_inventory": published,
+            "source_time_known": published,
+            "source_time_unknown": 0,
+            "source_time_filter_enabled": False,
             "validated": published,
             "published": published,
-            "freshness_rejected": max(candidate_count - published, 0),
         }
         for index in range(published):
             items.append(
@@ -85,11 +84,9 @@ def merge_payload(
         "stats": {
             "sources": sources,
             "comparison_source": "delivery:2026-08-21-0800",
-            "default_freshness_window_hours": 168,
-            "freshness_window_hours_by_source": {
-                source: RETRY.source_freshness_days(source) * 24 if RETRY.source_freshness_days(source) is not None else None
-                for source in RETRY.SOURCE_ORDER
-            },
+            "current_inventory": len(items),
+            "source_time_unknown": 0,
+            "source_time_filter_enabled": False,
         },
         "items": items,
     }
@@ -345,8 +342,8 @@ class ValidationRetryTests(unittest.TestCase):
         row = merged["stats"]["sources"]["591"]
         self.assertEqual(row["published"], 1)
         self.assertEqual(row["validated"], 1)
-        self.assertEqual(row["active_validated"], 1)
-        self.assertIsNone(row["freshness_window_days"])
+        self.assertEqual(row["current_inventory"], 1)
+        self.assertFalse(row["source_time_filter_enabled"])
 
     def test_591_missing_source_date_is_valid_but_stale_validation_is_not(self) -> None:
         data = merge_payload(generated_at="2026-08-21T09:30:00+08:00", source_rows={"591": (1, 1)})
@@ -359,7 +356,7 @@ class ValidationRetryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "stale validation"):
             RETRY.validated_source_items(data, "591", generated_at)
 
-    def test_source_merge_keeps_non_591_item_inside_seven_day_boundary(self) -> None:
+    def test_source_merge_keeps_older_non_591_item_from_current_validation(self) -> None:
         first = merge_payload(
             generated_at="2026-08-21T09:30:00+08:00",
             source_rows={"樂屋網": (1, 1)},
@@ -375,7 +372,8 @@ class ValidationRetryTests(unittest.TestCase):
 
         row = merged["stats"]["sources"]["樂屋網"]
         self.assertEqual(row["published"], 1)
-        self.assertEqual(row["freshness_window_days"], 7)
+        self.assertEqual(row["current_inventory"], 1)
+        self.assertFalse(row["source_time_filter_enabled"])
 
     def test_prevalidated_bundle_expires_after_two_hours(self) -> None:
         old_time = datetime.now(timezone(timedelta(hours=8))) - timedelta(hours=3)

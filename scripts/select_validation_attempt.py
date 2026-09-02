@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inspect and select fresh rental-validation artifacts for GitHub Actions."""
+"""Inspect and select current-run rental-validation artifacts for GitHub Actions."""
 
 from __future__ import annotations
 
@@ -19,17 +19,6 @@ from typing import Any, Iterable
 SOURCE_ORDER = ("591", "FB", "樂屋網", "Threads", "信義房屋", "永慶房屋")
 MAX_ATTEMPT_SPAN = timedelta(minutes=90)
 MAX_PREVALIDATED_AGE = timedelta(hours=2)
-SOURCE_FRESHNESS_DAYS = 7
-SOURCE_FRESHNESS_DAYS_BY_SOURCE = {"591": None}
-
-
-def source_freshness_days(source: str) -> int | None:
-    return SOURCE_FRESHNESS_DAYS_BY_SOURCE.get(source, SOURCE_FRESHNESS_DAYS)
-
-
-def source_freshness_window(source: str) -> timedelta | None:
-    days = source_freshness_days(source)
-    return timedelta(days=days) if days is not None else None
 
 
 def load_payload(root: Path) -> dict[str, Any]:
@@ -86,7 +75,7 @@ def validated_source_items(
     source: str,
     final_generated_at: datetime,
 ) -> tuple[list[dict[str, Any]], set[str]]:
-    """Validate one attempt's published rows and apply the final time boundary."""
+    """Validate that published rows were checked in the current attempt window."""
 
     row = payload["stats"]["sources"][source]
     source_items = [
@@ -98,29 +87,15 @@ def validated_source_items(
         raise ValueError(f"published count does not match items for {source}")
 
     generated_at = parse_timestamp(payload.get("generated_at"))
-    freshness_window = source_freshness_window(source)
     retained: list[dict[str, Any]] = []
-    boundary_rejected: set[str] = set()
     for item in source_items:
         validated_at = parse_timestamp(item.get("validated_at"))
-        source_timestamp = None
-        if freshness_window is not None:
-            source_timestamp = parse_timestamp(item.get("source_timestamp"))
-            if not timedelta(0) <= generated_at - source_timestamp <= freshness_window:
-                raise ValueError(
-                    f"non-fresh source timestamp for {source}:{item.get('source_id')}"
-                )
         if abs(generated_at - validated_at) > MAX_ATTEMPT_SPAN:
             raise ValueError(
                 f"stale validation timestamp for {source}:{item.get('source_id')}"
             )
-        if source_timestamp is not None and final_generated_at - source_timestamp > freshness_window:
-            boundary_rejected.add(
-                str(item.get("source_id") or item.get("url") or "unknown")
-            )
-            continue
         retained.append(item)
-    return retained, boundary_rejected
+    return retained, set()
 
 
 def validation_score(payload: dict[str, Any]) -> tuple[int, int, int, str]:
@@ -170,7 +145,7 @@ def source_score(payload: dict[str, Any], source: str) -> tuple[int, int, int, s
 def merge_source_payloads(
     named_payloads: Iterable[tuple[str, dict[str, Any]]],
 ) -> tuple[dict[str, Any], dict[str, str]]:
-    """Combine only fresh rows, choosing the strongest attempt per source.
+    """Combine current-run rows, choosing the strongest attempt per source.
 
     All attempts must belong to the same validation window. This prevents an old
     successful source snapshot from being used to fill a currently blocked run.
@@ -195,8 +170,6 @@ def merge_source_payloads(
     merged_items: list[dict[str, Any]] = []
     choices: dict[str, str] = {}
     for source in SOURCE_ORDER:
-        freshness_days = source_freshness_days(source)
-        freshness_window = source_freshness_window(source)
         available = [
             (name, payload)
             for name, payload in attempts
@@ -253,7 +226,6 @@ def merge_source_payloads(
                 checkpoint_items: dict[str, dict[str, Any]] = {}
                 candidate_ids: set[str] = set()
                 combined_rejects: dict[str, int] = {}
-                freshness_rejected = 0
                 for attempt_name, payload in sorted(
                     relevant, key=lambda row: parse_timestamp(row[1]["generated_at"])
                 ):
@@ -266,7 +238,6 @@ def merge_source_payloads(
                         combined_rejects[str(reason)] = (
                             combined_rejects.get(str(reason), 0) + int(count or 0)
                         )
-                    freshness_rejected += int(row.get("freshness_rejected", 0) or 0)
                     candidate_ids.update(
                         str(value)
                         for value in row.get("validated_candidate_ids", [])
@@ -291,13 +262,10 @@ def merge_source_payloads(
                 selected_row["checkpoint_attempts"] = chain
                 selected_row["checkpoint_union_items"] = len(source_items)
                 selected_row["rejects"] = dict(sorted(combined_rejects.items()))
-                selected_row["freshness_rejected"] = freshness_rejected
                 if candidate_ids:
                     selected_row["validated_candidate_ids"] = sorted(candidate_ids)
                     selected_row["candidate_links"] = len(candidate_ids)
                     selected_row["fresh_validated"] = len(candidate_ids)
-                    selected_row["validated_before_freshness"] = len(candidate_ids)
-                    selected_row["freshness_checked"] = len(candidate_ids)
                 else:
                     selected_row["candidate_links"] = max(
                         int(payload["stats"]["sources"][source].get("candidate_links", 0) or 0)
@@ -362,30 +330,24 @@ def merge_source_payloads(
                 selected, source, final_generated_at
             )
 
-        boundary_rejected = len(boundary_keys)
-        if boundary_rejected:
-            rejects = selected_row.setdefault("rejects", {})
-            reason = f"source_older_than_{freshness_days}_days"
-            rejects[reason] = int(rejects.get(reason, 0) or 0) + boundary_rejected
-            selected_row["freshness_rejected"] = (
-                int(selected_row.get("freshness_rejected", 0) or 0) + boundary_rejected
-            )
-            fresh_key = f"fresh_within_{freshness_days}_days"
-            selected_row[fresh_key] = max(
-                int(selected_row.get(fresh_key, len(source_items) + boundary_rejected) or 0)
-                - boundary_rejected,
-                0,
-            )
-            selected_row["validated"] = max(
-                int(selected_row.get("validated", 0) or 0) - boundary_rejected,
-                0,
-            )
-            selected_row.setdefault("notices", []).append(
-                f"逐來源合併時另排除{boundary_rejected}筆已跨過{freshness_days}天邊界的物件。"
-            )
-        selected_row["freshness_window_days"] = freshness_days
-        selected_row["active_validated" if freshness_days is None else f"fresh_within_{freshness_days}_days"] = len(source_items)
-        selected_row["freshness_policy"] = "active_listing" if freshness_days is None else "source_activity"
+        for key in list(selected_row):
+            if key.startswith("fresh_within_") or key in {
+                "freshness_checked",
+                "freshness_rejected",
+                "freshness_window_days",
+                "freshness_policy",
+                "validated_before_freshness",
+                "active_validated",
+            }:
+                selected_row.pop(key, None)
+        selected_row["current_inventory"] = len(source_items)
+        selected_row["source_time_known"] = sum(
+            bool(str(item.get("source_timestamp", "")).strip()) for item in source_items
+        )
+        selected_row["source_time_unknown"] = (
+            len(source_items) - selected_row["source_time_known"]
+        )
+        selected_row["source_time_filter_enabled"] = False
         selected_row["validated"] = len(source_items)
         selected_row["published"] = len(source_items)
         merged_sources[source] = selected_row
@@ -404,9 +366,11 @@ def merge_source_payloads(
     )
     stats["published"] = len(merged_items)
     stats["new_listings"] = sum(bool(item.get("new_listing")) for item in merged_items)
-    stats["freshness_rejected"] = sum(
-        int(row.get("freshness_rejected", 0) or 0) for row in merged_sources.values()
+    stats["current_inventory"] = len(merged_items)
+    stats["source_time_unknown"] = sum(
+        int(row.get("source_time_unknown", 0) or 0) for row in merged_sources.values()
     )
+    stats["source_time_filter_enabled"] = False
     stats["duplicates"] = sum(
         max(
             int(row.get("validated", 0) or 0) - int(row.get("published", 0) or 0),
@@ -418,11 +382,8 @@ def merge_source_payloads(
     stats["validation_comparison_sources"] = sorted(comparisons)
     stats["validation_attempts"] = choices
     stats.pop("freshness_window_hours", None)
-    stats["default_freshness_window_hours"] = SOURCE_FRESHNESS_DAYS * 24
-    stats["freshness_window_hours_by_source"] = {
-        source: source_freshness_days(source) * 24 if source_freshness_days(source) is not None else None
-        for source in SOURCE_ORDER
-    }
+    stats.pop("default_freshness_window_hours", None)
+    stats.pop("freshness_window_hours_by_source", None)
     return {
         "generated_at": newest["generated_at"],
         "edition_id": newest.get("edition_id", ""),
@@ -576,16 +537,11 @@ def verify_command(latest: Path, docs: Path) -> int:
     if len(items) != int(payload.get("stats", {}).get("published", -1)):
         raise ValueError("prevalidated published count does not match items")
     for source in SOURCE_ORDER:
-        freshness_window = source_freshness_window(source)
         source_items = [item for item in items if item.get("source") == source]
         if len(source_items) != int(sources[source].get("published", 0) or 0):
             raise ValueError(f"prevalidated source count does not match: {source}")
         for item in source_items:
             validated_at = parse_timestamp(item.get("validated_at"))
-            if freshness_window is not None:
-                source_timestamp = parse_timestamp(item.get("source_timestamp"))
-                if not timedelta(0) <= generated_at - source_timestamp <= freshness_window:
-                    raise ValueError(f"non-fresh source timestamp for {source}:{item.get('source_id')}")
             if abs(generated_at - validated_at) > MAX_ATTEMPT_SPAN:
                 raise ValueError(f"stale validation timestamp for {source}:{item.get('source_id')}")
 

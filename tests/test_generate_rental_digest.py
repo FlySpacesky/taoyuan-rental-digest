@@ -1065,7 +1065,7 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
         self.assertEqual(item.total_cost, 28_000)
         self.assertEqual(item.category_hint, "general")
 
-    def test_repo_facebook_import_keeps_current_public_post_and_excludes_old_post(self) -> None:
+    def test_repo_facebook_import_keeps_all_current_input_posts_regardless_of_age(self) -> None:
         stats = DIGEST.empty_source_stats()
         public_url = (
             "https://www.facebook.com/groups/468627751712411/"
@@ -1097,14 +1097,15 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
         ):
             items = DIGEST.load_facebook_import(stats)
 
-        self.assertEqual(len(items), 1)
+        self.assertEqual(len(items), 2)
         self.assertEqual(items[0].url, public_url)
         self.assertEqual(items[0].fb_lead_grade, "B")
         self.assertEqual(stats["import_source"], "data/facebook_posts.json")
         self.assertEqual(stats["discovery_groups"], len(DIGEST.FB_GROUPS))
-        self.assertEqual(stats["anonymous_verified_posts"], 1)
+        self.assertEqual(stats["anonymous_verified_posts"], 2)
         self.assertEqual(stats["candidate_links"], 2)
-        self.assertEqual(stats["rejects"]["outside_collection_window"], 1)
+        self.assertNotIn("outside_collection_window", stats["rejects"])
+        self.assertFalse(stats["time_filter_enabled"])
         self.assertIn("不是社團全部貼文數", stats["notices"][0])
 
     def test_file_and_actions_secret_are_merged_instead_of_shadowed(self) -> None:
@@ -1525,7 +1526,7 @@ class ThreadsImportTests(unittest.TestCase):
         self.assertEqual(items, [])
         self.assertEqual(stats["rejects"]["excluded_industry"], 1)
 
-    def test_threads_always_rejects_rows_older_than_seven_days(self) -> None:
+    def test_threads_keeps_current_input_rows_regardless_of_age(self) -> None:
         row = {
             "permalink": "https://www.threads.com/@owner.home/post/SIX_DAYS_OLD",
             "text": "平鎮區3房2廳整層出租，35坪",
@@ -1548,14 +1549,16 @@ class ThreadsImportTests(unittest.TestCase):
             second_stats = DIGEST.empty_source_stats()
             second_items = DIGEST.load_threads_listings(second_stats, state)
 
-        self.assertEqual(first_items, [])
-        self.assertEqual(first_stats["collection_mode"], "initial")
-        self.assertEqual(first_stats["window_days"], 7)
-        self.assertEqual(first_stats["rejects"]["outside_collection_window"], 1)
-        self.assertEqual(second_items, [])
-        self.assertEqual(second_stats["collection_mode"], "ongoing")
-        self.assertEqual(second_stats["window_days"], 7)
-        self.assertEqual(second_stats["rejects"]["outside_collection_window"], 1)
+        self.assertEqual(len(first_items), 1)
+        self.assertEqual(first_stats["collection_mode"], "current_inventory")
+        self.assertEqual(first_stats["window_days"], 0)
+        self.assertFalse(first_stats["time_filter_enabled"])
+        self.assertNotIn("outside_collection_window", first_stats["rejects"])
+        self.assertEqual(len(second_items), 1)
+        self.assertEqual(second_stats["collection_mode"], "current_inventory")
+        self.assertEqual(second_stats["window_days"], 0)
+        self.assertFalse(second_stats["time_filter_enabled"])
+        self.assertNotIn("outside_collection_window", second_stats["rejects"])
 
     def test_threads_issue_form_creates_manual_public_candidate(self) -> None:
         issue = {
@@ -1885,7 +1888,7 @@ https://www.threads.com/@owner.home/post/ISSUE_HOME
         self.assertEqual(stats["root_post_requests"], 1)
         self.assertEqual(stats["author_reply_rows"], 1)
 
-    def test_threads_post_older_than_seven_days_without_activity_is_rejected(self) -> None:
+    def test_threads_post_returned_by_api_is_kept_regardless_of_age(self) -> None:
         stats = DIGEST.empty_source_stats()
         response = Mock(status_code=200)
         response.json.return_value = {
@@ -1914,13 +1917,14 @@ https://www.threads.com/@owner.home/post/ISSUE_HOME
         ):
             items = DIGEST.load_threads_listings(stats)
 
-        self.assertEqual(items, [])
-        self.assertEqual(stats["rejects"]["outside_collection_window"], 1)
-        self.assertIn(
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].source_id, "real.home:OLD_POST")
+        self.assertNotIn("outside_collection_window", stats["rejects"])
+        self.assertNotIn(
             "outside_collection_window",
             stats["candidate_diagnostics"][0]["reasons"],
         )
-        archive.assert_not_called()
+        archive.assert_called_once()
 
     def test_reply_permission_failure_does_not_hide_valid_main_post(self) -> None:
         stats = DIGEST.empty_source_stats()
@@ -2765,7 +2769,7 @@ class CurrentListingDisplayTests(unittest.TestCase):
         finally:
             DIGEST.NOW = old_now
 
-    def test_591_has_no_source_age_limit_and_other_sources_use_seven_days(self) -> None:
+    def test_every_source_keeps_current_inventory_regardless_of_source_time(self) -> None:
         old_now = DIGEST.NOW
         DIGEST.NOW = DIGEST.datetime(2026, 8, 18, 16, 0, tzinfo=DIGEST.TZ)
         try:
@@ -2773,7 +2777,7 @@ class CurrentListingDisplayTests(unittest.TestCase):
             items: list[object] = []
             stats = {"sources": {source: DIGEST.empty_source_stats() for source in sources}}
             for source in sources:
-                stale_age = "3天前更新" if source == "591" else "8天前更新"
+                stale_age = "8天前更新"
                 items.extend(
                     [
                         DIGEST.Listing(
@@ -2796,28 +2800,19 @@ class CurrentListingDisplayTests(unittest.TestCase):
                     ]
                 )
 
-            kept = DIGEST.filter_source_freshness(items, stats)
+            kept = DIGEST.retain_current_source_inventory(items, stats)
 
-            self.assertEqual(len(kept), len(sources) + 2)
-            self.assertTrue(all(item.source == "591" or item.source_id.endswith("-fresh") for item in kept))
-            self.assertEqual(next(item for item in kept if item.source_id == "591-missing").source_timestamp, "")
+            self.assertEqual(len(kept), len(sources) * 3)
             for source in sources:
                 row = stats["sources"][source]
-                if source == "591":
-                    self.assertEqual(row["validated"], 3)
-                    self.assertEqual(row["freshness_rejected"], 0)
-                    self.assertEqual(row["active_validated"], 3)
-                    self.assertIsNone(row["freshness_window_days"])
-                    continue
-                freshness_days = 7
-                self.assertEqual(row["validated"], 1)
-                self.assertEqual(row["freshness_rejected"], 2)
-                self.assertEqual(row["freshness_window_days"], freshness_days)
-                self.assertEqual(row[f"fresh_within_{freshness_days}_days"], 1)
-                self.assertEqual(
-                    row["rejects"][f"source_older_than_{freshness_days}_days"], 1
-                )
-                self.assertEqual(row["rejects"]["missing_source_time"], 1)
+                self.assertEqual(row["validated"], 3)
+                self.assertEqual(row["current_inventory"], 3)
+                self.assertEqual(row["source_time_known"], 2)
+                self.assertEqual(row["source_time_unknown"], 1)
+                self.assertEqual(row["source_time_future"], 0)
+                self.assertFalse(row["source_time_filter_enabled"])
+                self.assertNotIn("source_older_than_7_days", row["rejects"])
+                self.assertNotIn("missing_source_time", row["rejects"])
         finally:
             DIGEST.NOW = old_now
 
@@ -2942,6 +2937,20 @@ class CurrentListingDisplayTests(unittest.TestCase):
 
         self.assertEqual(output, [item])
         self.assertEqual(duplicate_count, 1)
+
+    def test_same_property_from_different_sources_stays_in_each_source(self) -> None:
+        listing_591 = self.listing("21700001")
+        listing_sinyi = self.listing("SINYI-21700001")
+        listing_sinyi.source = "信義房屋"
+        listing_sinyi.fingerprint = listing_591.fingerprint
+
+        output, duplicate_count = DIGEST.filter_recent_duplicates(
+            [listing_591, listing_sinyi],
+            {"sent": [], "prices": {}},
+        )
+
+        self.assertEqual(output, [listing_591, listing_sinyi])
+        self.assertEqual(duplicate_count, 0)
 
     def test_all_section_contains_owner_discount_and_general(self) -> None:
         owner = self.listing(

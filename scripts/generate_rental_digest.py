@@ -10,13 +10,13 @@
 
 本版重點：
 1. FB與Threads不使用帳號密碼、Cookie或瀏覽器Session；指定四區與3房以上為
-   硬條件。FB排除包租代管同行、保留一般房仲為C級；591刊出本輪現刊、其他來源近7天內資料。
+   硬條件。FB排除包租代管同行、保留一般房仲為C級；本輪仍可取得的現有物件不設日期上限。
 2. 591 列表優先讀網站前端使用的官方 BFF；失效時才退回 SSR HTML / Chromium。
 3. 591 屋主只接受 role_name / 詳情聯絡人角色明確以「屋主」開頭的物件。
 4. 591 降價優先使用 BFF 官方 diff_price，詳情頁阻擋時使用同輪嚴格列表快照。
 5. 404 / 410 / 已刪除 / 已關閉 / 已成交物件仍排除。
 6. 樂屋網原租金只接受明確舊價標示或歷史快照，避免把押金誤判為原租金。
-7. 591 不限刊登日期，其他來源七天的來源時間驗證與跨來源去重；真正降價物件可重新顯示。
+7. 所有來源不以刊登日期排除；同一來源內去重，真正降價物件可重新顯示。
 8. 新房源以上一封成功投遞的快報為比較基準，不以同一天判斷。
 9. 每封 LINE 使用日期加時段的永久快報網址，不連向可變的首頁。
 """
@@ -141,14 +141,10 @@ _591_SNAPSHOT_MAX_AGE = timedelta(hours=72)
 SOURCE_REFRESH_COOLDOWN = _591_REFRESH_COOLDOWN
 SOURCE_SNAPSHOT_MAX_AGE = _591_SNAPSHOT_MAX_AGE
 FIRST_SEEN_REGISTRY_LIMIT = 20_000
-SOURCE_FRESHNESS_DAYS = 7
-SOURCE_FRESHNESS_WINDOW = timedelta(days=SOURCE_FRESHNESS_DAYS)
-SOURCE_FRESHNESS_DAYS_BY_SOURCE = {"591": None}
 CRAWL_591_POLICY = "active-all-v1"
 NEW_LISTING_BADGE_WINDOW = timedelta(days=1)
-SOCIAL_INITIAL_WINDOW = SOURCE_FRESHNESS_WINDOW
-SOCIAL_ONGOING_WINDOW = SOURCE_FRESHNESS_WINDOW
-SOCIAL_NEW_WINDOW = SOURCE_FRESHNESS_WINDOW
+SOCIAL_RECENT_ACTIVITY_WINDOW = timedelta(days=7)
+SOCIAL_NEW_WINDOW = timedelta(days=7)
 SOCIAL_LAST_SEEN_REGISTRY_LIMIT = 20_000
 RENTAL_EDITION_ID_ENV = "RENTAL_EDITION_ID"
 SITE_URL_ENV = "SITE_URL"
@@ -161,16 +157,6 @@ RENTAL_591_RESUME_PATH_ENV = "RENTAL_591_RESUME_PATH"
 RENTAL_VALIDATION_ATTEMPT_ENV = "RENTAL_VALIDATION_ATTEMPT"
 RENTAL_SOURCE_ONLY_ENV = "RENTAL_SOURCE_ONLY"
 
-
-def source_freshness_days(source: str) -> int | None:
-    """Return the source-proven listing activity window in whole days."""
-
-    return SOURCE_FRESHNESS_DAYS_BY_SOURCE.get(source, SOURCE_FRESHNESS_DAYS)
-
-
-def source_freshness_window(source: str) -> timedelta | None:
-    days = source_freshness_days(source)
-    return timedelta(days=days) if days is not None else None
 
 SINYI_SEARCH_TEMPLATE = (
     "https://www.sinyi.com.tw/rent/list/Taoyuan-city/"
@@ -893,9 +879,9 @@ def facebook_lead_screening(
         notes.append("照片可讀")
     else:
         notes.append("照片待補")
-    if activity and NOW - activity <= SOCIAL_ONGOING_WINDOW:
+    if activity and NOW - activity <= SOCIAL_RECENT_ACTIVITY_WINDOW:
         score += 10
-        notes.append("兩天內活動")
+        notes.append("近期活動")
     else:
         score += 5
         notes.append("首次回溯期")
@@ -981,17 +967,15 @@ def social_collection_window(
     state: dict[str, Any],
     source: str,
     source_stats: dict[str, Any],
-) -> timedelta:
-    social_sources = state.get("social_sources", {})
-    source_state = social_sources.get(source, {}) if isinstance(social_sources, dict) else {}
-    initialized = parse_social_activity_time(
-        source_state.get("initialized_at", "") if isinstance(source_state, dict) else ""
-    )
-    window = SOCIAL_ONGOING_WINDOW if initialized else SOCIAL_INITIAL_WINDOW
-    source_stats["collection_mode"] = "ongoing" if initialized else "initial"
-    source_stats["window_days"] = int(window.total_seconds() // 86400)
-    source_stats["window_cutoff"] = (NOW - window).isoformat()
-    return window
+) -> None:
+    """Record current-inventory mode without imposing an age cutoff."""
+
+    del state, source
+    source_stats["collection_mode"] = "current_inventory"
+    source_stats["time_filter_enabled"] = False
+    source_stats["window_days"] = 0
+    source_stats["window_cutoff"] = ""
+    return None
 
 
 def mark_social_source_initialized(state: dict[str, Any], source: str) -> None:
@@ -1000,7 +984,9 @@ def mark_social_source_initialized(state: dict[str, Any], source: str) -> None:
     source_state.setdefault("initialized_at", NOW.isoformat())
 
 
-def within_social_window(value: datetime | None, window: timedelta) -> bool:
+def within_social_window(value: datetime | None, window: timedelta | None) -> bool:
+    if window is None:
+        return True
     if value is None:
         return False
     return NOW - window <= value <= NOW + timedelta(minutes=10)
@@ -1047,9 +1033,9 @@ def social_screening(
     if has_image:
         score += 10
         notes.append("照片可讀")
-    if activity and NOW - activity <= SOCIAL_ONGOING_WINDOW:
+    if activity and NOW - activity <= SOCIAL_RECENT_ACTIVITY_WINDOW:
         score += 15
-        notes.append("兩天內活動")
+        notes.append("近期活動")
     else:
         score += 8
         notes.append("首次回溯期")
@@ -4038,13 +4024,6 @@ def facebook_row_reject_reasons(
         reasons.append("invalid_district")
     if not clean(row.get("title") or text.split("。")[0], 180):
         reasons.append("missing_title")
-    if window is not None:
-        activity = social_activity_from_row(row)
-        if activity is None:
-            reasons.append("missing_activity_time")
-        elif not within_social_window(activity, window):
-            reasons.append("outside_collection_window")
-
     return list(dict.fromkeys(reasons))
 
 
@@ -4205,15 +4184,12 @@ def load_facebook_import(
 
     result: list[Listing] = []
     seen_keys: set[str] = set()
-    window_candidates = 0
     for row in rows:
         if not isinstance(row, dict):
             reject("invalid_row")
             continue
 
         enriched_row = enrich_facebook_row(row, source_stats)
-        if within_social_window(social_activity_from_row(enriched_row), window):
-            window_candidates += 1
         reasons = facebook_row_reject_reasons(enriched_row, window)
         url = normalize_facebook_post_url(str(enriched_row.get("url", "")))
         key = facebook_post_key(url)
@@ -4244,7 +4220,12 @@ def load_facebook_import(
     source_stats["validated"] = len(result)
     source_stats["anonymous_verified_posts"] = len(result)
     source_stats["authorized_or_public_posts"] = len(result)
-    source_stats["window_candidates"] = window_candidates
+    source_stats["source_time_known"] = sum(
+        bool(item.source_timestamp) for item in result
+    )
+    source_stats["source_time_unknown"] = (
+        len(result) - source_stats["source_time_known"]
+    )
     source_stats["missing_rent_accepted"] = sum(not item.rent for item in result)
     source_stats["missing_photo_accepted"] = sum(not item.image for item in result)
     source_stats["lead_grades"] = {
@@ -4256,8 +4237,8 @@ def load_facebook_import(
         f"FB目前合併檔案、Secret、HTTPS feed、GitHub公開投稿與Cloudflare私人收件匣；"
         "公開貼文需可匿名驗證；私人社團貼文只能由已加入社團的使用者手動提交，"
         "並確認已取得作者或社團管理員的電子報再公開授權。既有11個社團連結只作為人工查找入口。"
-        f"本輪為{'首次' if source_stats['collection_mode'] == 'initial' else '後續'}收集，"
-        f"讀取最近{source_stats['window_days']}天；指定四區、至少3房與排除包租代管同行為硬條件。"
+        "本輪已取得的現有貼文全數納入驗證，不再以刊登日期限制；"
+        "指定四區、至少3房與排除包租代管同行為硬條件。"
         "屋主尋求代管、人在外地或沒時間管理會保留並提高房源等級；"
         "一般房仲的真實出租會保留為C級；包租代管／代租代管業者訊號仍會排除。"
         "坪數、租金與照片只用於評分，不會因單一選填欄位缺少而捏造或誤殺。"
@@ -4268,7 +4249,7 @@ def load_facebook_import(
         mark_social_source_initialized(state, "FB")
     if rows and not result:
         source_stats["errors"].append(
-            "FB匯入有資料列，但沒有資料通過公開永久網址、最近收集時間窗、"
+            "FB匯入有資料列，但沒有資料通過公開永久網址、"
             "指定四區、至少3房與非包租代管同行驗證；請查看rejects。"
         )
     return result
@@ -4913,7 +4894,7 @@ def load_threads_listings(
     state: dict[str, Any] | None = None,
 ) -> list[Listing]:
     state = state if state is not None else {}
-    window = social_collection_window(state, "Threads", source_stats)
+    social_collection_window(state, "Threads", source_stats)
     token = os.environ.get(THREADS_ACCESS_TOKEN_ENV, "").strip()
     source_stats["search_queries"] = len(THREADS_SEARCH_PLANS)
     source_stats["search_modes"] = sorted(
@@ -4924,7 +4905,7 @@ def load_threads_listings(
         len(THREADS_SEARCH_PLANS) * len(THREADS_SEARCH_TYPES)
     ) if token else 0
     source_stats["target"] = (
-        f"桃園區、中壢區、平鎮區、八德區，至少3房；最近{source_stats['window_days']}天活動，"
+        "桃園區、中壢區、平鎮區、八德區，至少3房；本輪官方API或人工入口可取得，"
         "排除包租代管與仲介同業；坪數30至35坪以上、租金、照片及屋主訊號為加分條件"
     )
 
@@ -4941,9 +4922,9 @@ def load_threads_listings(
 
     source_stats["notices"].append(
         "Threads合併官方keyword_search與人工授權的公開永久貼文入口；官方結果會合併"
-        "API可讀取且username與主貼文相同的原作者留言。硬條件是指定四區、至少3房、"
-        "最近收集時間窗且非包租代管／仲介同業；30至35坪以上、租金、照片及屋主訊號"
-        f"只用於可解釋的自動評分。每次只讀且發布最近{SOURCE_FRESHNESS_DAYS}天。"
+        "API可讀取且username與主貼文相同的原作者留言。硬條件是指定四區、至少3房且"
+        "非包租代管／仲介同業；30至35坪以上、租金、照片及屋主訊號"
+        "只用於可解釋的自動評分。本輪可取得的現有貼文不以刊登日期限制。"
     )
 
     unique_rows: dict[str, dict[str, Any]] = {}
@@ -5106,11 +5087,6 @@ def load_threads_listings(
             reasons.append("excluded_industry")
         if proxy_listing(text, original_username):
             reasons.append("excluded_proxy")
-        if latest_activity is None:
-            reasons.append("missing_activity_time")
-        elif not within_social_window(latest_activity, window):
-            reasons.append("outside_collection_window")
-
         if len(candidate_diagnostics) < 100:
             candidate_diagnostics.append(
                 {
@@ -5208,8 +5184,8 @@ def load_threads_listings(
         )
     if unique_rows and not result:
         source_stats["errors"].append(
-            "Threads有候選貼文，但沒有物件同時通過指定四區、至少3房、"
-            "最近收集時間窗及非包租代管／仲介同業驗證；"
+            "Threads有候選貼文，但沒有物件同時通過指定四區、至少3房及"
+            "非包租代管／仲介同業驗證；"
             "租金、坪數與照片不是必要欄位。"
             "請查看rejects。"
         )
@@ -5403,76 +5379,57 @@ def source_time_text_from_page(soup: BeautifulSoup, text: str) -> str:
     return clean(match.group(1), 80) if match else ""
 
 
+def retain_current_source_inventory(
+    items: list[Listing],
+    stats: dict[str, Any],
+) -> list[Listing]:
+    """Keep every row confirmed by this run; source time is diagnostic only."""
+
+    source_rows = stats.get("sources", {})
+    for source, source_stats in source_rows.items():
+        source_items = [item for item in items if item.source == source]
+        source_stats["current_inventory"] = len(source_items)
+        source_stats["source_time_known"] = 0
+        source_stats["source_time_unknown"] = 0
+        source_stats["source_time_future"] = 0
+        source_stats["source_time_filter_enabled"] = False
+
+    for item in items:
+        source_stats = source_rows.get(item.source, {})
+        timestamp = source_listing_time(item)
+        if timestamp is None:
+            source_stats["source_time_unknown"] = (
+                int(source_stats.get("source_time_unknown", 0) or 0) + 1
+            )
+        elif timestamp > NOW + timedelta(minutes=10):
+            source_stats["source_time_future"] = (
+                int(source_stats.get("source_time_future", 0) or 0) + 1
+            )
+        else:
+            item.source_timestamp = timestamp.isoformat()
+            source_stats["source_time_known"] = (
+                int(source_stats.get("source_time_known", 0) or 0) + 1
+            )
+
+    for source, source_stats in source_rows.items():
+        source_stats["validated"] = int(source_stats.get("current_inventory", 0) or 0)
+        unknown = int(source_stats.get("source_time_unknown", 0) or 0)
+        future = int(source_stats.get("source_time_future", 0) or 0)
+        if unknown or future:
+            source_stats.setdefault("notices", []).append(
+                f"本輪現有物件中，{unknown}筆未提供來源時間、{future}筆來源時間在未來；"
+                "均保留顯示，日期只用於排序與診斷。"
+            )
+    return items
+
+
 def filter_source_freshness(
     items: list[Listing],
     stats: dict[str, Any],
 ) -> list[Listing]:
-    """Keep every live-validated 591 listing; require seven-day activity elsewhere."""
+    """Backward-compatible alias for the former source-age filter."""
 
-    kept: list[Listing] = []
-    source_rows = stats.get("sources", {})
-    for source, source_stats in source_rows.items():
-        freshness_days = source_freshness_days(source)
-        source_items = [item for item in items if item.source == source]
-        source_stats["validated_before_freshness"] = len(source_items)
-        source_stats["freshness_checked"] = len(source_items)
-        source_stats["freshness_window_days"] = freshness_days
-        source_stats["freshness_policy"] = "active_listing" if freshness_days is None else "source_activity"
-        source_stats["active_validated" if freshness_days is None else f"fresh_within_{freshness_days}_days"] = 0
-        source_stats["freshness_rejected"] = 0
-
-    for item in items:
-        source_stats = source_rows.get(item.source, {})
-        freshness_days = source_freshness_days(item.source)
-        freshness_window = source_freshness_window(item.source)
-        fresh_key = "active_validated" if freshness_days is None else f"fresh_within_{freshness_days}_days"
-        timestamp = source_listing_time(item)
-        if freshness_window is None:
-            # Liveness comes from collect_591_listings, never from an old timestamp
-            # or a snapshot. Do not manufacture an update date when none is shown.
-            item.source_timestamp = timestamp.isoformat() if timestamp else ""
-            source_stats[fresh_key] = int(source_stats.get(fresh_key, 0) or 0) + 1
-            kept.append(item)
-            continue
-        reason = ""
-        if timestamp is None:
-            reason = "missing_source_time"
-        elif timestamp > NOW + timedelta(minutes=10):
-            reason = "source_time_in_future"
-        elif NOW - timestamp > freshness_window:
-            reason = f"source_older_than_{freshness_days}_days"
-        if reason:
-            rejects = source_stats.setdefault("rejects", {})
-            rejects[reason] = int(rejects.get(reason, 0) or 0) + 1
-            source_stats["freshness_rejected"] = (
-                int(source_stats.get("freshness_rejected", 0) or 0) + 1
-            )
-            continue
-        item.source_timestamp = timestamp.isoformat()
-        source_stats[fresh_key] = int(source_stats.get(fresh_key, 0) or 0) + 1
-        kept.append(item)
-
-    for source, source_stats in source_rows.items():
-        freshness_days = source_freshness_days(source)
-        fresh_key = "active_validated" if freshness_days is None else f"fresh_within_{freshness_days}_days"
-        source_stats["validated"] = int(source_stats.get(fresh_key, 0) or 0)
-        rejected = int(source_stats.get("freshness_rejected", 0) or 0)
-        if rejected:
-            rejects = source_stats.get("rejects", {}) or {}
-            stale = int(rejects.get(f"source_older_than_{freshness_days}_days", 0) or 0)
-            missing = int(rejects.get("missing_source_time", 0) or 0)
-            future = int(rejects.get("source_time_in_future", 0) or 0)
-            reasons: list[str] = []
-            if stale:
-                reasons.append(f"{stale}筆來源新增／更新時間超過{freshness_days}天")
-            if missing:
-                reasons.append(f"{missing}筆未取得可驗證的來源時間（parser／來源欄位問題）")
-            if future:
-                reasons.append(f"{future}筆來源時間異常晚於本輪時間")
-            source_stats.setdefault("notices", []).append(
-                "已排除" + "、".join(reasons) + "。"
-            )
-    return kept
+    return retain_current_source_inventory(items, stats)
 
 
 def load_previous_edition_keys() -> tuple[set[str], str]:
@@ -5763,8 +5720,8 @@ def apply_categories(items: list[Listing], state: dict[str, Any]) -> list[Listin
 def filter_recent_duplicates(items: list[Listing], state: dict[str, Any]) -> tuple[list[Listing], int]:
     """保留本輪所有有效物件；歷史只用來統計，不再把頁面清空。
 
-    同一輪若兩個來源產生完全相同的房源指紋，仍只顯示第一筆；但曾在近48小時
-    顯示過的有效物件會繼續留在網頁，讓「全部符合條件」反映目前真實供給。
+    同一輪只對同一來源的相同房源指紋去重；即使其他來源也有同一房屋，仍保留在
+    各自來源分區。曾在近48小時顯示過的有效物件也會繼續留在網頁。
     """
     cutoff = NOW - timedelta(hours=48)
     retained_history: list[dict[str, Any]] = []
@@ -5777,8 +5734,12 @@ def filter_recent_duplicates(items: list[Listing], state: dict[str, Any]) -> tup
             continue
         if sent_at >= cutoff:
             retained_history.append(row)
-            recent_keys.add(row.get("source_key", ""))
-            recent_keys.add(row.get("fingerprint", ""))
+            history_source_key = str(row.get("source_key", ""))
+            history_fingerprint = str(row.get("fingerprint", ""))
+            recent_keys.add(history_source_key)
+            if history_source_key and history_fingerprint:
+                history_source = history_source_key.split(":", 1)[0]
+                recent_keys.add(f"{history_source}:{history_fingerprint}")
 
     output: list[Listing] = []
     duplicate_count = 0
@@ -5786,14 +5747,15 @@ def filter_recent_duplicates(items: list[Listing], state: dict[str, Any]) -> tup
 
     for item in items:
         source_key = f"{item.source}:{item.source_id}"
-        if item.fingerprint and item.fingerprint in current_fingerprints:
+        current_fingerprint = f"{item.source}:{item.fingerprint}" if item.fingerprint else ""
+        if current_fingerprint and current_fingerprint in current_fingerprints:
             duplicate_count += 1
             continue
 
-        if item.fingerprint:
-            current_fingerprints.add(item.fingerprint)
+        if current_fingerprint:
+            current_fingerprints.add(current_fingerprint)
         output.append(item)
-        if source_key in recent_keys or item.fingerprint in recent_keys:
+        if source_key in recent_keys or current_fingerprint in recent_keys:
             duplicate_count += 1
         else:
             retained_history.append(
@@ -5806,7 +5768,7 @@ def filter_recent_duplicates(items: list[Listing], state: dict[str, Any]) -> tup
                 }
             )
             recent_keys.add(source_key)
-            recent_keys.add(item.fingerprint)
+            recent_keys.add(current_fingerprint)
 
     state["sent"] = retained_history[-5000:]
     return output, duplicate_count
@@ -6301,8 +6263,7 @@ def render_status(stats: dict[str, Any], source: str) -> str:
             f"<span>公開投稿 {row.get('issue_submissions_seen', 0)} 筆</span>"
             f"<span>私人收件匣 {row.get('private_inbox_rows', 0)} 筆</span>"
             f"<span>自動補齊 {row.get('public_metadata_enriched', 0)} 筆</span>"
-            f"<span>{'首次回溯' if row.get('collection_mode') == 'initial' else '後續更新'} "
-            f"{row.get('window_days', 0)} 天</span>"
+            "<span>刊登日期不限</span>"
         )
     elif source == "Threads":
         reply_permission = (
@@ -6329,8 +6290,7 @@ def render_status(stats: dict[str, Any], source: str) -> str:
             f"<span>搜尋查詢 {row.get('search_queries', 0)} 組</span>"
             f"<span>API頁面 {row.get('api_pages', 0)} 頁</span>"
             f"<span>人工投稿／feed {row.get('import_rows', 0)} 筆</span>"
-            f"<span>{'首次回溯' if row.get('collection_mode') == 'initial' else '後續更新'} "
-            f"{row.get('window_days', 0)} 天</span>"
+            "<span>刊登日期不限</span>"
             f"<span>原作者留言 {row.get('author_reply_rows', 0)} 則</span>"
             f"<span>留言權限 {reply_permission}</span>"
             f"<span>找到照片 {row.get('images_found', 0)} 張</span>"
@@ -6565,7 +6525,7 @@ h3 a{{text-decoration:none}}
         {NOW.strftime('%Y/%m/%d %H:%M')}
       </time>
     </h1>
-    <p class="subtitle">六個來源分區顯示；591保留本輪重新驗證仍在刊登的全部符合條件物件，不限新增／更新日期；其他來源保留7天內物件。</p>
+    <p class="subtitle">六個來源分區顯示；所有來源保留本輪重新驗證仍可取得的全部符合條件物件，不以刊登／更新日期排除。</p>
     <nav class="source-nav">
       <a href="#source-591">591</a>
       <a href="#source-fb">FB社團</a>
@@ -6579,12 +6539,12 @@ h3 a{{text-decoration:none}}
 
 <div class="statusbar"><div class="wrap">
 產生時間：{NOW.strftime('%Y/%m/%d %H:%M')}｜候選 {stats['candidates']} 筆｜
-驗證通過 {stats['validated']} 筆｜超過各來源時效／無來源時間 {stats.get('freshness_rejected', 0)} 筆｜
+驗證通過 {stats['validated']} 筆｜本輪確認現有 {stats.get('current_inventory', len(items))} 筆｜
 新房源 {stats.get('new_listings', sum(1 for item in items if item.new_listing))} 筆｜本次顯示 {len(items)} 筆
 </div></div>
 
 <main class="wrap">
-<div class="notice">每個來源每輪都會重新檢查，不沿用舊快照。591不限新增／更新日期，仍須符合四區、整層住家、4房以上等原有條件；其他來源須有最近7天內的來源時間。「新房源」比對前一輪已發布頁面，591新出現的房源標記保留24小時；租金變動另以降價標示。</div>
+<div class="notice">每個來源每輪都會重新檢查，不沿用未驗證舊物件；只要本輪來源列表、官方API或已授權入口仍可取得且符合原有條件，就會保留顯示，不因刊登／更新日期較舊或未提供時間而刪除。「新房源」比對前一輪已發布頁面，首次發現標記保留24小時；租金變動另以降價標示。</div>
 
 <div id="source-591" class="source-block">
   <div class="source-heading"><h2>591</h2><a href="https://rent.591.com.tw/list?kind=1&layout=4&region=6" target="_blank">開啟591搜尋 ↗</a></div>
@@ -6621,7 +6581,7 @@ h3 a{{text-decoration:none}}
     一般房仲的真實出租會歸入C級「其他符合物件」；包租代管／代租代管同行廣告會排除；
     屋主自己提到「想找代管」不會再被誤判為同業。
     30至35坪以上、租金與照片是加分條件，缺少選填資訊仍會誠實顯示，不補造資料或照片。
-    每次只讀與顯示最近7天；「新房源」表示上一封快報未出現且首次發現未滿24小時。
+    本輪資料入口仍可取得的現有貼文不受刊登日期限制；「新房源」表示上一封快報未出現且首次發現未滿24小時。
     Facebook登入與加入社團狀態只留在您的瀏覽器；若Facebook登出，請由您本人重新登入。
   </div>
   <div class="social-links">{fb_buttons}</div>
@@ -6660,7 +6620,7 @@ h3 a{{text-decoration:none}}
     官方API會搜尋公開貼文並合併可讀取的原作者留言；人工入口可補入已知的公開永久貼文。
     桃園區、中壢區、平鎮區、八德區及至少3房是必要條件；包租代管與仲介同業會排除。
     30至35坪以上、租金、照片與屋主訊號只用於自動符合度評分；缺少租金或可讀照片仍可刊出，
-    並顯示「租金洽詢」或「來源未提供可讀取照片」。每次只讀與顯示最近7天；
+    並顯示「租金洽詢」或「來源未提供可讀取照片」。本輪資料入口仍可取得的現有貼文不受刊登日期限制；
     「新房源」表示上一封快報未出現。不使用帳號密碼、Cookie或瀏覽器Session，也不加入假物件。
   </div>
   {render_listing_browser(
@@ -6851,7 +6811,7 @@ def main() -> int:
     }
     stats["sources"]["Threads"]["notices"].append(
         "Threads會合併官方API與人工授權公開入口，依指定四區、至少3房、"
-        "非包租代管／仲介同業及最近7天時間窗驗證。"
+        "非包租代管／仲介同業驗證；刊登日期只用於排序與診斷。"
     )
     candidates: list[Listing] = []
     source_only = os.environ.get(RENTAL_SOURCE_ONLY_ENV, "").strip()
@@ -6901,7 +6861,7 @@ def main() -> int:
         unique[f"{item.source}:{item.source_id}"] = item
     candidates = list(unique.values())
 
-    candidates = filter_source_freshness(candidates, stats)
+    candidates = retain_current_source_inventory(candidates, stats)
     candidates = assign_first_seen(candidates, state)
     candidates = assign_previous_edition_new_flags(candidates, previous_edition_keys, previous_new_since)
     candidates = apply_categories(candidates, state)
@@ -6917,17 +6877,12 @@ def main() -> int:
             "duplicates": duplicate_count,
             "published": len(published),
             "new_listings": sum(1 for item in published if item.new_listing),
-            "freshness_rejected": sum(
-                int(value.get("freshness_rejected", 0) or 0)
+            "current_inventory": len(candidates),
+            "source_time_unknown": sum(
+                int(value.get("source_time_unknown", 0) or 0)
                 for value in stats["sources"].values()
             ),
-            "default_freshness_window_hours": int(
-                SOURCE_FRESHNESS_WINDOW.total_seconds() // 3600
-            ),
-            "freshness_window_hours_by_source": {
-                source: source_freshness_days(source) * 24 if source_freshness_days(source) is not None else None
-                for source in stats["sources"]
-            },
+            "source_time_filter_enabled": False,
             "comparison_source": comparison_source,
         }
     )

@@ -10,7 +10,7 @@ def main() -> None:
     stats = digest.empty_source_stats()
     rendered = digest.load_yungching_render_feed(stats)
     items = list((rendered or {}).values())
-    fresh = digest.filter_source_freshness(
+    current = digest.retain_current_source_inventory(
         items, {"sources": {"永慶房屋": stats}}
     )
     report = {
@@ -18,8 +18,8 @@ def main() -> None:
         "candidate_links": stats.get("candidate_links", 0),
         "pages_read": stats.get("pages_read", 0),
         "details_fetched": stats.get("details_fetched", 0),
-        "validated_before_freshness": len(items),
-        "fresh_within_7_days": len(fresh),
+        "validated_before_inventory_check": len(items),
+        "current_inventory": len(current),
         "browser_render_requests": stats.get("browser_render_requests", 0),
         "browser_render_ms_used": stats.get("browser_render_ms_used", 0),
         "crawl_complete": stats.get("crawl_complete", False),
@@ -31,7 +31,7 @@ def main() -> None:
                 "updated": item.updated,
                 "photo_count": int(bool(item.image)) + len(item.images),
             }
-            for item in fresh[:5]
+            for item in current[:5]
         ],
         "production_modified": False,
         "line_sent": False,
@@ -45,8 +45,8 @@ def main() -> None:
     assert report["candidate_links"] > 0, "Yungching search returned no candidates"
     assert report["crawl_complete"] is True, "Not every candidate detail was fetched"
     assert report["details_fetched"] == report["candidate_links"]
-    assert report["validated_before_freshness"] > 0
-    assert report["fresh_within_7_days"] > 0
+    assert report["validated_before_inventory_check"] > 0
+    assert report["current_inventory"] > 0
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ LINE 發送程式會由 `delivery_slot` 產生固定 `X-Line-Retry-Key`。即使
 
 ## Facebook 私人收件匣
 
-- `POST /facebook-inbox`：只接受唯寫 Bearer Token。貼文必須是最近7天內的社團永久
+- `POST /facebook-inbox`：只接受唯寫 Bearer Token。貼文必須是目前仍在出租的社團永久
   網址、包含完整原文，並確認已取得作者或管理員的電子報再公開授權。
 - `GET /facebook-inbox-feed`：只接受另一把唯讀 Bearer Token，供 GitHub Actions 匯入。
 - 投稿資料存於 `FB_INBOX` KV，30天自動到期；相同永久網址會更新同一筆。

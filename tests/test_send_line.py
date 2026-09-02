@@ -50,7 +50,11 @@ class LineDeliveryTests(unittest.TestCase):
                     "new_listing": True,
                 }
             ],
-            "stats": {"freshness_rejected": 2},
+            "stats": {
+                "current_inventory": 1,
+                "source_time_unknown": 0,
+                "source_time_filter_enabled": False,
+            },
         }
         validate_response = Mock(status_code=200, text="", headers={})
         conflict_response = Mock(
