@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -29,6 +30,7 @@ def payload(
     generated_at: str = "2026-08-21T09:30:00+08:00",
 ) -> dict[str, object]:
     row: dict[str, object] = {
+        "crawl_policy": "active-all-v1",
         "validated": validated_591,
         "published": validated_591,
         "http_statuses": statuses or {},
@@ -55,6 +57,7 @@ def merge_payload(
     for source in RETRY.SOURCE_ORDER:
         candidate_count, published = source_rows.get(source, (0, 0))
         sources[source] = {
+            "crawl_policy": "active-all-v1" if source == "591" else "",
             "candidate_links": candidate_count,
             "current_inventory": published,
             "source_time_known": published,
@@ -88,6 +91,50 @@ def merge_payload(
         "items": items,
     }
 class ValidationRetryTests(unittest.TestCase):
+    def test_merge_requires_complete_yungching_when_requested(self) -> None:
+        data = merge_payload(
+            generated_at="2026-08-21T09:30:00+08:00",
+            source_rows={"591": (1, 1), "永慶房屋": (2, 1)},
+        )
+        data["stats"]["sources"]["591"]["crawl_complete"] = True
+        data["stats"]["sources"]["永慶房屋"]["crawl_complete"] = False
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            attempt = root / "attempt"
+            latest = attempt / "rental-data" / "latest.json"
+            latest.parent.mkdir(parents=True)
+            latest.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "永慶房屋尚未完成"):
+                RETRY.merge_command(
+                    [f"initial={attempt}"],
+                    root / "output",
+                    None,
+                    "https://example.com/",
+                    require_complete_591=True,
+                    require_complete_yungching=True,
+                )
+
+    def test_old_two_day_policy_is_not_accepted_as_full_inventory(self) -> None:
+        old = payload(validated_591=1)
+        old["stats"]["sources"]["591"].pop("crawl_policy")
+        with self.assertRaises(AssertionError):
+            RETRY.assert_fresh_591(old)
+
+    def test_merged_edition_preserves_new_badge_without_comparing_to_itself(self) -> None:
+        now = datetime.now(timezone(timedelta(hours=8)))
+        data = merge_payload(generated_at=now.isoformat(), source_rows={"591": (1, 1)})
+        data["items"][0]["new_since_at"] = now.isoformat()
+        data["stats"].update(candidates=1, validated=1, published=1, duplicates=0)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            digest = RETRY.load_digest_module()
+            with (
+                patch.object(RETRY, "load_digest_module", return_value=digest),
+                patch.object(digest, "load_previous_edition_keys", side_effect=AssertionError("must not recompare")),
+            ):
+                result = RETRY.write_merged_edition(data, Path(temp_dir), now.strftime("%Y-%m-%d-0930"), "https://example.com/")
+            self.assertTrue(result["items"][0]["new_listing"])
+            self.assertEqual(result["stats"]["comparison_source"], data["stats"]["comparison_source"])
+
     def test_explicit_403_requests_delayed_retry(self) -> None:
         blocked = payload(statuses={"bff": {"403": 2}, "html": {"403": 2}})
         self.assertTrue(RETRY.rate_limited_591(blocked))
@@ -279,7 +326,7 @@ class ValidationRetryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             RETRY.merge_source_payloads((("first", first), ("second", second)))
 
-    def test_source_merge_keeps_older_591_item_from_current_validation(self) -> None:
+    def test_source_merge_keeps_live_591_item_regardless_of_source_age(self) -> None:
         first = merge_payload(
             generated_at="2026-08-21T09:30:00+08:00",
             source_rows={"591": (1, 1)},
@@ -297,7 +344,17 @@ class ValidationRetryTests(unittest.TestCase):
         self.assertEqual(row["validated"], 1)
         self.assertEqual(row["current_inventory"], 1)
         self.assertFalse(row["source_time_filter_enabled"])
-        self.assertNotIn("source_older_than_2_days", row.get("rejects", {}))
+
+    def test_591_missing_source_date_is_valid_but_stale_validation_is_not(self) -> None:
+        data = merge_payload(generated_at="2026-08-21T09:30:00+08:00", source_rows={"591": (1, 1)})
+        data["items"][0]["source_timestamp"] = ""
+        generated_at = RETRY.parse_timestamp(data["generated_at"])
+        retained, rejected = RETRY.validated_source_items(data, "591", generated_at)
+        self.assertEqual(len(retained), 1)
+        self.assertFalse(rejected)
+        data["items"][0]["validated_at"] = "2026-08-20T09:30:00+08:00"
+        with self.assertRaisesRegex(ValueError, "stale validation"):
+            RETRY.validated_source_items(data, "591", generated_at)
 
     def test_source_merge_keeps_older_non_591_item_from_current_validation(self) -> None:
         first = merge_payload(

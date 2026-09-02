@@ -323,6 +323,40 @@ class Extract591Tests(unittest.TestCase):
         self.assertTrue(stats["crawl_complete"])
         self.assertEqual(set(stats["completed_sections"]), set(DIGEST.DISTRICTS_591))
 
+    def test_old_591_page_does_not_stop_full_active_crawl(self) -> None:
+        fresh = self._bff_listing("21700001", "1小時內更新")
+        stale = self._bff_listing("21700002", "3天前更新")
+        stats = DIGEST.empty_source_stats()
+        with (
+            patch.object(DIGEST, "DISTRICTS_591", {"桃園區": 46}),
+            patch.object(DIGEST, "fetch_591_bff_cards", side_effect=[
+                (200, 0, stale), (200, 30, fresh), (200, 60, {}), (200, 90, {}),
+            ]) as fetch,
+            patch.object(DIGEST.time, "sleep"),
+        ):
+            links = DIGEST.crawl_591_links(stats)
+        self.assertEqual(len(links), 2)
+        self.assertEqual(fetch.call_count, 4)
+        self.assertTrue(stats["crawl_complete"])
+        self.assertEqual(stats["crawl_policy"], "active-all-v1")
+
+    def test_two_all_rejected_pages_are_not_end_of_591_inventory(self) -> None:
+        def fetch(query):
+            page = int(query["page"])
+            DIGEST._591_BFF_RAW_COUNT = 30 if page <= 3 else 0
+            cards = self._bff_listing("21700001", "30天前更新") if page == 3 else {}
+            return 200, (page - 1) * 30, cards
+        stats = DIGEST.empty_source_stats()
+        with (
+            patch.object(DIGEST, "DISTRICTS_591", {"桃園區": 46}),
+            patch.object(DIGEST, "fetch_591_bff_cards", side_effect=fetch) as request,
+            patch.object(DIGEST.time, "sleep"),
+        ):
+            links = DIGEST.crawl_591_links(stats)
+        self.assertEqual(links, ["https://rent.591.com.tw/21700001"])
+        self.assertEqual(request.call_count, 5)
+        self.assertTrue(stats["crawl_complete"])
+
     def test_crawler_resumes_first_unverified_page_in_same_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             latest = Path(temp_dir) / "latest.json"
@@ -342,6 +376,7 @@ class Extract591Tests(unittest.TestCase):
                         "stats": {
                             "sources": {
                                 "591": {
+                                    "crawl_policy": "active-all-v1",
                                     "validation_run_id": "12345",
                                     "validation_attempt": "retry1",
                                     "checkpoint_chain": ["initial", "retry1"],
@@ -359,7 +394,8 @@ class Extract591Tests(unittest.TestCase):
 
             def fake_bff(query: dict[str, object]):
                 requested_pages.append(int(query["page"]))
-                return 200, 150, self._bff_listing("21700006", "3天前更新")
+                page = int(query["page"])
+                return 200, (page - 1) * 30, self._bff_listing("21700006", "3天前更新") if page == 6 else {}
 
             stats = DIGEST.empty_source_stats()
             with (
@@ -381,7 +417,6 @@ class Extract591Tests(unittest.TestCase):
         self.assertTrue(stats["crawl_complete"])
         self.assertEqual(stats["checkpoint_chain"], ["initial", "retry1", "retry2"])
         self.assertTrue(stats["section_progress"]["桃園區"]["completed"])
-        self.assertNotIn("freshness_boundaries", stats)
 
     def test_crawler_stops_after_two_fully_blocked_queries(self) -> None:
         stats = DIGEST.empty_source_stats()
@@ -2013,11 +2048,14 @@ https://www.threads.com/@owner.home/post/ISSUE_HOME
 class SinyiAndYungchingTests(unittest.TestCase):
     def test_cloudflare_yungching_feed_accepts_only_verified_public_rows(self) -> None:
         payload = {
-            "generated_at": "2026-08-12T10:00:00Z",
+            "generated_at": DIGEST.NOW.isoformat(),
+            "validation_id": DIGEST.yungching_validation_id(),
+            "fresh_validation": {"successful": True},
             "candidate_count": 2,
             "items": [
                 {
                     "source_id": "2411508",
+                    "validated_at": DIGEST.NOW.isoformat(),
                     "url": "https://rent.yungching.com.tw/house/2411508",
                     "title": "冠倫大國",
                     "address": "桃園市桃園區大有路",
@@ -2045,6 +2083,7 @@ class SinyiAndYungchingTests(unittest.TestCase):
             ],
         }
         response = SimpleNamespace(
+            status_code=200,
             raise_for_status=lambda: None,
             json=lambda: payload,
         )
@@ -2062,11 +2101,14 @@ class SinyiAndYungchingTests(unittest.TestCase):
 
     def test_cloudflare_yungching_feed_retries_temporary_failure(self) -> None:
         payload = {
-            "generated_at": "2026-08-12T10:00:00Z",
+            "generated_at": DIGEST.NOW.isoformat(),
+            "validation_id": DIGEST.yungching_validation_id(),
+            "fresh_validation": {"successful": True},
             "candidate_count": 1,
             "items": [
                 {
                     "source_id": "2411508",
+                    "validated_at": DIGEST.NOW.isoformat(),
                     "url": "https://rent.yungching.com.tw/house/2411508",
                     "title": "四房整層住家",
                     "address": "桃園市桃園區大有路",
@@ -2079,7 +2121,7 @@ class SinyiAndYungchingTests(unittest.TestCase):
                 }
             ],
         }
-        temporary = Mock(status_code=503)
+        temporary = Mock(status_code=503, text="temporary unavailable")
         temporary.raise_for_status.side_effect = DIGEST.requests.HTTPError(
             "503 Service Unavailable"
         )
@@ -2099,6 +2141,42 @@ class SinyiAndYungchingTests(unittest.TestCase):
         self.assertEqual(request_get.call_count, 2)
         self.assertEqual(stats["browser_feed_attempts"], 2)
         self.assertEqual(stats["notices"], [])
+
+    def test_yungching_rejects_cached_feed_from_previous_round(self) -> None:
+        payload = {"generated_at": DIGEST.NOW.isoformat(), "validation_id": "old-round",
+                   "fresh_validation": {"successful": True}, "items": []}
+        response = SimpleNamespace(status_code=200, raise_for_status=lambda: None, json=lambda: payload)
+        stats = DIGEST.empty_source_stats()
+        with patch.object(DIGEST.session, "get", return_value=response):
+            self.assertEqual(DIGEST.load_yungching_browser_feed(stats), {})
+        self.assertEqual(stats["browser_feed_health"], "stale_or_wrong_round")
+
+    def test_yungching_platform_resource_failure_is_not_rapidly_retried(self) -> None:
+        response = SimpleNamespace(status_code=503, text="Cloudflare error 1102 Worker exceeded resource limits")
+        stats = DIGEST.empty_source_stats()
+        with patch.object(DIGEST.session, "get", return_value=response) as fetch, patch.object(DIGEST.time, "sleep") as sleep:
+            self.assertEqual(DIGEST.load_yungching_browser_feed(stats), {})
+        self.assertEqual(fetch.call_count, 1)
+        sleep.assert_not_called()
+        self.assertEqual(stats["browser_feed_attempts"], 1)
+        self.assertEqual(stats["browser_feed_platform_error"], "worker_resource_limit_1102")
+
+    def test_yungching_partial_feed_keeps_verified_rows(self) -> None:
+        row = {"source_id": "2415719", "url": "https://rent.yungching.com.tw/house/2415719",
+               "title": "四房整層住家", "address": "桃園市桃園區上海路", "layout": "4房2廳2衛",
+               "rent": 25000, "size": "43.99坪", "updated": "2026年08月27日",
+               "images": ["https://yccdn.yungching.com.tw/a.jpg"], "validated_at": DIGEST.NOW.isoformat()}
+        payload = {"generated_at": DIGEST.NOW.isoformat(), "validation_id": DIGEST.yungching_validation_id(),
+                   "status": "partial", "healthy": False, "candidate_count": 3,
+                   "fresh_validation": {"successful": True}, "errors": ["browser_rate_limited"], "items": [row]}
+        response = SimpleNamespace(status_code=200, raise_for_status=lambda: None, json=lambda: payload)
+        stats = DIGEST.empty_source_stats()
+        with patch.object(DIGEST.session, "get", return_value=response):
+            items = DIGEST.load_yungching_browser_feed(stats)
+        self.assertEqual(list(items), ["2415719"])
+        self.assertEqual(stats["candidate_links"], 3)
+        self.assertEqual(items["2415719"].validated_at, row["validated_at"])
+        self.assertIn("部分來源驗證中斷", stats["notices"][0])
 
     def test_yungching_prefers_cloudflare_browser_feed_over_blocked_runner(self) -> None:
         item = DIGEST.Listing(
@@ -2124,6 +2202,109 @@ class SinyiAndYungchingTests(unittest.TestCase):
         self.assertEqual(result, [item])
         blocked_crawl.assert_not_called()
         self.assertEqual(stats["validated"], 1)
+
+    def test_yungching_render_transport_uses_private_json_envelope(self) -> None:
+        response = Mock(status_code=200)
+        response.headers = {"X-Browser-Ms-Used": "6500.5"}
+        response.json.return_value = {
+            "success": True,
+            "result": "<html><h1>rendered</h1>" + ("x" * 900) + "</html>",
+        }
+        response.raise_for_status.return_value = None
+        stats = DIGEST.empty_source_stats()
+        with patch.dict(
+            DIGEST.os.environ,
+            {
+                DIGEST.YUNGCHING_RENDER_TOKEN_ENV: "private-token",
+                DIGEST.YUNGCHING_RENDER_URL_ENV: "https://preview.test/yungching-render",
+                DIGEST.YUNGCHING_RENDER_INTERVAL_ENV: "0",
+            },
+            clear=False,
+        ), patch.object(DIGEST.session, "post", return_value=response) as post:
+            raw = DIGEST.fetch_yungching_render_html(
+                {"kind": "detail", "source_id": "2415719"}, stats, {}
+            )
+        self.assertIn("rendered", raw)
+        self.assertEqual(stats["browser_render_requests"], 1)
+        self.assertEqual(stats["browser_render_ms_used"], 6500.5)
+        request = post.call_args
+        self.assertEqual(request.args[0], "https://preview.test/yungching-render")
+        self.assertEqual(request.kwargs["headers"]["Authorization"], "Bearer private-token")
+        self.assertEqual(request.kwargs["json"]["source_id"], "2415719")
+
+    def test_yungching_render_feed_fetches_every_candidate_detail_this_round(self) -> None:
+        list_html = """
+        <html><body>
+          <a href="https://rent.yungching.com.tw/house/2415719">
+            <div class="caseName">甲桂林3+1房</div>
+            <span class="address">桃園市桃園區上海路</span>
+            <span class="purpose">住宅</span>
+            <span class="regArea">43.99坪</span>
+            <span class="floor">5/12樓</span>
+            <span class="room">4房(室)2廳2衛</span>
+            <div class="price">25,000</div>
+          </a>
+        </body></html>
+        """ + ("x" * 900)
+        empty_html = "<html><body>查無其他物件" + ("x" * 900) + "</body></html>"
+        detail_html = """
+        <html><head><meta name="description" content="四房整層住家">
+          <script type="application/ld+json">{"@type":"Product","offers":{"price":"25000"},"image":["https://yccdn.yungching.com.tw/a.jpg"]}</script>
+        </head><body><h1>甲桂林3+1房</h1>
+          <div>桃園市桃園區上海路 住宅 電梯大樓 坪數43.99坪 5/12樓 4房(室)2廳2衛</div>
+          <div>更新日期 2026年08月28日</div>
+          <figure><img src="https://yccdn.yungching.com.tw/a.jpg"></figure>
+        </body></html>
+        """ + ("x" * 900)
+        calls = []
+
+        def fake_render(payload, stats, rate_state):
+            calls.append(payload)
+            if payload["kind"] == "detail":
+                return detail_html
+            if payload["page"] == 1:
+                return list_html
+            return empty_html
+
+        stats = DIGEST.empty_source_stats()
+        with patch.dict(
+            DIGEST.os.environ,
+            {DIGEST.YUNGCHING_RENDER_TOKEN_ENV: "private-token"},
+            clear=False,
+        ), patch.object(DIGEST, "fetch_yungching_render_html", side_effect=fake_render):
+            items = DIGEST.load_yungching_render_feed(stats)
+
+        assert items is not None
+        self.assertEqual(list(items), ["2415719"])
+        self.assertEqual(stats["candidate_links"], 1)
+        self.assertEqual(stats["details_fetched"], 1)
+        self.assertEqual(stats["validated"], 1)
+        self.assertTrue(stats["crawl_complete"])
+        self.assertEqual(sum(1 for call in calls if call["kind"] == "detail"), 1)
+        self.assertEqual(stats["category_counts"], {"all": 1, "new": 1})
+
+    def test_yungching_collect_does_not_fall_back_after_render_attempt(self) -> None:
+        item = DIGEST.Listing(
+            source="永慶房屋",
+            source_id="2415719",
+            url="https://rent.yungching.com.tw/house/2415719",
+            title="甲桂林3+1房",
+            district="桃園區",
+            address="桃園市桃園區上海路",
+            house_type="整層住家",
+            layout="4房2廳2衛",
+            rent=25000,
+            updated="2026年08月28日",
+        )
+        stats = DIGEST.empty_source_stats()
+        with patch.object(
+            DIGEST, "load_yungching_render_feed", return_value={item.source_id: item}
+        ), patch.object(DIGEST, "load_yungching_browser_feed") as old_feed, patch.object(
+            DIGEST, "save_source_snapshot"
+        ):
+            result = DIGEST.collect_yungching_listings(stats)
+        self.assertEqual(result, [item])
+        old_feed.assert_not_called()
 
     def test_sinyi_parser_keeps_40_ping_home_and_excludes_store(self) -> None:
         raw = """
@@ -2303,6 +2484,7 @@ class SinyiAndYungchingTests(unittest.TestCase):
           <a href="//shop.yungching.com.tw/033790555">永慶不動產 桃園中路加盟店</a>
           <figure><img src="https://yccdn.yungching.com.tw/photo-1.jpg"></figure>
           <figure><img src="https://yccdn.yungching.com.tw/photo-2.jpg"></figure>
+          <img class="yc-ng-album-v2-carousel__main-img" src="//yccdn.yungching.com.tw/album-v2.jpg">
           <p>有車位 近捷運 可開伙 有陽台 有電梯 冷氣 冰箱 洗衣機</p>
           <p>詳細房源說明 詳細房源說明 詳細房源說明 詳細房源說明 詳細房源說明</p>
           <p>測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容測試內容</p>
@@ -2325,6 +2507,7 @@ class SinyiAndYungchingTests(unittest.TestCase):
         self.assertEqual(item.layout, "4房(室)2廳2衛")
         self.assertEqual(item.image, "https://yccdn.yungching.com.tw/photo-1.jpg")
         self.assertIn("https://yccdn.yungching.com.tw/photo-2.jpg", item.images)
+        self.assertIn("https://yccdn.yungching.com.tw/album-v2.jpg", item.images)
         self.assertIn("new", DIGEST.listing_filter_tokens(item))
 
     def test_absolute_source_dates_sort_by_real_age(self) -> None:
@@ -2541,7 +2724,7 @@ class CurrentListingDisplayTests(unittest.TestCase):
 
             self.assertFalse(recent.new_listing)
             self.assertTrue(absent.new_listing)
-            self.assertIn("上一封快報未出現", DIGEST.render_card(absent))
+            self.assertIn("相較前一輪新增", DIGEST.render_card(absent))
         finally:
             DIGEST.NOW = old_now
 
@@ -2594,7 +2777,7 @@ class CurrentListingDisplayTests(unittest.TestCase):
             items: list[object] = []
             stats = {"sources": {source: DIGEST.empty_source_stats() for source in sources}}
             for source in sources:
-                stale_age = "3天前更新" if source == "591" else "8天前更新"
+                stale_age = "8天前更新"
                 items.extend(
                     [
                         DIGEST.Listing(
@@ -2628,11 +2811,38 @@ class CurrentListingDisplayTests(unittest.TestCase):
                 self.assertEqual(row["source_time_unknown"], 1)
                 self.assertEqual(row["source_time_future"], 0)
                 self.assertFalse(row["source_time_filter_enabled"])
-                self.assertNotIn("source_older_than_2_days", row["rejects"])
                 self.assertNotIn("source_older_than_7_days", row["rejects"])
                 self.assertNotIn("missing_source_time", row["rejects"])
         finally:
             DIGEST.NOW = old_now
+
+    def test_591_new_badge_survives_next_round_but_expires_at_24h(self) -> None:
+        now = DIGEST.NOW
+        item = DIGEST.Listing(source="591", source_id="12345678", url="",
+                              first_seen_at=(now - DIGEST.timedelta(days=30)).isoformat())
+        DIGEST.assign_previous_edition_new_flags([item], set())
+        self.assertTrue(item.new_listing)  # reappeared since the previous edition
+        since = item.new_since_at
+        with patch.object(DIGEST, "NOW", now + DIGEST.timedelta(hours=23)):
+            DIGEST.assign_previous_edition_new_flags([item], {"591:12345678"}, {"591:12345678": since})
+            self.assertTrue(item.new_listing)
+            self.assertEqual(item.new_since_at, since)
+        with patch.object(DIGEST, "NOW", now + DIGEST.timedelta(hours=24)):
+            DIGEST.assign_previous_edition_new_flags([item], {"591:12345678"}, {"591:12345678": since})
+            self.assertFalse(item.new_listing)
+
+    def test_latest_published_page_takes_precedence_over_line_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            latest = Path(temp_dir) / "latest.json"
+            receipt = Path(temp_dir) / "receipt.json"
+            latest.write_text(json.dumps({"edition_id": "newer", "items": [
+                {"source": "591", "source_id": "12345678"}
+            ]}), encoding="utf-8")
+            receipt.write_text(json.dumps({"edition_id": "older", "item_keys": []}), encoding="utf-8")
+            with patch.object(DIGEST, "OUTPUT_JSON", latest), patch.object(DIGEST, "LAST_DELIVERY_FILE", receipt):
+                keys, source = DIGEST.load_previous_edition_keys()
+            self.assertEqual(keys, {"591:12345678"})
+            self.assertEqual(source, "latest:newer")
 
     def test_rental_permalink_contains_date_and_delivery_slot(self) -> None:
         self.assertEqual(

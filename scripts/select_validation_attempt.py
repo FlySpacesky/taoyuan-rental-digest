@@ -19,6 +19,8 @@ from typing import Any, Iterable
 SOURCE_ORDER = ("591", "FB", "樂屋網", "Threads", "信義房屋", "永慶房屋")
 MAX_ATTEMPT_SPAN = timedelta(minutes=90)
 MAX_PREVALIDATED_AGE = timedelta(hours=2)
+
+
 def load_payload(root: Path) -> dict[str, Any]:
     latest = root / "rental-data" / "latest.json"
     if not latest.is_file():
@@ -39,6 +41,8 @@ def assert_fresh_591(payload: dict[str, Any]) -> None:
         raise AssertionError("591 不得以舊快照通過本輪驗證")
     if row.get("fallback"):
         raise AssertionError("591 不得以舊快照補入本輪發布清單")
+    if row.get("crawl_policy") != "active-all-v1":
+        raise AssertionError("591 必須使用不限來源日期的完整現刊抓取範圍")
 
 
 def rate_limited_591(payload: dict[str, Any]) -> bool:
@@ -95,7 +99,7 @@ def validated_source_items(
 
 
 def validation_score(payload: dict[str, Any]) -> tuple[int, int, int, str]:
-    """Prefer a run with current-run 591 rows, then the strongest total result."""
+    """Prefer a run with fresh 591 rows, then the strongest total result."""
     assert_fresh_591(payload)
     row = source_591(payload)
     validated_591 = int(row.get("validated", 0) or 0)
@@ -158,8 +162,8 @@ def merge_source_payloads(
         str(payload.get("stats", {}).get("comparison_source", ""))
         for _, payload in attempts
     }
-    if not comparisons or any(not value.startswith("delivery:") for value in comparisons):
-        raise ValueError("validation attempts must use a successful delivery comparison")
+    if len(comparisons) != 1 or any(not value.startswith(("latest:", "delivery:")) for value in comparisons):
+        raise ValueError("validation attempts must use the same previous edition comparison")
 
     final_generated_at = max(generated)
     merged_sources: dict[str, Any] = {}
@@ -250,9 +254,7 @@ def merge_source_payloads(
                             checkpoint_items[key] = item
                 source_items = sorted(
                     checkpoint_items.values(),
-                    key=lambda item: parse_timestamp(
-                        item.get("source_timestamp") or item.get("validated_at")
-                    ),
+                    key=lambda item: parse_timestamp(item.get("validated_at")),
                     reverse=True,
                 )
                 selected_row["crawl_complete"] = True
@@ -264,8 +266,6 @@ def merge_source_payloads(
                     selected_row["validated_candidate_ids"] = sorted(candidate_ids)
                     selected_row["candidate_links"] = len(candidate_ids)
                     selected_row["fresh_validated"] = len(candidate_ids)
-                    selected_row["validated_before_freshness"] = len(candidate_ids)
-                    selected_row["freshness_checked"] = len(candidate_ids)
                 else:
                     selected_row["candidate_links"] = max(
                         int(payload["stats"]["sources"][source].get("candidate_links", 0) or 0)
@@ -302,9 +302,7 @@ def merge_source_payloads(
                             checkpoint_items[key] = item
                 source_items = sorted(
                     checkpoint_items.values(),
-                    key=lambda item: parse_timestamp(
-                        item.get("source_timestamp") or item.get("validated_at")
-                    ),
+                    key=lambda item: parse_timestamp(item.get("validated_at")),
                     reverse=True,
                 )
                 selected_row["crawl_complete"] = False
@@ -337,7 +335,9 @@ def merge_source_payloads(
                 "freshness_checked",
                 "freshness_rejected",
                 "freshness_window_days",
+                "freshness_policy",
                 "validated_before_freshness",
+                "active_validated",
             }:
                 selected_row.pop(key, None)
         selected_row["current_inventory"] = len(source_items)
@@ -414,10 +414,13 @@ def write_merged_edition(
     final_payload["edition_id"] = final_edition
     final_payload["edition_url"] = edition_url
     listings = [digest.Listing(**item) for item in final_payload["items"]]
-    previous_keys, comparison_source = digest.load_previous_edition_keys()
-    listings = digest.assign_previous_edition_new_flags(listings, previous_keys)
+    # The baseline was captured before the crawl. The artifact copy has already
+    # overwritten latest.json here; comparing against it would erase new badges.
+    generated_at = parse_timestamp(final_payload["generated_at"])
+    for item in listings:
+        since = digest.parse_state_time(item.new_since_at if item.source == "591" else item.first_seen_at)
+        item.new_listing = bool(item.new_listing and since and timedelta(0) <= generated_at - since < digest.NEW_LISTING_BADGE_WINDOW)
     final_payload["items"] = [asdict(item) for item in listings]
-    final_payload["stats"]["comparison_source"] = comparison_source
     final_payload["stats"]["new_listings"] = sum(item.new_listing for item in listings)
     rendered = digest.render_html(listings, final_payload["stats"])
     payload_text = json.dumps(final_payload, ensure_ascii=False, indent=2)
@@ -474,6 +477,7 @@ def merge_command(
     edition_id: str | None,
     site_url: str,
     require_complete_591: bool = False,
+    require_complete_yungching: bool = False,
 ) -> int:
     available: list[tuple[str, Path, dict[str, Any]]] = []
     for raw in attempts:
@@ -495,6 +499,13 @@ def merge_command(
     if require_complete_591 and not source_591(merged).get("crawl_complete"):
         raise RuntimeError(
             "591 四個行政區尚未完成本輪清單驗證；保留 checkpoint，禁止發布部分版。"
+        )
+    if (
+        require_complete_yungching
+        and merged["stats"]["sources"]["永慶房屋"].get("crawl_complete") is not True
+    ):
+        raise RuntimeError(
+            "永慶房屋尚未完成本輪全部候選詳細頁驗證；禁止發布部分版。"
         )
     final_payload = write_merged_edition(merged, output, edition_id, site_url)
     print("Merged validation sources:", json.dumps(choices, ensure_ascii=False))
@@ -573,6 +584,7 @@ def parser() -> argparse.ArgumentParser:
     merge.add_argument("--edition-id")
     merge.add_argument("--site-url", default="https://flyspacesky.github.io/taoyuan-rental-digest/")
     merge.add_argument("--require-complete-591", action="store_true")
+    merge.add_argument("--require-complete-yungching", action="store_true")
     verify = commands.add_parser("verify")
     verify.add_argument("--latest", type=Path, default=Path("docs/rental-data/latest.json"))
     verify.add_argument("--docs", type=Path, default=Path("docs"))
@@ -592,6 +604,7 @@ def main() -> int:
             args.edition_id,
             args.site_url,
             args.require_complete_591,
+            args.require_complete_yungching,
         )
     return verify_command(args.latest, args.docs)
 

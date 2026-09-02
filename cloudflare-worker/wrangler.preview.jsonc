@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "taoyuan-rental-yungching-cpu-preview",
+  "main": "src/preview.js",
+  "compatibility_date": "2026-08-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "browser": { "binding": "BROWSER" },
+  "observability": { "enabled": true },
+  "triggers": { "crons": [] },
+  "vars": { "PREVIEW_EXPIRES_AT_MS": "0" }
+}

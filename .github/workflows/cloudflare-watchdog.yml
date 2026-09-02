@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloudflare-line-watchdog-deploy
+  group: cloudflare-line-watchdog-${{ github.event_name == 'pull_request' && 'preview' || 'deploy' }}
   cancel-in-progress: false
 
 jobs:
@@ -40,7 +40,95 @@ jobs:
 
       - name: 測試 Worker
         working-directory: cloudflare-worker
-        run: node --test tests/*.test.mjs
+        run: |
+          node --test tests/*.test.mjs
+          python3 -m unittest discover -s scripts -p 'test_*.py' -v
+
+  preview:
+    # The complete Browser Run validation consumes daily browser minutes, so it
+    # stays opt-in. Fork PRs cannot access deployment secrets or run this job.
+    if: ${{ vars.RENTAL_CPU_PREVIEW_ENABLED == 'true' && github.event_name == 'pull_request' && github.event.pull_request.number == 44 && github.head_ref == 'fix/591-active-yungching-20260828' && github.event.pull_request.head.repo.full_name == github.repository }}
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: 安裝隔離測試依賴
+        working-directory: cloudflare-worker
+        run: npm install --no-audit --no-fund
+      - name: 確認隔離設定不含正式資源
+        working-directory: cloudflare-worker
+        run: node --test tests/preview.test.mjs
+      - name: 安裝整批 Python 解析依賴
+        run: python3 -m pip install -r requirements.txt
+      - name: 產生限時測試憑證
+        shell: bash
+        run: |
+          TOKEN=$(openssl rand -hex 32)
+          echo "::add-mask::${TOKEN}"
+          echo "PREVIEW_PROBE_TOKEN=${TOKEN}" >> "${GITHUB_ENV}"
+          echo "PREVIEW_EXPIRES_AT_MS=$(( ($(date +%s) + 3600) * 1000 ))" >> "${GITHUB_ENV}"
+      - name: 只部署獨立測試 Worker（沒有 Cron、KV、LINE）
+        working-directory: cloudflare-worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          umask 077
+          PREVIEW_SECRET_FILE=$(mktemp "${RUNNER_TEMP}/rental-preview-secrets.XXXXXX")
+          trap 'rm -f -- "${PREVIEW_SECRET_FILE}"' EXIT
+          printf '{"PREVIEW_PROBE_TOKEN":"%s"}' "${PREVIEW_PROBE_TOKEN}" > "${PREVIEW_SECRET_FILE}"
+          npx --yes wrangler@4.127.0 deploy --config wrangler.preview.jsonc \
+            --secrets-file "${PREVIEW_SECRET_FILE}" \
+            --var "PREVIEW_COMMIT:${{ github.event.pull_request.head.sha }}" \
+            --var "PREVIEW_EXPIRES_AT_MS:${PREVIEW_EXPIRES_AT_MS}"
+      - name: 單筆 quickAction 串流與 CPU tail 測試（沒有重試）
+        working-directory: cloudflare-worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          PREVIEW_PROBE_MODE: quickaction
+          PREVIEW_EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          mkdir -p preview-audit
+          npx --yes wrangler@4.127.0 tail --config wrangler.preview.jsonc --format json \
+            > preview-audit/tail.jsonl 2>&1 &
+          TAIL_PID=$!
+          trap 'kill "${TAIL_PID}" 2>/dev/null || true; wait "${TAIL_PID}" 2>/dev/null || true' EXIT
+          sleep 5
+          set +e
+          python3 scripts/preview_probe.py
+          PROBE_STATUS=$?
+          set -e
+          sleep 10
+          kill "${TAIL_PID}" 2>/dev/null || true
+          wait "${TAIL_PID}" 2>/dev/null || true
+          trap - EXIT
+          python3 scripts/tail_cpu_summary.py
+          exit "${PROBE_STATUS}"
+
+      - name: 整批候選與詳細頁 fresh validation（低CPU串流）
+        working-directory: cloudflare-worker
+        env:
+          YUNGCHING_RENDER_URL: https://taoyuan-rental-yungching-cpu-preview.flysky3345678.workers.dev/yungching-render
+          YUNGCHING_RENDER_TOKEN: ${{ env.PREVIEW_PROBE_TOKEN }}
+          YUNGCHING_RENDER_INTERVAL_SECONDS: "10.5"
+        run: python3 ../scripts/yungching_batch_probe.py
+
+      - name: 保存隔離驗證結果
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: yungching-cpu-preview-${{ github.run_id }}
+          path: cloudflare-worker/preview-audit
+          if-no-files-found: ignore
+          retention-days: 3
 
   deploy:
     if: ${{ github.ref == 'refs/heads/main' }}
@@ -123,6 +211,23 @@ jobs:
           )
           feed = json.load(urllib.request.urlopen(read_request, timeout=30))
           assert isinstance(feed.get("posts"), list)
+
+          render_request = urllib.request.Request(
+              f"{base}/yungching-render",
+              data=b'{"kind":"detail","source_id":"2415719"}',
+              headers={
+                  **common_headers,
+                  "Authorization": "Bearer unauthorized-smoke-token",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          try:
+              urllib.request.urlopen(render_request, timeout=30)
+          except urllib.error.HTTPError as exc:
+              assert exc.code == 401, exc.code
+          else:
+              raise AssertionError("永慶渲染端點不應接受錯誤Token")
 
           write_request = urllib.request.Request(
               f"{base}/facebook-inbox",
