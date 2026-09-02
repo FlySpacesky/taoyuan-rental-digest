@@ -32,7 +32,7 @@ body:
     id: published_at
     attributes:
       label: 貼文時間
-      description: 請盡量填來源貼文或原作者補充留言的實際時間；只用於排序與診斷，不會因日期較舊而排除。
+      description: 必填；請填來源貼文或原作者補充留言的實際時間，只接受最近 2 天。
       placeholder: 2026-08-12T09:30:00+08:00
     validations:
       required: true
