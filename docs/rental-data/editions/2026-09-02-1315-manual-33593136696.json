@@ -1,0 +1,173 @@
+{
+  "generated_at": "2026-09-02T13:15:31.221808+08:00",
+  "edition_id": "2026-09-02-1315-manual-33593136696",
+  "edition_url": "https://flyspacesky.github.io/taoyuan-rental-digest/archive/2026-09-02-1315-manual-33593136696.html",
+  "stats": {
+    "sources": {
+      "591": {
+        "candidate_links": 0,
+        "validated": 0,
+        "published": 0,
+        "errors": [
+          "591官方BFF連續回應403/429；為避免加重限流，本輪不再以同一出口連打列表HTML與Chromium。這是Runner出口IP被591限制，不是Chromium未安裝或物件ID解析失敗。",
+          "591本輪沒有重新驗證成功的物件；為避免發布未確認仍在刊登的舊物件，本輪不沿用上次快照。"
+        ],
+        "notices": [],
+        "list_cache": 0,
+        "rejects": {},
+        "egress": "github-hosted-ubuntu-checkpoint-retry1",
+        "stable_egress_configured": false,
+        "crawl_policy": "active-all-v1",
+        "planned_sections": [
+          "桃園區",
+          "中壢區",
+          "平鎮區",
+          "八德區"
+        ],
+        "request_interval_seconds": 1.5,
+        "validation_run_id": "33593136696",
+        "validation_attempt": "retry1",
+        "checkpoint_chain": [
+          "initial",
+          "retry1"
+        ],
+        "section_progress": {
+          "桃園區": {
+            "next_page": 6,
+            "empty_pages": 0,
+            "completed": false
+          },
+          "中壢區": {
+            "next_page": 1,
+            "empty_pages": 0,
+            "completed": false
+          },
+          "平鎮區": {
+            "next_page": 1,
+            "empty_pages": 0,
+            "completed": false
+          },
+          "八德區": {
+            "next_page": 1,
+            "empty_pages": 0,
+            "completed": false
+          }
+        },
+        "resumed_from_checkpoint": true,
+        "resume_from_generated_at": "2026-09-02T13:03:47.685985+08:00",
+        "resume_from_attempt": "initial",
+        "http_statuses": {
+          "bff": {
+            "403": 2
+          }
+        },
+        "blocked_after_queries": 2,
+        "completed_sections": [],
+        "crawl_complete": false,
+        "validated_candidate_ids": [],
+        "source_only_validation": true,
+        "current_inventory": 0,
+        "source_time_known": 0,
+        "source_time_unknown": 0,
+        "source_time_future": 0,
+        "source_time_filter_enabled": false
+      },
+      "FB": {
+        "candidate_links": 0,
+        "validated": 0,
+        "published": 0,
+        "errors": [],
+        "notices": [
+          "本次 checkpoint 僅重驗591。"
+        ],
+        "list_cache": 0,
+        "rejects": {},
+        "validation_skipped": true,
+        "current_inventory": 0,
+        "source_time_known": 0,
+        "source_time_unknown": 0,
+        "source_time_future": 0,
+        "source_time_filter_enabled": false
+      },
+      "樂屋網": {
+        "candidate_links": 0,
+        "validated": 0,
+        "published": 0,
+        "errors": [],
+        "notices": [
+          "本次 checkpoint 僅重驗591。"
+        ],
+        "list_cache": 0,
+        "rejects": {},
+        "validation_skipped": true,
+        "current_inventory": 0,
+        "source_time_known": 0,
+        "source_time_unknown": 0,
+        "source_time_future": 0,
+        "source_time_filter_enabled": false
+      },
+      "Threads": {
+        "candidate_links": 0,
+        "validated": 0,
+        "published": 0,
+        "errors": [],
+        "notices": [
+          "Threads會合併官方API與人工授權公開入口，依指定四區、至少3房、非包租代管／仲介同業驗證；刊登日期只用於排序與診斷。",
+          "本次 checkpoint 僅重驗591。"
+        ],
+        "list_cache": 0,
+        "rejects": {},
+        "validation_skipped": true,
+        "current_inventory": 0,
+        "source_time_known": 0,
+        "source_time_unknown": 0,
+        "source_time_future": 0,
+        "source_time_filter_enabled": false
+      },
+      "信義房屋": {
+        "candidate_links": 0,
+        "validated": 0,
+        "published": 0,
+        "errors": [],
+        "notices": [
+          "本次 checkpoint 僅重驗591。"
+        ],
+        "list_cache": 0,
+        "rejects": {},
+        "validation_skipped": true,
+        "current_inventory": 0,
+        "source_time_known": 0,
+        "source_time_unknown": 0,
+        "source_time_future": 0,
+        "source_time_filter_enabled": false
+      },
+      "永慶房屋": {
+        "candidate_links": 0,
+        "validated": 0,
+        "published": 0,
+        "errors": [],
+        "notices": [
+          "本次 checkpoint 僅重驗591。"
+        ],
+        "list_cache": 0,
+        "rejects": {},
+        "validation_skipped": true,
+        "current_inventory": 0,
+        "source_time_known": 0,
+        "source_time_unknown": 0,
+        "source_time_future": 0,
+        "source_time_filter_enabled": false
+      }
+    },
+    "candidates": 0,
+    "validated": 0,
+    "duplicates": 0,
+    "published": 0,
+    "new_listings": 0,
+    "current_inventory": 0,
+    "source_time_unknown": 0,
+    "source_time_filter_enabled": false,
+    "comparison_source": "latest:2026-09-02-2200"
+  },
+  "items": []
+}
