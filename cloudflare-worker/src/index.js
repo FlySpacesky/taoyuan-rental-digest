@@ -14,6 +14,7 @@ const YUNGCHING_IN_FLIGHT = new Map();
 const YUNGCHING_ALLOWED_DISTRICTS = ["桃園區", "中壢區", "平鎮區", "八德區"];
 const FACEBOOK_INBOX_PREFIX = "facebook:";
 const FACEBOOK_INBOX_TTL_SECONDS = 30 * 24 * 60 * 60;
+const FACEBOOK_INBOX_MAX_AGE_MS = 2 * 24 * 60 * 60 * 1000;
 const FACEBOOK_INBOX_MAX_BODY_BYTES = 64 * 1024;
 const FACEBOOK_INBOX_MAX_FEED_ROWS = 200;
 const FACEBOOK_SUBMISSION_ORIGIN =
@@ -162,9 +163,10 @@ async function normalizeFacebookInboxSubmission(payload) {
   const now = Date.now();
   if (
     !Number.isFinite(publishedAt.getTime()) ||
+    publishedAt.getTime() < now - FACEBOOK_INBOX_MAX_AGE_MS ||
     publishedAt.getTime() > now + 10 * 60 * 1000
   ) {
-    return { error: "原始貼文時間必須是有效且不可晚於目前時間。" };
+    return { error: "原始貼文時間必須是最近 2 天內的有效時間。" };
   }
 
   const row = {

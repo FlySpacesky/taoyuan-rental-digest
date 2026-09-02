@@ -52,8 +52,8 @@ class LineDeliveryTests(unittest.TestCase):
             ],
             "stats": {
                 "current_inventory": 1,
-                "source_time_unknown": 0,
-                "source_time_filter_enabled": False,
+                "freshness_rejected": 2,
+                "source_time_filter_enabled": True,
             },
         }
         validate_response = Mock(status_code=200, text="", headers={})

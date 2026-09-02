@@ -33,6 +33,15 @@ body:
       required: false
 
   - type: input
+    id: published_at
+    attributes:
+      label: 貼文時間
+      description: 必填；請填來源貼文或原作者更新的實際時間，只接受最近 2 天。
+      placeholder: 2026-09-02T09:30:00+08:00
+    validations:
+      required: true
+
+  - type: input
     id: image_url
     attributes:
       label: 公開照片網址

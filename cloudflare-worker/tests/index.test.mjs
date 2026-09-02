@@ -298,10 +298,13 @@ test("private Facebook inbox deduplicates the same permanent post URL", async ()
 });
 
 
-test("private Facebook inbox rejects missing consent, short links, future posts, and credential fields", async () => {
+test("private Facebook inbox rejects missing consent, short links, posts outside two days, future posts, and credential fields", async () => {
   const cases = [
     validFacebookSubmission({ republish_authorized: false }),
     validFacebookSubmission({ url: "https://www.facebook.com/share/p/abc123/" }),
+    validFacebookSubmission({
+      published_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+    }),
     validFacebookSubmission({
       published_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
     }),
@@ -464,13 +467,13 @@ test("Yungching feed reuses one browser for list and detail navigation", async (
   assert.ok(payload.items[0].validated_at);
 });
 
-test("private Facebook inbox accepts an older authorized listing for current validation", async () => {
+test("private Facebook inbox accepts an authorized listing inside two days", async () => {
   const accepted = await worker.fetch(
     facebookRequest(
       "/facebook-inbox",
       "write-only-test-token",
       validFacebookSubmission({
-        published_at: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
+        published_at: new Date(Date.now() - 47 * 60 * 60 * 1000).toISOString(),
       }),
     ),
     facebookEnv(),
