@@ -3,8 +3,13 @@ const DEFAULT_REPOSITORY = "taoyuan-rental-digest";
 const DEFAULT_WORKFLOW = "rental-digest.yml";
 const DEFAULT_BRANCH = "main";
 const TAIPEI_OFFSET_MS = 8 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 const RUN_WINDOW_BEFORE_MS = 2 * 60 * 1000;
 const RUN_WINDOW_AFTER_MS = 2 * 60 * 1000;
+const DELIVERY_MONITOR_DELAY_MS = 5 * 60 * 1000;
+const DELIVERY_MONITOR_WINDOW_MS = 5 * 60 * 60 * 1000;
+const MAX_SLOT_DISPATCHES = 4;
+const DELIVERY_RUN_PREFIX = "LINE delivery ";
 const YUNGCHING_BASE =
   "https://rent.yungching.com.tw/list/" +
   "桃園市-中壢區,桃園市-平鎮區,桃園市-桃園區,桃園市-八德區_c/" +
@@ -44,11 +49,8 @@ const FACEBOOK_ALLOWED_FIELDS = new Set([
 const FACEBOOK_FORBIDDEN_FIELD =
   /(?:password|passwd|cookie|session|access.?token|authorization|credential|帳號|密碼|權杖)/i;
 
-export const CRON_TO_SLOT = Object.freeze({
-  "35-59 1 * * *": "09:30",
-  "5-30 8 * * *": "16:00",
-  "5-30 14 * * *": "22:00",
-});
+export const WATCHDOG_CRON = "*/5 * * * *";
+export const DELIVERY_TIMES = Object.freeze(["09:30", "16:00", "22:00"]);
 
 function facebookCorsHeaders(request) {
   const origin = request.headers.get("Origin") || "";
@@ -325,26 +327,54 @@ function githubHeaders(token) {
 }
 
 export function deliverySlotFor(controller) {
-  const time = CRON_TO_SLOT[controller.cron];
-  if (!time) {
+  if (controller.cron !== WATCHDOG_CRON) {
     throw new Error(`Unknown watchdog cron: ${controller.cron}`);
   }
-  const localDate = new Date(
-    Number(controller.scheduledTime) + TAIPEI_OFFSET_MS,
-  )
-    .toISOString()
-    .slice(0, 10);
-  const label = `${localDate}T${time}+08:00`;
-  return {
-    label,
-    timestamp: Date.parse(label),
-    time,
-  };
+  const scheduledTime = Number(controller.scheduledTime);
+  if (!Number.isFinite(scheduledTime)) {
+    throw new Error("Invalid watchdog scheduledTime");
+  }
+
+  const candidates = [];
+  for (const dayOffset of [0, -1]) {
+    const localDate = new Date(
+      scheduledTime + TAIPEI_OFFSET_MS + dayOffset * DAY_MS,
+    )
+      .toISOString()
+      .slice(0, 10);
+    for (const time of DELIVERY_TIMES) {
+      const label = `${localDate}T${time}+08:00`;
+      const timestamp = Date.parse(label);
+      const age = scheduledTime - timestamp;
+      if (
+        age >= DELIVERY_MONITOR_DELAY_MS &&
+        age <= DELIVERY_MONITOR_WINDOW_MS
+      ) {
+        candidates.push({ label, timestamp, time, age });
+      }
+    }
+  }
+  candidates.sort((left, right) => left.age - right.age);
+  if (!candidates.length) return null;
+  const { label, timestamp, time } = candidates[0];
+  return { label, timestamp, time };
 }
 
-export function assessWorkflowRuns(runs, slotTimestamp, nowTimestamp) {
+export function assessWorkflowRuns(
+  runs,
+  slotTimestamp,
+  nowTimestamp,
+  slotLabel = "",
+) {
   const relevant = runs.filter((run) => {
     if (!["schedule", "workflow_dispatch"].includes(run.event)) return false;
+    if (
+      run.event === "workflow_dispatch" &&
+      slotLabel &&
+      run.display_title !== `${DELIVERY_RUN_PREFIX}${slotLabel}`
+    ) {
+      return false;
+    }
     const created = Date.parse(run.created_at);
     return (
       Number.isFinite(created) &&
@@ -353,11 +383,12 @@ export function assessWorkflowRuns(runs, slotTimestamp, nowTimestamp) {
     );
   });
 
-  if (relevant.some((run) => run.status === "completed" && run.conclusion === "success")) {
-    return { action: "healthy", relevant };
-  }
   if (relevant.some((run) => run.status !== "completed")) {
     return { action: "wait", relevant };
+  }
+  const dispatches = relevant.filter((run) => run.event === "workflow_dispatch");
+  if (dispatches.length >= MAX_SLOT_DISPATCHES) {
+    return { action: "exhausted", relevant };
   }
   return {
     action: relevant.length ? "retry" : "missing",
@@ -365,17 +396,94 @@ export function assessWorkflowRuns(runs, slotTimestamp, nowTimestamp) {
   };
 }
 
+function editionIdForSlot(slot) {
+  return `${slot.label.slice(0, 10)}-${slot.time.replace(":", "")}`;
+}
+
+function decodeGithubContent(content) {
+  const compact = String(content || "").replace(/\s/g, "");
+  const bytes = Uint8Array.from(atob(compact), (character) =>
+    character.charCodeAt(0),
+  );
+  return new TextDecoder().decode(bytes);
+}
+
+export async function readDeliveryReceipt(
+  { apiBase, branch, headers, slot },
+  fetchImpl = fetch,
+) {
+  const editionId = editionIdForSlot(slot);
+  const receiptPath = `docs/rental-data/delivery/${editionId}.json`;
+  const encodedPath = receiptPath
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+  const response = await fetchImpl(
+    `${apiBase}/contents/${encodedPath}?ref=${encodeURIComponent(branch)}`,
+    { headers },
+  );
+  if (response.status === 404) {
+    return { delivered: false, editionId, receiptPath };
+  }
+  if (!response.ok) {
+    throw new Error(
+      `GitHub delivery-receipt query failed: ${response.status} ` +
+        (await response.text()).slice(0, 300),
+    );
+  }
+
+  const payload = await response.json();
+  if (payload.encoding !== "base64" || !payload.content) {
+    throw new Error(`GitHub delivery receipt has no base64 content: ${receiptPath}`);
+  }
+  let receipt;
+  try {
+    receipt = JSON.parse(decodeGithubContent(payload.content));
+  } catch (error) {
+    throw new Error(
+      `GitHub delivery receipt is unreadable: ${receiptPath}: ${error.message}`,
+    );
+  }
+  const validStatus = ["accepted", "already_accepted"].includes(receipt.status);
+  const validHttpStatus = [200, 409].includes(Number(receipt.http_status));
+  if (
+    receipt.edition_id !== editionId ||
+    receipt.delivery_slot !== slot.label ||
+    !validStatus ||
+    !validHttpStatus
+  ) {
+    throw new Error(`GitHub delivery receipt is invalid: ${receiptPath}`);
+  }
+  return { delivered: true, editionId, receiptPath, status: receipt.status };
+}
+
 export async function handleScheduled(controller, env, fetchImpl = fetch) {
+  const slot = deliverySlotFor(controller);
+  if (!slot) {
+    return { result: "outside_window", dispatched: false };
+  }
   const token = String(env.GITHUB_TOKEN || "").trim();
   if (!token) throw new Error("Missing Cloudflare Worker secret GITHUB_TOKEN");
-
   const owner = env.GITHUB_OWNER || DEFAULT_OWNER;
   const repository = env.GITHUB_REPOSITORY || DEFAULT_REPOSITORY;
   const workflow = env.GITHUB_WORKFLOW || DEFAULT_WORKFLOW;
   const branch = env.GITHUB_BRANCH || DEFAULT_BRANCH;
-  const slot = deliverySlotFor(controller);
   const apiBase = `https://api.github.com/repos/${owner}/${repository}`;
   const headers = githubHeaders(token);
+  const receipt = await readDeliveryReceipt(
+    { apiBase, branch, headers, slot },
+    fetchImpl,
+  );
+  if (receipt.delivered) {
+    return {
+      result: "healthy",
+      slot: slot.label,
+      editionId: receipt.editionId,
+      receiptStatus: receipt.status,
+      dispatched: false,
+    };
+  }
+
   const runsUrl =
     `${apiBase}/actions/workflows/${encodeURIComponent(workflow)}/runs` +
     `?branch=${encodeURIComponent(branch)}&per_page=50`;
@@ -392,11 +500,13 @@ export async function handleScheduled(controller, env, fetchImpl = fetch) {
     Array.isArray(payload.workflow_runs) ? payload.workflow_runs : [],
     slot.timestamp,
     Number(controller.scheduledTime),
+    slot.label,
   );
-  if (["healthy", "wait"].includes(assessment.action)) {
+  if (["wait", "exhausted"].includes(assessment.action)) {
     return {
       result: assessment.action,
       slot: slot.label,
+      editionId: receipt.editionId,
       matchingRuns: assessment.relevant.length,
       dispatched: false,
     };
@@ -426,6 +536,7 @@ export async function handleScheduled(controller, env, fetchImpl = fetch) {
   return {
     result: assessment.action,
     slot: slot.label,
+    editionId: receipt.editionId,
     matchingRuns: assessment.relevant.length,
     dispatched: true,
   };
@@ -966,7 +1077,11 @@ export default {
           githubTokenConfigured,
           browserRunConfigured: Boolean(env.BROWSER),
           facebookInboxConfigured,
-          backupCronsUtc: Object.keys(CRON_TO_SLOT),
+          backupCronsUtc: [WATCHDOG_CRON],
+          deliveryTimesTaipei: DELIVERY_TIMES,
+          deliveryReceiptRequired: true,
+          monitorWindowMinutes: DELIVERY_MONITOR_WINDOW_MS / 60000,
+          maxBackupDispatchesPerSlot: MAX_SLOT_DISPATCHES,
         },
         { status: githubTokenConfigured && facebookInboxConfigured ? 200 : 503 },
       );

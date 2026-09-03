@@ -18,7 +18,7 @@ import worker from "../src/index.js";
 
 
 const scheduledTime = Date.parse("2026-08-09T01:35:00Z");
-const controller = { cron: "35-59 1 * * *", scheduledTime };
+const controller = { cron: "*/5 * * * *", scheduledTime };
 const env = { GITHUB_TOKEN: "test-token" };
 
 
@@ -95,10 +95,28 @@ function response(status, body = "") {
 }
 
 
-function githubMock(runs, dispatchStatus = 204) {
+function deliveryReceipt(overrides = {}) {
+  return {
+    edition_id: "2026-08-09-0930",
+    delivery_slot: "2026-08-09T09:30+08:00",
+    status: "accepted",
+    http_status: 200,
+    ...overrides,
+  };
+}
+
+
+function githubMock(runs, dispatchStatus = 204, receipt = null) {
   const calls = [];
   const fetchImpl = async (url, options = {}) => {
     calls.push({ url: String(url), options });
+    if (String(url).includes("/contents/docs/rental-data/delivery/")) {
+      if (!receipt) return response(404, { message: "Not Found" });
+      return response(200, {
+        encoding: "base64",
+        content: Buffer.from(JSON.stringify(receipt), "utf8").toString("base64"),
+      });
+    }
     if (String(url).endsWith("/dispatches")) {
       return response(dispatchStatus);
     }
@@ -108,7 +126,7 @@ function githubMock(runs, dispatchStatus = 204) {
 }
 
 
-test("maps UTC backup cron to the Taipei delivery slot", () => {
+test("maps the periodic watchdog check to the Taipei delivery slot", () => {
   assert.deepEqual(deliverySlotFor(controller), {
     label: "2026-08-09T09:30+08:00",
     timestamp: Date.parse("2026-08-09T09:30+08:00"),
@@ -117,7 +135,31 @@ test("maps UTC backup cron to the Taipei delivery slot", () => {
 });
 
 
-test("does not dispatch when the scheduled workflow already succeeded", async () => {
+test("maps an after-midnight check to the previous evening delivery slot", () => {
+  const afterMidnight = {
+    cron: "*/5 * * * *",
+    scheduledTime: Date.parse("2026-08-09T16:05:00Z"),
+  };
+  assert.deepEqual(deliverySlotFor(afterMidnight), {
+    label: "2026-08-09T22:00+08:00",
+    timestamp: Date.parse("2026-08-09T22:00+08:00"),
+    time: "22:00",
+  });
+});
+
+
+test("returns no delivery slot outside every monitoring window", () => {
+  assert.equal(
+    deliverySlotFor({
+      cron: "*/5 * * * *",
+      scheduledTime: Date.parse("2026-08-09T07:00:00Z"),
+    }),
+    null,
+  );
+});
+
+
+test("does not dispatch when the valid LINE delivery receipt exists", async () => {
   const { calls, fetchImpl } = githubMock([
     {
       event: "schedule",
@@ -125,13 +167,25 @@ test("does not dispatch when the scheduled workflow already succeeded", async ()
       conclusion: "success",
       created_at: "2026-08-09T01:30:10Z",
     },
-  ]);
+  ], 204, deliveryReceipt());
 
   const result = await handleScheduled(controller, env, fetchImpl);
 
   assert.equal(result.result, "healthy");
+  assert.equal(result.receiptStatus, "accepted");
   assert.equal(result.dispatched, false);
   assert.equal(calls.length, 1);
+});
+
+
+test("accepts an idempotent LINE already-accepted receipt", async () => {
+  const { fetchImpl } = githubMock([], 204, deliveryReceipt({
+    status: "already_accepted",
+    http_status: 409,
+  }));
+  const result = await handleScheduled(controller, env, fetchImpl);
+  assert.equal(result.result, "healthy");
+  assert.equal(result.receiptStatus, "already_accepted");
 });
 
 
@@ -163,8 +217,8 @@ test("dispatches the exact slot when the GitHub run is missing", async () => {
 
   assert.equal(result.result, "missing");
   assert.equal(result.dispatched, true);
-  assert.equal(calls.length, 2);
-  assert.deepEqual(JSON.parse(calls[1].options.body), {
+  assert.equal(calls.length, 3);
+  assert.deepEqual(JSON.parse(calls[2].options.body), {
     ref: "main",
     inputs: { delivery_slot: "2026-08-09T09:30+08:00" },
   });
@@ -173,7 +227,7 @@ test("dispatches the exact slot when the GitHub run is missing", async () => {
 
 test("retries a failed run at the next backup check", async () => {
   const retryController = {
-    cron: "35-59 1 * * *",
+    cron: "*/5 * * * *",
     scheduledTime: Date.parse("2026-08-09T01:45:00Z"),
   };
   const { fetchImpl } = githubMock([
@@ -192,6 +246,83 @@ test("retries a failed run at the next backup check", async () => {
 });
 
 
+test("retries even after workflow success when the LINE receipt is absent", async () => {
+  const { fetchImpl } = githubMock([
+    {
+      event: "schedule",
+      status: "completed",
+      conclusion: "success",
+      created_at: "2026-08-09T01:30:00Z",
+    },
+  ]);
+  const result = await handleScheduled(controller, env, fetchImpl);
+  assert.equal(result.result, "retry");
+  assert.equal(result.dispatched, true);
+});
+
+
+test("does not dispatch a fifth backup attempt for one delivery slot", async () => {
+  const runs = Array.from({ length: 4 }, (_, index) => ({
+    event: "workflow_dispatch",
+    display_title: "LINE delivery 2026-08-09T09:30+08:00",
+    status: "completed",
+    conclusion: "failure",
+    created_at: `2026-08-09T01:${31 + index}:00Z`,
+  }));
+  const { calls, fetchImpl } = githubMock(runs);
+  const result = await handleScheduled(controller, env, fetchImpl);
+  assert.equal(result.result, "exhausted");
+  assert.equal(result.dispatched, false);
+  assert.equal(calls.length, 2);
+});
+
+
+test("ignores unrelated manual and web-only workflow dispatches", async () => {
+  const unrelatedRuns = Array.from({ length: 5 }, (_, index) => ({
+    event: "workflow_dispatch",
+    display_title: index % 2 ? "桃園租屋快報" : "manual maintenance",
+    status: "completed",
+    conclusion: "success",
+    created_at: `2026-08-09T01:${31 + index}:00Z`,
+  }));
+  const { fetchImpl } = githubMock(unrelatedRuns);
+  const result = await handleScheduled(controller, env, fetchImpl);
+  assert.equal(result.result, "missing");
+  assert.equal(result.matchingRuns, 0);
+  assert.equal(result.dispatched, true);
+});
+
+
+test("does not query GitHub outside a delivery monitoring window", async () => {
+  let called = false;
+  const result = await handleScheduled(
+    {
+      cron: "*/5 * * * *",
+      scheduledTime: Date.parse("2026-08-09T07:00:00Z"),
+    },
+    {},
+    async () => {
+      called = true;
+      throw new Error("unexpected request");
+    },
+  );
+  assert.equal(result.result, "outside_window");
+  assert.equal(result.dispatched, false);
+  assert.equal(called, false);
+});
+
+
+test("rejects a mismatched LINE delivery receipt instead of risking a duplicate", async () => {
+  const { fetchImpl } = githubMock([], 204, deliveryReceipt({
+    delivery_slot: "2026-08-09T16:00+08:00",
+  }));
+  await assert.rejects(
+    () => handleScheduled(controller, env, fetchImpl),
+    /delivery receipt is invalid/,
+  );
+});
+
+
 test("health reports whether the GitHub secret is configured", async () => {
   const healthy = await worker.fetch(
     new Request("https://watchdog.example/health"),
@@ -207,6 +338,9 @@ test("health reports whether the GitHub secret is configured", async () => {
   assert.equal(healthyBody.githubTokenConfigured, true);
   assert.equal(healthyBody.browserRunConfigured, false);
   assert.equal(healthyBody.facebookInboxConfigured, true);
+  assert.deepEqual(healthyBody.backupCronsUtc, ["*/5 * * * *"]);
+  assert.equal(healthyBody.deliveryReceiptRequired, true);
+  assert.equal(healthyBody.monitorWindowMinutes, 300);
   assert.equal(degraded.status, 503);
   assert.equal((await degraded.json()).githubTokenConfigured, false);
 });

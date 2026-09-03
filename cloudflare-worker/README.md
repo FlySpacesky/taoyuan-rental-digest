@@ -1,18 +1,24 @@
 # 租屋電子報 LINE 備援監督器
 
 GitHub Actions 仍在台北時間 09:30、16:00、22:00 執行正式流程。此 Cloudflare
-Worker 在各時段後約 5 到 30 分鐘的備援窗口內，每分鐘檢查 GitHub Actions：
+Worker 每5分鐘檢查一次，並在各時段後5分鐘至5小時的備援窗口內確認：
 
-- 已成功：不做任何事。
+- 正式 `main` 已有該時段有效的 LINE 投遞收據：確認完成，不做任何事。
 - 仍在執行：等待下一個檢查點，不重複觸發。
-- 沒有執行或已失敗：以 `workflow_dispatch` 補觸發，並傳入固定的
+- 沒有收據、沒有執行中工作，或工作雖成功卻沒有收據：以 `workflow_dispatch`
+  補觸發，並傳入固定的
   `delivery_slot`。
+- 同一時段最多補觸發4次；達上限後留下 `exhausted` 記錄，不形成無限重跑風暴。
 
 LINE 發送程式會由 `delivery_slot` 產生固定 `X-Line-Retry-Key`。即使 GitHub
-原排程與 Cloudflare 補觸發重疊，LINE 也只會接受同一時段一次。
+原排程與 Cloudflare 補觸發重疊，LINE 也只會接受同一時段一次。LINE API 回覆
+200，或相同 Retry Key 已先被接受而回覆409後，程式才產生投遞收據；Worker 會核對
+收據的時段、版本、狀態與HTTP結果，不再只憑工作流程成功就判定已發送。
+LINE端若先遇到網路逾時、HTTP 408／425／429或5xx，發送程式會遵守
+`Retry-After`或採5、10、20秒有限退避，最多嘗試4次，且廣播全程沿用同一 Retry Key。
 
-三個備援窗口各只占用一個 Cron Trigger，可與同一免費 Cloudflare 帳戶內既有的
-科技新聞 Worker 共存，不超過免費方案每帳戶 5 個 Cron Triggers 的限制。
+所有時段共用一個 Cron Trigger，可與同一 Cloudflare 帳戶內既有的科技新聞 Worker
+共存。
 
 部署後可開啟 `/health`。HTTP 200 且 `githubTokenConfigured`、
 `facebookInboxConfigured` 皆為 `true` 代表 Worker 程式與必要 Secret 均已載入；

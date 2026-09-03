@@ -9,6 +9,11 @@ const request = (path, secret = token) => new Request(`https://preview.example${
   method: "POST", headers: { Authorization: `Bearer ${secret}` },
 });
 
+test("production watchdog uses one five-minute cron trigger", () => {
+  const cfg = JSON.parse(fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url)));
+  assert.deepEqual(cfg.triggers.crons, ["*/5 * * * *"]);
+});
+
 test("preview config cannot bind production resources or scheduled handlers", () => {
   const cfg = JSON.parse(fs.readFileSync(new URL("../wrangler.preview.jsonc", import.meta.url)));
   assert.equal(cfg.name, PREVIEW_NAME);

@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.parse
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -21,6 +22,75 @@ LATEST = DATA_DIR / "latest.json"
 ARCHIVE_DIR = ROOT / "docs" / "archive"
 DELIVERY_DIR = DATA_DIR / "delivery"
 LAST_DELIVERY_FILE = DATA_DIR / "last-delivery.json"
+LINE_MAX_ATTEMPTS = 4
+LINE_RETRYABLE_HTTP_STATUS = {408, 425, 429}
+
+
+def line_retry_delay(response: requests.Response | None, attempt: int) -> float:
+    """優先遵守 LINE Retry-After，否則採有限指數退避。"""
+    retry_after = ""
+    if response is not None:
+        retry_after = str(response.headers.get("Retry-After", "")).strip()
+    try:
+        if retry_after:
+            return min(60.0, max(1.0, float(retry_after)))
+    except ValueError:
+        pass
+    return min(60.0, 5.0 * (2 ** max(0, attempt - 1)))
+
+
+def line_status_is_retryable(status_code: int) -> bool:
+    return (
+        status_code in LINE_RETRYABLE_HTTP_STATUS
+        or 500 <= status_code <= 599
+    )
+
+
+def post_line_json(
+    url: str,
+    *,
+    headers: dict[str, str],
+    body: dict[str, Any],
+    operation: str,
+    max_attempts: int = LINE_MAX_ATTEMPTS,
+) -> requests.Response:
+    """暫時性網路／LINE錯誤有限重試；呼叫端須沿用同一 Retry Key。"""
+    last_error: requests.RequestException | None = None
+    for attempt in range(1, max_attempts + 1):
+        response: requests.Response | None = None
+        try:
+            response = requests.post(
+                url,
+                headers=headers,
+                json=body,
+                timeout=20,
+            )
+        except requests.RequestException as error:
+            last_error = error
+        else:
+            if not line_status_is_retryable(response.status_code):
+                return response
+            last_error = None
+
+        if attempt >= max_attempts:
+            if response is not None:
+                return response
+            assert last_error is not None
+            raise last_error
+        delay = line_retry_delay(response, attempt)
+        reason = (
+            f"HTTP {response.status_code}"
+            if response is not None
+            else type(last_error).__name__
+        )
+        print(
+            f"LINE{operation}暫時失敗（{reason}），{delay:g}秒後重試 "
+            f"({attempt}/{max_attempts})。",
+            file=sys.stderr,
+        )
+        time.sleep(delay)
+
+    raise RuntimeError("unreachable LINE retry state")
 
 
 def delivery_retry_key(delivery_slot: str, generated_at: str) -> str:
@@ -165,12 +235,16 @@ def main() -> int:
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
-    validate = requests.post(
-        "https://api.line.me/v2/bot/message/validate/broadcast",
-        headers=headers,
-        json=body,
-        timeout=20,
-    )
+    try:
+        validate = post_line_json(
+            "https://api.line.me/v2/bot/message/validate/broadcast",
+            headers=headers,
+            body=body,
+            operation="訊息驗證",
+        )
+    except requests.RequestException as error:
+        print(f"LINE驗證連線失敗：{error}", file=sys.stderr)
+        return 1
     if validate.status_code >= 300:
         print(f"LINE驗證失敗 {validate.status_code}: {validate.text}", file=sys.stderr)
         return 1
@@ -178,12 +252,16 @@ def main() -> int:
     generated_at = str(payload.get("generated_at", "rental-digest"))
     retry_key = delivery_retry_key(delivery_slot, generated_at)
     headers["X-Line-Retry-Key"] = retry_key
-    response = requests.post(
-        "https://api.line.me/v2/bot/message/broadcast",
-        headers=headers,
-        json=body,
-        timeout=20,
-    )
+    try:
+        response = post_line_json(
+            "https://api.line.me/v2/bot/message/broadcast",
+            headers=headers,
+            body=body,
+            operation="廣播",
+        )
+    except requests.RequestException as error:
+        print(f"LINE廣播連線失敗：{error}", file=sys.stderr)
+        return 1
     request_id = response.headers.get("x-line-request-id", "")
     accepted_request_id = response.headers.get("x-line-accepted-request-id", "")
     if response.status_code == 409:

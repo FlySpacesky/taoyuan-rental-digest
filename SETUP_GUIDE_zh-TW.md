@@ -149,9 +149,10 @@ schedule:
 ```
 
 GitHub排程可能因平台負載延遲，因此另有 Cloudflare Worker 作為備援監看器。
-它不直接發送LINE，而是在各時段後約5到30分鐘檢查正式工作流程；只有正常排程
-沒有成功時才補觸發。正常流程與備援流程使用同一個LINE Retry Key，因此即使
-兩者短暫重疊，同一時段也不會重複廣播。
+它不直接發送LINE，而是每5分鐘檢查正式 `main` 是否已有該時段的有效LINE投遞
+收據，監看範圍為各時段後5分鐘至5小時。只有收據存在且內容核對正確才算完成；
+沒有收據且沒有執行中工作時會補觸發，單一時段最多補觸發4次。正常流程與備援
+流程使用同一個LINE Retry Key，因此即使兩者短暫重疊，同一時段也不會重複廣播。
 
 ### Cloudflare備援部署設定
 
@@ -328,6 +329,9 @@ Token只能放在GitHub Actions secret，不要寫入程式、README、Issue或c
 3. 查看Actions的 `發送LINE` 步驟。
 4. 查看記錄中的投遞時段；若顯示LINE先前已接受相同 Retry Key，代表備援成功
    阻止重複發送，不是錯誤。
+5. 確認 `docs/rental-data/delivery/日期-時段.json` 已提交到正式 `main`；其中
+   `status` 應為 `accepted` 或 `already_accepted`，且 `delivery_slot` 必須是
+   當次09:30、16:00或22:00時段。缺少這份收據時，Cloudflare會繼續檢查及補觸發。
 
 ### 定時排程沒有執行
 
@@ -335,5 +339,5 @@ Token只能放在GitHub Actions secret，不要寫入程式、README、Issue或c
 2. 到Actions確認工作流程未被停用。
 3. 公開儲存庫60天無活動時，GitHub可能自動停用排程；手動啟用或提交一次更新即可。
 4. GitHub排程可能延遲，不保證精確到秒。
-5. 到Cloudflare確認 `taoyuan-rental-line-watchdog` 的Cron Triggers與
+5. 到Cloudflare確認 `taoyuan-rental-line-watchdog` 的Cron Trigger為每5分鐘、
    `GITHUB_TOKEN` Secret仍存在，並查看Observability是否有錯誤。
