@@ -1,4 +1,5 @@
 name: 桃園租屋快報
+run-name: ${{ inputs.delivery_slot != '' && format('LINE delivery {0}', inputs.delivery_slot) || github.workflow }}
 
 on:
   pull_request:

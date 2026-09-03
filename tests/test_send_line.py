@@ -33,6 +33,57 @@ class LineDeliveryTests(unittest.TestCase):
         )
         self.assertEqual(first, second)
 
+    def test_transient_line_failures_retry_with_the_same_request_headers(self) -> None:
+        limited = Mock(status_code=429, headers={"Retry-After": "1"})
+        unavailable = Mock(status_code=503, headers={})
+        accepted = Mock(status_code=200, headers={})
+        headers = {
+            "Authorization": "Bearer test-token",
+            "X-Line-Retry-Key": "stable-key",
+        }
+        with (
+            patch.object(
+                SEND_LINE.requests,
+                "post",
+                side_effect=[limited, unavailable, accepted],
+            ) as post,
+            patch.object(SEND_LINE.time, "sleep") as sleep,
+        ):
+            result = SEND_LINE.post_line_json(
+                "https://api.line.me/v2/bot/message/broadcast",
+                headers=headers,
+                body={"messages": []},
+                operation="廣播",
+            )
+
+        self.assertIs(result, accepted)
+        self.assertEqual(post.call_count, 3)
+        self.assertEqual(sleep.call_args_list[0].args, (1.0,))
+        self.assertEqual(sleep.call_args_list[1].args, (10.0,))
+        for call in post.call_args_list:
+            self.assertEqual(call.kwargs["headers"]["X-Line-Retry-Key"], "stable-key")
+
+    def test_network_timeout_can_resolve_as_already_accepted(self) -> None:
+        conflict = Mock(status_code=409, headers={})
+        with (
+            patch.object(
+                SEND_LINE.requests,
+                "post",
+                side_effect=[SEND_LINE.requests.Timeout("timeout"), conflict],
+            ) as post,
+            patch.object(SEND_LINE.time, "sleep") as sleep,
+        ):
+            result = SEND_LINE.post_line_json(
+                "https://api.line.me/v2/bot/message/broadcast",
+                headers={"X-Line-Retry-Key": "stable-key"},
+                body={"messages": []},
+                operation="廣播",
+            )
+
+        self.assertEqual(result.status_code, 409)
+        self.assertEqual(post.call_count, 2)
+        sleep.assert_called_once_with(5.0)
+
     def test_line_conflict_is_safe_success_and_saves_previous_edition(self) -> None:
         edition_id = "2026-08-09-0930"
         edition_url = (
