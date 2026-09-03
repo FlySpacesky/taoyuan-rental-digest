@@ -2714,7 +2714,7 @@ def fetch_yungching_render_html(
     source_stats: dict[str, Any],
     rate_state: dict[str, float],
 ) -> str:
-    """Render one allow-listed Yungching page; retry one transient 429 slowly."""
+    """Render one allow-listed Yungching page; retry one transient failure slowly."""
 
     token = os.environ.get(YUNGCHING_RENDER_TOKEN_ENV, "").strip()
     if not token:
@@ -2756,13 +2756,15 @@ def fetch_yungching_render_html(
                 )
             except ValueError:
                 pass
-        if response.status_code != 429:
+        transient_statuses = {422, 429, 500, 502, 503, 504}
+        if response.status_code not in transient_statuses:
             break
 
         retry_after = response.headers.get("Retry-After", "").strip()
-        source_stats["browser_render_retry_after"] = retry_after
+        if retry_after:
+            source_stats["browser_render_retry_after"] = retry_after
         error_text = clean(getattr(response, "text", ""), 300).lower()
-        daily_limit = any(
+        daily_limit = response.status_code == 429 and any(
             marker in error_text
             for marker in (
                 "time limit exceeded for today",
@@ -2772,27 +2774,35 @@ def fetch_yungching_render_html(
                 "每日額度",
             )
         )
-        source_stats["browser_render_rate_limit_kind"] = (
-            "daily" if daily_limit else "transient_or_unknown"
-        )
+        if response.status_code == 429:
+            source_stats["browser_render_rate_limit_kind"] = (
+                "daily" if daily_limit else "transient_or_unknown"
+            )
         if attempt == 0 and not daily_limit:
             try:
                 retry_seconds = float(retry_after)
             except (TypeError, ValueError):
                 retry_seconds = 21.0
             retry_seconds = min(60.0, max(21.0, retry_seconds))
-            source_stats["browser_render_429_retries"] = int(
-                source_stats.get("browser_render_429_retries", 0) or 0
+            source_stats["browser_render_transient_retries"] = int(
+                source_stats.get("browser_render_transient_retries", 0) or 0
             ) + 1
+            if response.status_code == 429:
+                source_stats["browser_render_429_retries"] = int(
+                    source_stats.get("browser_render_429_retries", 0) or 0
+                ) + 1
             source_stats.setdefault("notices", []).append(
-                f"永慶 Browser Run 暫時回應429，已等待{retry_seconds:g}秒後限次重試一次。"
+                f"永慶 Browser Run 暫時回應{response.status_code}，"
+                f"已等待{retry_seconds:g}秒後限次重試一次。"
             )
             time.sleep(retry_seconds)
             continue
-        reason = "當日瀏覽額度已用盡" if daily_limit else "限次重試後仍受限"
-        raise RuntimeError(
-            f"Cloudflare Browser Run 429（{reason}）；本輪停止此頁，避免快速重試。"
-        )
+        if response.status_code == 429:
+            reason = "當日瀏覽額度已用盡" if daily_limit else "限次重試後仍受限"
+            raise RuntimeError(
+                f"Cloudflare Browser Run 429（{reason}）；本輪停止此頁，避免快速重試。"
+            )
+        break
 
     assert response is not None
     response.raise_for_status()
