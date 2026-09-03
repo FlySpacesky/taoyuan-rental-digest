@@ -2263,6 +2263,39 @@ class SinyiAndYungchingTests(unittest.TestCase):
         sleep.assert_called_once_with(21.0)
         self.assertEqual(stats["browser_render_429_retries"], 1)
         self.assertEqual(stats["browser_render_rate_limit_kind"], "transient_or_unknown")
+        self.assertEqual(stats["browser_render_transient_retries"], 1)
+
+    def test_yungching_render_retries_one_transient_422_after_bounded_wait(self) -> None:
+        rejected = Mock(status_code=422, text="Unable to process browser content request")
+        rejected.headers = {}
+        success = Mock(status_code=200)
+        success.headers = {"X-Browser-Ms-Used": "900"}
+        success.json.return_value = {
+            "success": True,
+            "result": "<html><h1>rendered</h1>" + ("x" * 900) + "</html>",
+        }
+        success.raise_for_status.return_value = None
+        stats = DIGEST.empty_source_stats()
+
+        with patch.dict(
+            DIGEST.os.environ,
+            {
+                DIGEST.YUNGCHING_RENDER_TOKEN_ENV: "private-token",
+                DIGEST.YUNGCHING_RENDER_INTERVAL_ENV: "0",
+            },
+            clear=False,
+        ), patch.object(
+            DIGEST.session, "post", side_effect=[rejected, success]
+        ) as post, patch.object(DIGEST.time, "sleep") as sleep:
+            raw = DIGEST.fetch_yungching_render_html(
+                {"kind": "list", "category": "all", "page": 1}, stats, {}
+            )
+
+        self.assertIn("rendered", raw)
+        self.assertEqual(post.call_count, 2)
+        sleep.assert_called_once_with(21.0)
+        self.assertEqual(stats["browser_render_transient_retries"], 1)
+        self.assertNotIn("browser_render_rate_limit_kind", stats)
 
     def test_yungching_render_does_not_retry_daily_browser_limit(self) -> None:
         limited = Mock(

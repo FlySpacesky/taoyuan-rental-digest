@@ -152,7 +152,7 @@ test("returns no delivery slot outside every monitoring window", () => {
   assert.equal(
     deliverySlotFor({
       cron: "*/5 * * * *",
-      scheduledTime: Date.parse("2026-08-09T07:00:00Z"),
+      scheduledTime: Date.parse("2026-08-09T07:25:00Z"),
     }),
     null,
   );
@@ -298,7 +298,7 @@ test("does not query GitHub outside a delivery monitoring window", async () => {
   const result = await handleScheduled(
     {
       cron: "*/5 * * * *",
-      scheduledTime: Date.parse("2026-08-09T07:00:00Z"),
+      scheduledTime: Date.parse("2026-08-09T07:25:00Z"),
     },
     {},
     async () => {
@@ -340,7 +340,7 @@ test("health reports whether the GitHub secret is configured", async () => {
   assert.equal(healthyBody.facebookInboxConfigured, true);
   assert.deepEqual(healthyBody.backupCronsUtc, ["*/5 * * * *"]);
   assert.equal(healthyBody.deliveryReceiptRequired, true);
-  assert.equal(healthyBody.monitorWindowMinutes, 300);
+  assert.equal(healthyBody.monitorWindowMinutes, 350);
   assert.equal(degraded.status, 503);
   assert.equal((await degraded.json()).githubTokenConfigured, false);
 });
