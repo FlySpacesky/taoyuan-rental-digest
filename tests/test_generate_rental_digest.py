@@ -2232,6 +2232,65 @@ class SinyiAndYungchingTests(unittest.TestCase):
         self.assertEqual(request.kwargs["headers"]["Authorization"], "Bearer private-token")
         self.assertEqual(request.kwargs["json"]["source_id"], "2415719")
 
+    def test_yungching_render_retries_one_transient_429_after_bounded_wait(self) -> None:
+        limited = Mock(status_code=429, text="Too many requests")
+        limited.headers = {}
+        success = Mock(status_code=200)
+        success.headers = {"X-Browser-Ms-Used": "1250"}
+        success.json.return_value = {
+            "success": True,
+            "result": "<html><h1>rendered</h1>" + ("x" * 900) + "</html>",
+        }
+        success.raise_for_status.return_value = None
+        stats = DIGEST.empty_source_stats()
+
+        with patch.dict(
+            DIGEST.os.environ,
+            {
+                DIGEST.YUNGCHING_RENDER_TOKEN_ENV: "private-token",
+                DIGEST.YUNGCHING_RENDER_INTERVAL_ENV: "0",
+            },
+            clear=False,
+        ), patch.object(
+            DIGEST.session, "post", side_effect=[limited, success]
+        ) as post, patch.object(DIGEST.time, "sleep") as sleep:
+            raw = DIGEST.fetch_yungching_render_html(
+                {"kind": "list", "category": "all", "page": 2}, stats, {}
+            )
+
+        self.assertIn("rendered", raw)
+        self.assertEqual(post.call_count, 2)
+        sleep.assert_called_once_with(21.0)
+        self.assertEqual(stats["browser_render_429_retries"], 1)
+        self.assertEqual(stats["browser_render_rate_limit_kind"], "transient_or_unknown")
+
+    def test_yungching_render_does_not_retry_daily_browser_limit(self) -> None:
+        limited = Mock(
+            status_code=429,
+            text="Unable to create new browser: Browser time limit exceeded for today",
+        )
+        limited.headers = {}
+        stats = DIGEST.empty_source_stats()
+
+        with patch.dict(
+            DIGEST.os.environ,
+            {
+                DIGEST.YUNGCHING_RENDER_TOKEN_ENV: "private-token",
+                DIGEST.YUNGCHING_RENDER_INTERVAL_ENV: "0",
+            },
+            clear=False,
+        ), patch.object(DIGEST.session, "post", return_value=limited) as post, patch.object(
+            DIGEST.time, "sleep"
+        ) as sleep:
+            with self.assertRaisesRegex(RuntimeError, "當日瀏覽額度已用盡"):
+                DIGEST.fetch_yungching_render_html(
+                    {"kind": "list", "category": "all", "page": 2}, stats, {}
+                )
+
+        self.assertEqual(post.call_count, 1)
+        sleep.assert_not_called()
+        self.assertEqual(stats["browser_render_rate_limit_kind"], "daily")
+
     def test_yungching_render_feed_fetches_every_candidate_detail_this_round(self) -> None:
         list_html = """
         <html><body>
