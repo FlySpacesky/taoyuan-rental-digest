@@ -2714,7 +2714,7 @@ def fetch_yungching_render_html(
     source_stats: dict[str, Any],
     rate_state: dict[str, float],
 ) -> str:
-    """Render one allow-listed Yungching page; parse everything on the runner."""
+    """Render one allow-listed Yungching page; retry one transient 429 slowly."""
 
     token = os.environ.get(YUNGCHING_RENDER_TOKEN_ENV, "").strip()
     if not token:
@@ -2726,41 +2726,75 @@ def fetch_yungching_render_html(
         0.0,
         float(os.environ.get(YUNGCHING_RENDER_INTERVAL_ENV, "10.5") or 10.5),
     )
-    started = time.monotonic()
-    wait = interval - (started - rate_state.get("last_started", -interval))
-    if wait > 0:
-        time.sleep(wait)
-    rate_state["last_started"] = time.monotonic()
-    source_stats["browser_render_requests"] = int(
-        source_stats.get("browser_render_requests", 0) or 0
-    ) + 1
-    response = session.post(
-        endpoint,
-        json=payload,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "User-Agent": "taoyuan-rental-yungching-render/1.0",
-        },
-        timeout=(15, 55),
-    )
-    source_stats["browser_render_http_status"] = response.status_code
-    browser_ms = response.headers.get("X-Browser-Ms-Used", "").strip()
-    if browser_ms:
-        try:
-            source_stats["browser_render_ms_used"] = round(
-                float(source_stats.get("browser_render_ms_used", 0) or 0)
-                + float(browser_ms),
-                3,
+    response = None
+    for attempt in range(2):
+        started = time.monotonic()
+        wait = interval - (started - rate_state.get("last_started", -interval))
+        if wait > 0:
+            time.sleep(wait)
+        rate_state["last_started"] = time.monotonic()
+        source_stats["browser_render_requests"] = int(
+            source_stats.get("browser_render_requests", 0) or 0
+        ) + 1
+        response = session.post(
+            endpoint,
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "User-Agent": "taoyuan-rental-yungching-render/1.0",
+            },
+            timeout=(15, 55),
+        )
+        source_stats["browser_render_http_status"] = response.status_code
+        browser_ms = response.headers.get("X-Browser-Ms-Used", "").strip()
+        if browser_ms:
+            try:
+                source_stats["browser_render_ms_used"] = round(
+                    float(source_stats.get("browser_render_ms_used", 0) or 0)
+                    + float(browser_ms),
+                    3,
+                )
+            except ValueError:
+                pass
+        if response.status_code != 429:
+            break
+
+        retry_after = response.headers.get("Retry-After", "").strip()
+        source_stats["browser_render_retry_after"] = retry_after
+        error_text = clean(getattr(response, "text", ""), 300).lower()
+        daily_limit = any(
+            marker in error_text
+            for marker in (
+                "time limit exceeded for today",
+                "daily browser",
+                "daily limit",
+                "當日額度",
+                "每日額度",
             )
-        except ValueError:
-            pass
-    if response.status_code == 429:
-        source_stats["browser_render_retry_after"] = response.headers.get(
-            "Retry-After", ""
         )
+        source_stats["browser_render_rate_limit_kind"] = (
+            "daily" if daily_limit else "transient_or_unknown"
+        )
+        if attempt == 0 and not daily_limit:
+            try:
+                retry_seconds = float(retry_after)
+            except (TypeError, ValueError):
+                retry_seconds = 21.0
+            retry_seconds = min(60.0, max(21.0, retry_seconds))
+            source_stats["browser_render_429_retries"] = int(
+                source_stats.get("browser_render_429_retries", 0) or 0
+            ) + 1
+            source_stats.setdefault("notices", []).append(
+                f"永慶 Browser Run 暫時回應429，已等待{retry_seconds:g}秒後限次重試一次。"
+            )
+            time.sleep(retry_seconds)
+            continue
+        reason = "當日瀏覽額度已用盡" if daily_limit else "限次重試後仍受限"
         raise RuntimeError(
-            "Cloudflare Browser Run 429；本輪停止新增瀏覽器請求，避免快速重試耗盡配額。"
+            f"Cloudflare Browser Run 429（{reason}）；本輪停止此頁，避免快速重試。"
         )
+
+    assert response is not None
     response.raise_for_status()
     try:
         envelope = response.json()
