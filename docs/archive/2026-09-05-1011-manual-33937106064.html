@@ -1,0 +1,580 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>桃園四房以上租屋快報</title>
+<style>
+:root{--orange:#f56a00;--orange-soft:#fff5eb;--bg:#f6f7f8;--line:#e5e7eb;--muted:#69717d;--fb:#1877f2;--raku:#d65431;--threads:#101010;--sinyi:#dc0017;--yungching:#087652}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;color:#202124}
+a{color:inherit}
+.wrap{width:min(1120px,calc(100% - 28px));margin:auto}
+body>header{
+  position:sticky;
+  top:0;
+  z-index:1000;
+  background:rgba(255,255,255,.97);
+  border-bottom:3px solid var(--orange);
+  padding:14px 0 12px;
+  box-shadow:0 5px 20px rgba(0,0,0,.09);
+  backdrop-filter:blur(10px);
+}
+h1{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:clamp(25px,4vw,36px);margin:0 0 6px}
+h1 time{font-size:15px;color:#995018;background:var(--orange-soft);border:1px solid #ffd5b5;padding:6px 10px;border-radius:999px;white-space:nowrap}
+.subtitle{font-size:15px;line-height:1.45;color:#4e5660;margin:0}
+.source-nav{display:flex;gap:9px;flex-wrap:wrap;margin-top:9px}
+.source-nav a{text-decoration:none;background:#fff;padding:9px 18px;border:1px solid var(--line);border-radius:7px;font-weight:900}
+.source-nav a:hover{border-color:var(--orange);color:var(--orange)}
+.source-nav a:nth-child(2){color:var(--fb)}
+.source-nav a:nth-child(3){color:var(--raku)}
+.source-nav a:nth-child(4){color:var(--threads)}
+.source-nav a:nth-child(5){color:var(--sinyi)}
+.source-nav a:nth-child(6){color:var(--yungching)}
+.statusbar{background:#23272d;color:#fff;padding:12px 0;font-size:14px}
+main{padding:22px 0 48px}
+.notice{background:#fff;border-left:5px solid var(--orange);padding:15px 18px;border-radius:10px;line-height:1.7}
+.source-block{margin-top:22px;scroll-margin-top:175px}
+.source-heading{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-bottom:10px}
+.source-heading h2{font-size:31px;margin:0}
+.source-heading a{font-size:14px;color:#555;text-underline-offset:3px}
+.source-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.source-actions .submission-link{color:#fff;background:var(--fb);padding:7px 10px;border-radius:6px;text-decoration:none;font-weight:850}
+.source-actions .private-submission{background:#6b35c4}
+.source-actions .threads-submission{background:var(--threads)}
+.source-status{display:flex;flex-direction:column;align-items:flex-end;background:#fff;padding:12px 14px;border:1px solid var(--line);border-radius:10px}
+.status-primary{width:75%;align-self:flex-start;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));align-items:center;direction:ltr}
+.status-primary>*{min-width:0;padding:2px 10px;direction:ltr;text-align:center}
+.status-primary span{color:#555}
+.status-secondary{width:100%;display:flex;gap:8px 14px;align-items:center;justify-content:flex-end;text-align:right;flex-wrap:wrap}
+.status-secondary:empty{display:none}
+.source-status details{width:100%;color:#8a3f00;text-align:right}
+.source-status ul{margin:8px 0 0;padding-left:20px;text-align:left}
+.source-status .fallback-warning{width:100%;color:#8a3f00;background:#fff3cd;border:1px solid #f1ce72;padding:9px 11px;border-radius:7px}
+.listing-browser{margin-top:14px}
+.filter-bar{background:#fff;border:1px solid var(--line);border-radius:10px;padding:0 16px;box-shadow:0 2px 8px #00000008}
+.filter-group{width:75%;margin-right:auto;display:grid;grid-template-columns:repeat(var(--filter-count),minmax(0,1fr));align-items:stretch;direction:ltr;border-bottom:1px solid var(--line)}
+.filter-group[data-filter-count="4"]{--filter-count:4}
+.filter-group[data-filter-count="3"]{--filter-count:3}
+.filter-group[data-filter-count="2"]{--filter-count:2}
+.filter-group[data-filter-count="1"]{--filter-count:1}
+.filter-button{width:100%;appearance:none;border:0;background:transparent;color:#4f5965;font:inherit;font-weight:800;cursor:pointer;padding:14px 8px;border-bottom:3px solid transparent;direction:ltr;text-align:center}
+.filter-button b{font-size:12px;color:#8a929b;margin-left:3px}
+.filter-button:hover{color:var(--orange)}
+.filter-button.active{color:var(--orange);border-bottom-color:var(--orange)}
+.filter-button.active b{color:var(--orange)}
+.sort-row{display:flex;align-items:center;flex-direction:row-reverse;justify-content:flex-start;gap:4px;min-height:52px;padding:6px 0}
+.sort-row>span{color:#8a929b;font-size:13px;font-weight:800}
+.sort-group{display:flex;align-items:center;flex-direction:row-reverse;justify-content:flex-start;gap:4px;flex-wrap:wrap}
+.sort-control{display:flex;align-items:center;flex-direction:row-reverse;gap:2px;padding:0;border:0;background:transparent;color:#555;font-size:13px;font-weight:850}
+.sort-control.active{color:#b55a09}
+.sort-control.active .sort-select{border-color:#ffb879;background:var(--orange-soft)}
+.sort-select{max-width:118px;border:1px solid #d9dde3;border-radius:5px;background:#fff;color:#30343a;padding:5px 19px 5px 6px;font:inherit;font-size:12px;cursor:pointer}
+.combined-sort-select{max-width:190px;min-width:175px}
+.sort-select:focus{outline:2px solid #ffb879;outline-offset:1px}
+.visible-count{color:#5a626d;white-space:nowrap;margin-right:2px;direction:ltr}
+.listing-list{display:flex;flex-direction:column;gap:12px;margin-top:12px}
+.card{display:grid;grid-template-columns:minmax(260px,32%) minmax(0,1fr);min-height:245px;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff;box-shadow:0 2px 8px #0000000a}
+.card:hover{border-color:#ffc596;box-shadow:0 6px 22px #00000012}
+.photo-gallery{min-width:0;display:flex;overflow-x:auto;scroll-snap-type:x mandatory;background:#596273;scrollbar-width:thin}
+.photo{height:100%;min-height:245px;display:block;position:relative;background:#596273;overflow:hidden}
+.gallery-photo{flex:0 0 100%;scroll-snap-align:start}
+.photo img{width:100%;height:100%;object-fit:cover}
+.photo .source-badge{position:absolute;left:10px;top:10px;background:#111c;color:#fff;padding:6px 9px;border-radius:5px;font-size:13px;font-weight:900}
+.new-listing-badge{position:absolute;right:10px;top:10px;z-index:2;background:#e53935;color:#fff;padding:7px 11px;border-radius:6px;box-shadow:0 2px 8px #0004;font-size:14px;font-weight:950;letter-spacing:.04em}
+.photo-index{position:absolute;right:10px;bottom:10px;background:#111c;color:#fff;padding:5px 8px;border-radius:999px;font-size:12px;font-weight:900}
+.photo-fallback{display:none;position:absolute;inset:0;align-items:center;justify-content:center;text-align:center;color:#fff;font-weight:900;background:#4b5563}
+.photo-fallback.no-photo{display:flex}
+.body{display:grid;grid-template-columns:minmax(0,1fr) 175px;gap:18px;padding:18px 20px}
+.body-main{min-width:0}
+h3{font-size:21px;line-height:1.4;margin:7px 0 12px}
+h3 a{text-decoration:none}
+.tag-row,.feature-row,.facts{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.tag-row:empty{display:none}
+.tag{font-size:13px;background:#edf5ff;color:#3472ad;padding:4px 7px;border-radius:4px}
+.tag.highlight{background:#eaf7ed;color:#218145;font-weight:850}
+.facts{margin:0 0 11px}
+.facts span{font-size:14px;font-weight:800;padding-right:9px;border-right:1px solid #d9dce1}
+.facts span:last-child{border-right:0}
+.address{margin:0 0 11px;color:#59616c;line-height:1.55}
+.feature-row span{font-size:13px;background:#fff4e8;color:#aa590f;padding:4px 7px;border-radius:4px}
+.activity{color:var(--muted);font-size:13px;margin-top:14px}
+.price-column{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;text-align:right;border-left:1px solid #f0f1f3;padding-left:16px}
+.old{color:#9a9fa7;font-size:13px;margin-bottom:2px}
+.rent{font-size:29px;color:#df2a1b;font-weight:950;white-space:nowrap}
+.rent small{font-size:13px;color:#df2a1b}
+.button{display:inline-block;text-align:center;margin-top:16px;padding:9px 14px;background:#fff1df;color:#c35f00;text-decoration:none;border-radius:6px;font-weight:900}
+.button:hover{background:var(--orange);color:#fff}
+.empty{border:1px dashed #bbb;background:#fff;border-radius:8px;padding:28px;text-align:center;color:var(--muted)}
+.social-links{display:flex;justify-content:flex-end;gap:7px;flex-wrap:wrap;margin-top:12px}
+.social-links a{background:var(--fb);color:#fff;text-decoration:none;padding:8px 10px;border-radius:6px;font-weight:800}
+.social-note{background:#fff8e9;border:1px solid #ffd7a6;padding:13px;border-radius:9px;margin-top:12px;line-height:1.7}
+.back-to-top{position:fixed;right:18px;bottom:18px;z-index:1200;width:48px;height:48px;border:0;border-radius:50%;background:var(--orange);color:#fff;font-size:25px;font-weight:950;line-height:1;cursor:pointer;box-shadow:0 5px 18px #0004}
+.back-to-top:hover{background:#d95d00;transform:translateY(-2px)}
+.back-to-top:focus-visible{outline:3px solid #ffbd87;outline-offset:3px}
+[hidden]{display:none!important}
+@media(max-width:820px){
+  .status-primary,.filter-group{width:100%}
+  .card{grid-template-columns:minmax(210px,34%) minmax(0,1fr)}
+  .body{grid-template-columns:1fr}
+  .price-column{align-items:flex-start;text-align:left;border-left:0;border-top:1px solid #f0f1f3;padding:10px 0 0}
+  .button{margin-top:9px}
+}
+@media(max-width:620px){
+  body>header{padding:10px 0 9px}
+  h1{font-size:25px}
+  h1 time{font-size:12px;padding:5px 8px}
+  .subtitle{font-size:13px;line-height:1.4}
+  .source-nav{gap:6px;margin-top:8px}
+  .source-nav a{flex:1;text-align:center;padding:9px 6px}
+  .filter-bar{padding:0 9px}
+  .filter-group{display:flex;justify-content:flex-start;flex-wrap:nowrap;overflow-x:auto}
+  .filter-button{flex:1 0 auto}
+  .filter-button{padding-left:8px;padding-right:8px;font-size:13px}
+  .sort-row{align-items:flex-start;flex-wrap:wrap;padding:8px 0}
+  .sort-row>span{padding-top:9px}
+  .sort-group{width:100%}
+  .sort-control{flex:0 1 auto;justify-content:flex-start}
+  .sort-select{max-width:118px;min-width:0}
+  .combined-sort-select{max-width:190px;min-width:175px}
+  .visible-count{width:100%;padding:0 8px 4px;text-align:left}
+  .back-to-top{right:12px;bottom:12px;width:44px;height:44px;font-size:23px}
+  .card{grid-template-columns:minmax(130px,38%) minmax(0,1fr);min-height:220px}
+  .photo{min-height:220px}
+  .body{padding:12px;gap:10px}
+  h3{font-size:17px;margin-top:4px}
+  .facts span{font-size:12px}
+  .feature-row{display:none}
+  .activity{font-size:12px}
+  .rent{font-size:23px}
+  .source-block{scroll-margin-top:190px}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>桃園四房以上租屋快報
+      <time datetime="2026-09-05T10:11+08:00" aria-label="本次執行時間">
+        2026/09/05 10:11
+      </time>
+    </h1>
+    <p class="subtitle">六個來源分區顯示；591保留本輪重新驗證仍在刊登的全部符合條件物件，不限日期；其他五個來源只保留最近2天。</p>
+    <nav class="source-nav">
+      <a href="#source-591">591</a>
+      <a href="#source-fb">FB社團</a>
+      <a href="#source-rakuya">樂屋網</a>
+      <a href="#source-threads">Threads</a>
+      <a href="#source-sinyi">信義房屋</a>
+      <a href="#source-yungching">永慶房屋</a>
+    </nav>
+  </div>
+</header>
+
+<div class="statusbar"><div class="wrap">
+產生時間：2026/09/05 10:11｜候選 0 筆｜
+驗證通過 0 筆｜符合來源時效 0 筆｜
+新房源 0 筆｜本次顯示 0 筆
+</div></div>
+
+<main class="wrap">
+<div class="notice">每個來源每輪都會重新檢查，不沿用未驗證舊物件；591顯示本輪完整現刊且符合條件的物件，不受刊登／更新日期限制；FB、樂屋網、Threads、信義房屋與永慶房屋只顯示能證明來源新增／更新在最近2天內的物件。「新房源」比對前一輪已發布頁面，首次發現標記保留24小時；租金變動另以降價標示。</div>
+
+<div id="source-591" class="source-block">
+  <div class="source-heading"><h2>591</h2><a href="https://rent.591.com.tw/list?kind=1&layout=4&region=6" target="_blank">開啟591搜尋 ↗</a></div>
+  
+    <div class="source-status">
+      <div class="status-primary">
+        <b>本次紀錄</b>
+        <span>候選 0 筆</span>
+        <span>驗證通過 0 筆</span>
+        <span>本頁顯示 0 筆</span>
+      </div>
+      <div class="status-secondary">
+        <span>列表快照 0 筆</span><span>刊登日期不限</span><details><summary>591排除診斷</summary><div>無</div></details>
+        
+        <details><summary>查看來源訊息</summary><ul><li>591官方BFF連續回應403/429；為避免加重限流，本輪不再以同一出口連打列表HTML與Chromium。這是Runner出口IP被591限制，不是Chromium未安裝或物件ID解析失敗。</li><li>591本輪沒有重新驗證成功的物件；為避免發布未確認仍在刊登的舊物件，本輪不沿用上次快照。</li></ul></details>
+      </div>
+    </div>
+    
+  
+    <section class="listing-browser" data-listing-browser data-source="591">
+      <div class="filter-bar">
+        <div class="filter-group" data-filter-count="4"
+             role="group" aria-label="591 分類">
+          <button type="button" class="filter-button active" data-filter="all">全部 <b>0</b></button><button type="button" class="filter-button" data-filter="featured">優選好屋 <b>0</b></button><button type="button" class="filter-button" data-filter="owner">屋主直租 <b>0</b></button><button type="button" class="filter-button" data-filter="discount">降價物件 <b>0</b></button>
+        </div>
+        <div class="sort-row">
+          <span>排序：</span>
+          <div class="sort-group" role="group" aria-label="591 排序">
+            <label class="sort-control active"><span>最新</span><select class="sort-select" data-sort="recency" data-default-direction="asc" aria-current="true" aria-label="591 最新排序"><option value="asc" selected>由新到舊</option><option value="desc">由舊到新</option></select></label><label class="sort-control"><span>租金總費用</span><select class="sort-select" data-sort="total" data-default-direction="asc" aria-current="false" aria-label="591 租金總費用排序"><option value="asc" selected>總費用低到高</option><option value="desc">總費用高到低</option></select></label><label class="sort-control"><span>租金</span><select class="sort-select" data-sort="rent" data-default-direction="asc" aria-current="false" aria-label="591 租金排序"><option value="asc" selected>租金低到高</option><option value="desc">租金高到低</option></select></label><label class="sort-control"><span>坪數</span><select class="sort-select" data-sort="area" data-default-direction="asc" aria-current="false" aria-label="591 坪數排序"><option value="asc" selected>坪數小到大</option><option value="desc">坪數大到小</option></select></label>
+          </div>
+          <strong class="visible-count">0 筆</strong>
+        </div>
+      </div>
+      <div class="listing-list">
+        
+        <div class="empty browser-empty">本次沒有取得符合條件的候選物件。</div>
+      </div>
+    </section>
+    
+</div>
+
+<div id="source-fb" class="source-block">
+  <div class="source-heading">
+    <h2>FB社團</h2>
+    <div class="source-actions">
+      <a class="submission-link private-submission" href="https://flyspacesky.github.io/taoyuan-rental-digest/facebook-submit.html" target="_blank" rel="noopener noreferrer">私人社團授權投稿 ↗</a>
+      <a class="submission-link" href="https://github.com/FlySpacesky/taoyuan-rental-digest/issues/new?template=facebook-listing.yml" target="_blank" rel="noopener noreferrer">提交FB永久貼文 ↗</a>
+      <a href="https://www.facebook.com/groups/feed/" target="_blank" rel="noopener noreferrer">開啟Facebook社團 ↗</a>
+    </div>
+  </div>
+  
+    <div class="source-status">
+      <div class="status-primary">
+        <b>本次紀錄</b>
+        <span>候選 0 筆</span>
+        <span>驗證通過 0 筆</span>
+        <span>本頁顯示 0 筆</span>
+      </div>
+      <div class="status-secondary">
+        <span>最近2天</span><span>公開社團入口 11 個</span><span>Marketplace入口 1 個</span><span>公開／已授權貼文 0 筆</span><span>🔥 A級 0 筆</span><span>🟡 B級 0 筆</span><span>⚪ C級 0 筆</span><span>公開投稿 0 筆</span><span>私人收件匣 0 筆</span><span>自動補齊 0 筆</span>
+        <details><summary>來源說明</summary><ul><li>本次 checkpoint 僅重驗591。</li></ul></details>
+        
+      </div>
+    </div>
+    
+  <div class="social-note">
+    <strong>FB 屋主房源雷達：公開資料＋人工授權入口＋AI規則篩選</strong>
+    接受可匿名驗證的公開社團永久貼文，並合併檔案、Secret、公開HTTPS feed與GitHub投稿；
+    已加入的私人社團則可由您在自己的Facebook瀏覽器中手動開啟貼文，再透過私人收件匣提交。
+    私人投稿只在您確認已取得貼文作者或社團管理員的電子報再公開授權後才會收件；
+    收件匣只保存房源資料30天，不接收也不保存Facebook帳號、密碼、Cookie、Session或Access Token。
+    社團與Marketplace按鈕是人工發現入口，不會登入或大量模擬瀏覽。
+    桃園區、中壢區、平鎮區、八德區及至少3房是必要條件。
+    A級代表屋主身分明確，且另有尋求代管、人在外地、沒時間管理、空屋或急租訊號；
+    B級為屋主房源但管理需求較不明確；C級是其他通過硬條件的真實出租。
+    一般房仲的真實出租會歸入C級「其他符合物件」；包租代管／代租代管同行廣告會排除；
+    屋主自己提到「想找代管」不會再被誤判為同業。
+    30至35坪以上、租金與照片是加分條件，缺少選填資訊仍會誠實顯示，不補造資料或照片。
+    只保留來源貼文或原作者活動在最近2天內的房源；「新房源」表示上一封快報未出現且首次發現未滿24小時。
+    Facebook登入與加入社團狀態只留在您的瀏覽器；若Facebook登出，請由您本人重新登入。
+  </div>
+  <div class="social-links"><a href="https://www.facebook.com/groups/117995715653134" target="_blank" rel="noopener noreferrer">公開租屋來源 01 ↗</a><a href="https://www.facebook.com/groups/0908728307emma" target="_blank" rel="noopener noreferrer">公開租屋來源 02 ↗</a><a href="https://www.facebook.com/groups/671061659720658" target="_blank" rel="noopener noreferrer">公開租屋來源 03 ↗</a><a href="https://www.facebook.com/groups/1925073351142915" target="_blank" rel="noopener noreferrer">中壢租屋網 ↗</a><a href="https://www.facebook.com/groups/1167119493432173" target="_blank" rel="noopener noreferrer">520租屋快訊網 ↗</a><a href="https://www.facebook.com/groups/1590787834331314" target="_blank" rel="noopener noreferrer">公開租屋來源 06 ↗</a><a href="https://www.facebook.com/groups/468627751712411" target="_blank" rel="noopener noreferrer">公開租屋來源 07 ↗</a><a href="https://www.facebook.com/groups/261357414247414" target="_blank" rel="noopener noreferrer">公開租屋來源 08 ↗</a><a href="https://www.facebook.com/groups/178112912695401" target="_blank" rel="noopener noreferrer">公開租屋來源 09 ↗</a><a href="https://www.facebook.com/groups/768849317151214" target="_blank" rel="noopener noreferrer">公開租屋來源 10 ↗</a><a href="https://www.facebook.com/groups/4091621327828556" target="_blank" rel="noopener noreferrer">公開租屋來源 11 ↗</a><a href="https://www.facebook.com/marketplace/category/propertyrentals/" target="_blank" rel="noopener noreferrer">Facebook Marketplace ↗</a></div>
+  
+    <section class="listing-browser" data-listing-browser data-source="FB">
+      <div class="filter-bar">
+        <div class="filter-group" data-filter-count="4"
+             role="group" aria-label="FB社團 分類">
+          <button type="button" class="filter-button active" data-filter="all">全部 <b>0</b></button><button type="button" class="filter-button" data-filter="lead_a">🔥 A級房源 <b>0</b></button><button type="button" class="filter-button" data-filter="lead_b">🟡 B級房源 <b>0</b></button><button type="button" class="filter-button" data-filter="lead_c">⚪ C級房源 <b>0</b></button>
+        </div>
+        <div class="sort-row">
+          <span>排序：</span>
+          <div class="sort-group" role="group" aria-label="FB社團 排序">
+            <label class="sort-control active"><span>最新</span><select class="sort-select" data-sort="recency" data-default-direction="asc" aria-current="true" aria-label="FB社團 最新排序"><option value="asc" selected>由新到舊</option><option value="desc">由舊到新</option></select></label><label class="sort-control"><span>租金總費用</span><select class="sort-select" data-sort="total" data-default-direction="asc" aria-current="false" aria-label="FB社團 租金總費用排序"><option value="asc" selected>總費用低到高</option><option value="desc">總費用高到低</option></select></label><label class="sort-control"><span>租金</span><select class="sort-select" data-sort="rent" data-default-direction="asc" aria-current="false" aria-label="FB社團 租金排序"><option value="asc" selected>租金低到高</option><option value="desc">租金高到低</option></select></label><label class="sort-control"><span>坪數</span><select class="sort-select" data-sort="area" data-default-direction="asc" aria-current="false" aria-label="FB社團 坪數排序"><option value="asc" selected>坪數小到大</option><option value="desc">坪數大到小</option></select></label>
+          </div>
+          <strong class="visible-count">0 筆</strong>
+        </div>
+      </div>
+      <div class="listing-list">
+        
+        <div class="empty browser-empty">本次沒有取得符合條件的候選物件。</div>
+      </div>
+    </section>
+    
+</div>
+
+<div id="source-rakuya" class="source-block">
+  <div class="source-heading"><h2>樂屋網</h2><a href="https://rent.rakuya.com.tw/" target="_blank">開啟樂屋網 ↗</a></div>
+  
+    <div class="source-status">
+      <div class="status-primary">
+        <b>本次紀錄</b>
+        <span>候選 0 筆</span>
+        <span>驗證通過 0 筆</span>
+        <span>本頁顯示 0 筆</span>
+      </div>
+      <div class="status-secondary">
+        <span>最近2天</span>
+        <details><summary>來源說明</summary><ul><li>本次 checkpoint 僅重驗591。</li></ul></details>
+        
+      </div>
+    </div>
+    
+  
+    <section class="listing-browser" data-listing-browser data-source="樂屋網">
+      <div class="filter-bar">
+        <div class="filter-group" data-filter-count="4"
+             role="group" aria-label="樂屋網 分類">
+          <button type="button" class="filter-button active" data-filter="rent">出租 <b>0</b></button><button type="button" class="filter-button" data-filter="owner">屋主 <b>0</b></button><button type="button" class="filter-button" data-filter="friendly">友善房源 <b>0</b></button><button type="button" class="filter-button" data-filter="discount">最新降價 <b>0</b></button>
+        </div>
+        <div class="sort-row">
+          <span>排序：</span>
+          <div class="sort-group" role="group" aria-label="樂屋網 排序">
+            <label class="sort-control active"><span>最近更新</span><select class="sort-select" data-sort="recency" data-default-direction="asc" aria-current="true" aria-label="樂屋網 最近更新排序"><option value="asc" selected>由新到舊</option><option value="desc">由舊到新</option></select></label><label class="sort-control"><span>租金</span><select class="sort-select" data-sort="rent" data-default-direction="asc" aria-current="false" aria-label="樂屋網 租金排序"><option value="asc" selected>租金低到高</option><option value="desc">租金高到低</option></select></label><label class="sort-control"><span>室內坪數</span><select class="sort-select" data-sort="area" data-default-direction="asc" aria-current="false" aria-label="樂屋網 室內坪數排序"><option value="asc" selected>坪數小到大</option><option value="desc">坪數大到小</option></select></label><label class="sort-control"><span>人氣</span><select class="sort-select" data-sort="popularity" data-default-direction="desc" aria-current="false" aria-label="樂屋網 人氣排序"><option value="desc" selected>人氣高到低</option><option value="asc">人氣低到高</option></select></label>
+          </div>
+          <strong class="visible-count">0 筆</strong>
+        </div>
+      </div>
+      <div class="listing-list">
+        
+        <div class="empty browser-empty">本次沒有取得符合條件的候選物件。</div>
+      </div>
+    </section>
+    
+</div>
+
+<div id="source-threads" class="source-block">
+  <div class="source-heading">
+    <h2>Threads</h2>
+    <div class="source-actions">
+      <a class="submission-link threads-submission" href="https://github.com/FlySpacesky/taoyuan-rental-digest/issues/new?template=threads-listing.yml" target="_blank" rel="noopener noreferrer">提交Threads永久貼文 ↗</a>
+      <a href="https://www.threads.com/" target="_blank" rel="noopener noreferrer">開啟Threads ↗</a>
+    </div>
+  </div>
+  
+    <div class="source-status">
+      <div class="status-primary">
+        <b>本次紀錄</b>
+        <span>候選 0 筆</span>
+        <span>驗證通過 0 筆</span>
+        <span>本頁顯示 0 筆</span>
+      </div>
+      <div class="status-secondary">
+        <span>最近2天</span><span>搜尋查詢 0 組</span><span>API頁面 0 頁</span><span>人工投稿／feed 0 筆</span><span>原作者留言 0 則</span><span>留言權限 不可用</span><span>找到照片 0 張</span><span>完整保存 0 張</span>
+        <details><summary>來源說明</summary><ul><li>Threads會合併官方API與人工授權公開入口，依指定四區、至少3房、非包租代管／仲介同業及最近2天來源活動驗證。</li><li>本次 checkpoint 僅重驗591。</li></ul></details>
+        
+      </div>
+    </div>
+    
+  <div class="social-note">
+    <strong>Threads官方搜尋＋人工授權入口＋自動篩選：</strong>
+    官方API會搜尋公開貼文並合併可讀取的原作者留言；人工入口可補入已知的公開永久貼文。
+    桃園區、中壢區、平鎮區、八德區及至少3房是必要條件；包租代管與仲介同業會排除。
+    30至35坪以上、租金、照片與屋主訊號只用於自動符合度評分；缺少租金或可讀照片仍可刊出，
+    並顯示「租金洽詢」或「來源未提供可讀取照片」。只保留來源貼文或原作者活動在最近2天內的房源；
+    「新房源」表示上一封快報未出現。不使用帳號密碼、Cookie或瀏覽器Session，也不加入假物件。
+  </div>
+  
+    <section class="listing-browser" data-listing-browser data-source="Threads">
+      <div class="filter-bar">
+        <div class="filter-group" data-filter-count="4"
+             role="group" aria-label="Threads 分類">
+          <button type="button" class="filter-button active" data-filter="all">全部 <b>0</b></button><button type="button" class="filter-button" data-filter="recommended">高符合 <b>0</b></button><button type="button" class="filter-button" data-filter="spacious">30坪以上 <b>0</b></button><button type="button" class="filter-button" data-filter="needs_info">資訊待補 <b>0</b></button>
+        </div>
+        <div class="sort-row">
+          <span>排序：</span>
+          <div class="sort-group" role="group" aria-label="Threads 排序">
+            <label class="sort-control active"><span>最新</span><select class="sort-select" data-sort="recency" data-default-direction="asc" aria-current="true" aria-label="Threads 最新排序"><option value="asc" selected>由新到舊</option><option value="desc">由舊到新</option></select></label><label class="sort-control"><span>租金總費用</span><select class="sort-select" data-sort="total" data-default-direction="asc" aria-current="false" aria-label="Threads 租金總費用排序"><option value="asc" selected>總費用低到高</option><option value="desc">總費用高到低</option></select></label><label class="sort-control"><span>租金</span><select class="sort-select" data-sort="rent" data-default-direction="asc" aria-current="false" aria-label="Threads 租金排序"><option value="asc" selected>租金低到高</option><option value="desc">租金高到低</option></select></label><label class="sort-control"><span>坪數</span><select class="sort-select" data-sort="area" data-default-direction="asc" aria-current="false" aria-label="Threads 坪數排序"><option value="asc" selected>坪數小到大</option><option value="desc">坪數大到小</option></select></label>
+          </div>
+          <strong class="visible-count">0 筆</strong>
+        </div>
+      </div>
+      <div class="listing-list">
+        
+        <div class="empty browser-empty">本次沒有經 Threads 官方搜尋或公開投稿驗證通過的指定四區、至少3房物件；請查看上方來源訊息。</div>
+      </div>
+    </section>
+    
+</div>
+
+<div id="source-sinyi" class="source-block">
+  <div class="source-heading">
+    <h2>信義房屋</h2>
+    <a href="https://www.sinyi.com.tw/rent/list/Taoyuan-city/320-324-330-334-zip/40-up-area/house-use/1.html"
+       target="_blank" rel="noopener noreferrer">開啟信義房屋搜尋 ↗</a>
+  </div>
+  
+    <div class="source-status">
+      <div class="status-primary">
+        <b>本次紀錄</b>
+        <span>候選 0 筆</span>
+        <span>驗證通過 0 筆</span>
+        <span>本頁顯示 0 筆</span>
+      </div>
+      <div class="status-secondary">
+        <span>最近2天</span><span>讀取列表 0 頁</span>
+        <details><summary>來源說明</summary><ul><li>本次 checkpoint 僅重驗591。</li></ul></details>
+        
+      </div>
+    </div>
+    
+  <div class="social-note">
+    <strong>收錄條件：</strong>
+    桃園區、中壢區、平鎮區、八德區，出租坪數40坪以上的整層住家；
+    店面、透店、住辦、辦公、廠房、倉庫與土地會明確排除。
+  </div>
+  
+    <section class="listing-browser" data-listing-browser data-source="信義房屋">
+      <div class="filter-bar">
+        <div class="filter-group" data-filter-count="1"
+             role="group" aria-label="信義房屋 分類">
+          <button type="button" class="filter-button active" data-filter="all">全部 <b>0</b></button>
+        </div>
+        <div class="sort-row">
+          <span>排序：</span>
+          <div class="sort-group" role="group" aria-label="信義房屋 排序">
+            <label class="sort-control active combined-sort-control"><select class="sort-select combined-sort-select" data-combined-sort="true" data-sort="recency" aria-current="true" aria-label="信義房屋 排序"><option value="order:asc">預設排序</option><option value="recency:asc" selected>更新時間：新 → 舊</option><option value="recency:desc">更新時間：舊 → 新</option><option value="rent:asc">租金：低 → 高</option><option value="rent:desc">租金：高 → 低</option><option value="area:asc">坪數：小 → 大</option><option value="area:desc">坪數：大 → 小</option></select></label>
+          </div>
+          <strong class="visible-count">0 筆</strong>
+        </div>
+      </div>
+      <div class="listing-list">
+        
+        <div class="empty browser-empty">本次沒有取得符合條件的候選物件。</div>
+      </div>
+    </section>
+    
+</div>
+
+<div id="source-yungching" class="source-block">
+  <div class="source-heading">
+    <h2>永慶房屋</h2>
+    <a href="https://rent.yungching.com.tw/list/桃園市-中壢區,桃園市-平鎮區,桃園市-桃園區,桃園市-八德區_c/整層住家_use/4-4_room?od=80&amp;pg=1"
+       target="_blank" rel="noopener noreferrer">開啟永慶房屋搜尋 ↗</a>
+  </div>
+  
+    <div class="source-status">
+      <div class="status-primary">
+        <b>本次紀錄</b>
+        <span>候選 0 筆</span>
+        <span>驗證通過 0 筆</span>
+        <span>本頁顯示 0 筆</span>
+      </div>
+      <div class="status-secondary">
+        <span>最近2天</span><span>讀取列表 0 頁</span><span>詳細頁檢查 0 筆</span><span>有來源照片 0 筆</span><span>無來源照片 0 筆</span><span>首圖本站保存 0 筆</span>
+        <details><summary>來源說明</summary><ul><li>本次 checkpoint 僅重驗591。</li></ul></details>
+        
+      </div>
+    </div>
+    
+  <div class="social-note">
+    <strong>收錄條件：</strong>
+    桃園區、中壢區、平鎮區、八德區的整層住家，且詳細頁確認為4房以上；
+    更新日期與全部可讀取照片均由每筆物件詳細頁取得。「新上架」來自永慶官方新上架頁籤。
+  </div>
+  
+    <section class="listing-browser" data-listing-browser data-source="永慶房屋">
+      <div class="filter-bar">
+        <div class="filter-group" data-filter-count="2"
+             role="group" aria-label="永慶房屋 分類">
+          <button type="button" class="filter-button active" data-filter="all">全部 <b>0</b></button><button type="button" class="filter-button" data-filter="new">新上架 <b>0</b></button>
+        </div>
+        <div class="sort-row">
+          <span>排序：</span>
+          <div class="sort-group" role="group" aria-label="永慶房屋 排序">
+            <label class="sort-control active combined-sort-control"><select class="sort-select combined-sort-select" data-combined-sort="true" data-sort="recency" aria-current="true" aria-label="永慶房屋 排序"><option value="order:asc">預設排序</option><option value="recency:asc" selected>上架時間：新 → 舊</option><option value="recency:desc">上架時間：舊 → 新</option><option value="rent:asc">租金：低 → 高</option><option value="rent:desc">租金：高 → 低</option><option value="area:asc">坪數：小 → 大</option><option value="area:desc">坪數：大 → 小</option></select></label>
+          </div>
+          <strong class="visible-count">0 筆</strong>
+        </div>
+      </div>
+      <div class="listing-list">
+        
+        <div class="empty browser-empty">本次沒有取得符合條件的候選物件。</div>
+      </div>
+    </section>
+    
+</div>
+</main>
+<button id="back-to-top" class="back-to-top" type="button"
+        aria-label="回到頁面頂端" title="回到頁面頂端" hidden>↑</button>
+<script>
+const backToTop = document.querySelector('#back-to-top');
+if (backToTop) {
+  const updateBackToTop = () => {
+    backToTop.hidden = window.scrollY < 480;
+  };
+  backToTop.addEventListener('click', () => {
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  });
+  window.addEventListener('scroll', updateBackToTop, {passive: true});
+  updateBackToTop();
+}
+
+document.querySelectorAll('[data-listing-browser]').forEach((panel) => {
+  const list = panel.querySelector('.listing-list');
+  const cards = Array.from(panel.querySelectorAll('.card'));
+  const empty = panel.querySelector('.browser-empty');
+  const sourceEmptyMessage = empty?.textContent || '';
+  const count = panel.querySelector('.visible-count');
+  const filterButtons = Array.from(panel.querySelectorAll('.filter-button'));
+  const sortSelects = Array.from(panel.querySelectorAll('.sort-select'));
+  let activeFilter = filterButtons[0]?.dataset.filter || 'all';
+  const initialSort = sortSelects[0];
+  const initialCombined = initialSort?.dataset.combinedSort === 'true';
+  const initialParts = initialCombined ? initialSort.value.split(':') : [];
+  let activeSort = initialCombined
+    ? (initialParts[0] || 'order')
+    : (initialSort?.dataset.sort || 'order');
+  let direction = initialCombined
+    ? (initialParts[1] || 'asc')
+    : (initialSort?.value || 'asc');
+
+  const numeric = (card, key) => {
+    const value = Number(card.dataset[key]);
+    return Number.isFinite(value) ? value : 0;
+  };
+
+  const apply = () => {
+    const visible = cards.filter((card) =>
+      (card.dataset.categories || '').split(' ').includes(activeFilter)
+    );
+    cards.forEach((card) => { card.hidden = !visible.includes(card); });
+    visible.sort((a, b) => {
+      const first = numeric(a, activeSort);
+      const second = numeric(b, activeSort);
+      const firstMissing = (
+        (activeSort === 'recency' && first >= 1000000000) ||
+        (['total', 'rent', 'area', 'popularity'].includes(activeSort) && first <= 0)
+      );
+      const secondMissing = (
+        (activeSort === 'recency' && second >= 1000000000) ||
+        (['total', 'rent', 'area', 'popularity'].includes(activeSort) && second <= 0)
+      );
+      if (firstMissing !== secondMissing) return firstMissing ? 1 : -1;
+      const delta = direction === 'asc' ? first - second : second - first;
+      return delta || numeric(a, 'order') - numeric(b, 'order');
+    });
+    visible.forEach((card) => list.insertBefore(card, empty));
+    empty.hidden = visible.length > 0;
+    if (!visible.length) {
+      empty.textContent = cards.length
+        ? '此分類目前沒有符合條件的物件。'
+        : sourceEmptyMessage;
+    }
+    count.textContent = `${visible.length} 筆`;
+  };
+
+  filterButtons.forEach((button) => button.addEventListener('click', () => {
+    activeFilter = button.dataset.filter;
+    filterButtons.forEach((value) => {
+      const selected = value === button;
+      value.classList.toggle('active', selected);
+      value.setAttribute('aria-pressed', String(selected));
+    });
+    apply();
+  }));
+
+  sortSelects.forEach((select) => select.addEventListener('change', () => {
+    if (select.dataset.combinedSort === 'true') {
+      const selectedParts = select.value.split(':');
+      activeSort = selectedParts[0] || 'order';
+      direction = selectedParts[1] || 'asc';
+    } else {
+      activeSort = select.dataset.sort;
+      direction = select.value;
+    }
+    sortSelects.forEach((value) => {
+      const selected = value === select;
+      value.closest('.sort-control')?.classList.toggle('active', selected);
+      value.setAttribute('aria-current', selected ? 'true' : 'false');
+    });
+    apply();
+  }));
+
+  apply();
+});
+</script>
+</body>
+</html>
