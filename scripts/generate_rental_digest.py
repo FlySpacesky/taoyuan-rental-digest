@@ -2768,6 +2768,8 @@ def fetch_yungching_render_html(
             marker in error_text
             for marker in (
                 "time limit exceeded for today",
+                "browser_daily_quota",
+                "browser time limit exceeded",
                 "daily browser",
                 "daily limit",
                 "當日額度",

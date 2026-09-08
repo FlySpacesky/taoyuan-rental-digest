@@ -54,7 +54,8 @@
 - 永慶房屋：GitHub Runner 被來源 CloudFront 阻擋時，改由 Cloudflare Browser Run
   讀取固定的永慶公開搜尋及詳細頁，以本輪 `validation_id` 隔離摘要；不接受前輪快取。只保留指定四區、
   整層住家、4房以上且有詳細頁更新日期的物件；照片僅取該物件相簿，
-  不使用帳密、Cookie或私人Session，也不挪用推薦房源照片
+  不使用帳密、Cookie或私人Session，也不挪用推薦房源照片。列表保留必要的JavaScript等待；
+  詳細頁改讀伺服器HTML且不下載圖片等資源，保留相簿網址與逐頁驗證，同時降低每日Browser Run用量
 - 591 成功抓取後仍會保存 `docs/rental-data/last-success-591.json` 作診斷與租金比較，
   但任何新電子報都不會沿用未重新驗證的舊物件。只有本輪重新驗證成功、確認仍在
   刊登且符合原有硬條件的物件可以發布；無來源日期也不會被誤判過期。

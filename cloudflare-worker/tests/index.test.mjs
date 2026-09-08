@@ -661,6 +661,7 @@ test("browser launch respects Retry-After and never rapidly retries daily quota"
   } }, async () => assert.fail("daily quota must not be retried")), /today/);
   assert.equal(calls, 1);
   assert.equal(browserFailureCode(new Error("429 Browser time limit exceeded for today")), "browser_daily_quota");
+  assert.equal(browserFailureCode(new Error("browser_daily_quota")), "browser_daily_quota");
 });
 
 test("unverified list failure is degraded, never a healthy empty market", async () => {
@@ -741,6 +742,40 @@ test("private Yungching render streams one quick action and rejects the wrong to
   assert.equal(calls.length, 1);
   assert.equal(calls[0][0], "content");
   assert.equal(calls[0][1].url, "https://rent.yungching.com.tw/house/2415719");
+  assert.equal(calls[0][1].setJavaScriptEnabled, false);
+  assert.deepEqual(calls[0][1].rejectResourceTypes, ["stylesheet", "image", "media", "font"]);
+  assert.deepEqual(calls[0][1].waitForSelector, { selector: "h1", timeout: 12_000 });
+  assert.equal(calls[0][1].waitForTimeout, undefined);
+
+  const list = await yungchingRenderResponse(
+    facebookRequest("/yungching-render", "read-only-test-token", { kind: "list", category: "all", page: 1 }),
+    renderEnv,
+  );
+  assert.equal(list.status, 200);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1][1].setJavaScriptEnabled, true);
+  assert.equal(calls[1][1].waitForTimeout, 6_000);
+  assert.equal(calls[1][1].waitForSelector, undefined);
+});
+
+test("Yungching render preserves upstream Retry-After and labels exact daily quota", async () => {
+  const env = {
+    FB_INBOX_READ_TOKEN: "read-only-test-token",
+    BROWSER: {
+      async quickAction() {
+        throw Object.assign(new Error("browser_daily_quota"), {
+          headers: new Headers({ "Retry-After": "3600" }),
+        });
+      },
+    },
+  };
+  const response = await yungchingRenderResponse(
+    facebookRequest("/yungching-render", "read-only-test-token", { kind: "detail", source_id: "2415719" }),
+    env,
+  );
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get("Retry-After"), "3600");
+  assert.equal((await response.json()).error, "browser_daily_quota");
 });
 
 test("browser is closed if page setup fails", async () => {

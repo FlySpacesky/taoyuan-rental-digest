@@ -766,13 +766,20 @@ export function yungchingRenderTarget(payload) {
 
 export async function renderYungchingQuickAction(binding, target) {
   if (!binding?.quickAction) throw new Error("browser_quick_action_not_configured");
+  const isDetail = target.kind === "detail";
   const upstream = await binding.quickAction("content", {
     url: target.url,
-    setJavaScriptEnabled: true,
+    // Search pages need JavaScript to pass Yungching's public interstitial. Detail
+    // pages already contain the fields and album URLs in server-rendered HTML, so
+    // running their scripts only burns the account-wide Browser Run daily budget.
+    setJavaScriptEnabled: !isDetail,
     userAgent:
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
       "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-    waitForTimeout: 6_000,
+    rejectResourceTypes: ["stylesheet", "image", "media", "font"],
+    ...(isDetail
+      ? { waitForSelector: { selector: "h1", timeout: 12_000 } }
+      : { waitForTimeout: 6_000 }),
   });
   const browserMs = upstream.headers.get("X-Browser-Ms-Used");
   return new Response(upstream.body, {
@@ -814,16 +821,22 @@ export async function yungchingRenderResponse(request, env) {
   } catch (error) {
     const code = browserFailureCode(error);
     const status = code === "browser_rate_limited" || code === "browser_daily_quota" ? 429 : 502;
+    const retryAfter = String(error?.headers?.get?.("Retry-After") || "").trim();
     return Response.json({ error: code, detail: String(error?.message || error).slice(0, 180) }, {
       status,
-      headers: { "Cache-Control": "no-store" },
+      headers: {
+        "Cache-Control": "no-store",
+        ...(retryAfter ? { "Retry-After": retryAfter } : {}),
+      },
     });
   }
 }
 
 export function browserFailureCode(error) {
   const message = String(error?.message || error);
-  if (/time limit exceeded for today/i.test(message)) return "browser_daily_quota";
+  if (/time limit exceeded for today|browser[_ ]?daily[_ ]?quota|browser time limit exceeded/i.test(message)) {
+    return "browser_daily_quota";
+  }
   if (/429|rate limit|too many requests/i.test(message)) return "browser_rate_limited";
   if (/Missing Cloudflare/i.test(message)) return "browser_not_configured";
   if (/upstream_/.test(message)) return "upstream_unverified";
