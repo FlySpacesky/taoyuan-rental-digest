@@ -14,6 +14,8 @@ from typing import Any
 
 import requests
 
+from delivery_context import load_receipt, receipt_id, slot_edition_id
+
 
 TZ = timezone(timedelta(hours=8))
 ROOT = Path(__file__).resolve().parents[1]
@@ -182,7 +184,7 @@ def write_delivery_receipt(
         "github_run_id": os.environ.get("GITHUB_RUN_ID", ""),
         "github_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
     }
-    receipt_file = DELIVERY_DIR / f"{edition_id}.json"
+    receipt_file = DELIVERY_DIR / f"{receipt_id(delivery_slot, edition_id)}.json"
     temporary = receipt_file.with_suffix(".json.tmp")
     text = json.dumps(receipt, ensure_ascii=False, indent=2) + "\n"
     temporary.write_text(text, encoding="utf-8")
@@ -191,6 +193,13 @@ def write_delivery_receipt(
     last_temporary.write_text(text, encoding="utf-8")
     last_temporary.replace(LAST_DELIVERY_FILE)
     return receipt_file
+
+
+def report_receipt(path: Path) -> None:
+    print(f"LINE投遞紀錄：{path}")
+    if output := os.environ.get("GITHUB_OUTPUT"):
+        with open(output, "a", encoding="utf-8") as stream:
+            stream.write(f"receipt_id={path.stem}\n")
 
 
 def main() -> int:
@@ -204,8 +213,21 @@ def main() -> int:
         print("LINE_DELIVERY_SLOT 未設定，無法安全發送LINE。", file=sys.stderr)
         return 2
     try:
-        payload = json.loads(LATEST.read_text(encoding="utf-8"))
+        requested_edition = os.environ.get("LINE_EDITION_ID", "").strip()
+        if requested_edition and not re.fullmatch(r"\d{4}-\d{2}-\d{2}-\d{4}(?:-manual-\d+)?", requested_edition):
+            raise ValueError("Invalid LINE_EDITION_ID")
+        latest = DATA_DIR / "editions" / f"{requested_edition}.json" if requested_edition else LATEST
+        payload = json.loads(latest.read_text(encoding="utf-8"))
         edition_id, edition_url, items = validate_edition_payload(payload)
+        existing = load_receipt(DELIVERY_DIR, delivery_slot, edition_id)
+        if existing:
+            print(f"LINE此投遞時段已有成功收據，不重新廣播：{delivery_slot}")
+            report_receipt(DELIVERY_DIR / f"{receipt_id(delivery_slot, edition_id)}.json")
+            return 0
+        if requested_edition and edition_id != requested_edition:
+            raise ValueError("LINE edition payload mismatch")
+        if not delivery_slot.startswith("manual:") and edition_id != slot_edition_id(delivery_slot):
+            raise ValueError("快報版本與 LINE 投遞時段不一致，禁止發送")
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         print(f"無法讀取可發送的永久快報：{exc}", file=sys.stderr)
         return 2
@@ -264,9 +286,9 @@ def main() -> int:
         return 1
     request_id = response.headers.get("x-line-request-id", "")
     accepted_request_id = response.headers.get("x-line-accepted-request-id", "")
-    if response.status_code == 409:
+    if response.status_code == 409 and accepted_request_id:
         status = "already_accepted"
-    elif response.status_code >= 300:
+    elif response.status_code != 200 or not request_id:
         print(f"LINE廣播失敗 {response.status_code}: {response.text}", file=sys.stderr)
         return 1
     else:
@@ -293,7 +315,7 @@ def main() -> int:
             f"LINE廣播成功：{len(items)}筆，永久快報 {edition_url}，"
             f"投遞時段 {delivery_slot} request_id={request_id}"
         )
-    print(f"LINE投遞紀錄：{receipt_path}")
+    report_receipt(receipt_path)
     return 0
 
 

@@ -72,18 +72,15 @@ jobs:
 
       - name: 決定重試快報版本
         shell: bash
-        env:
-          EVENT_SCHEDULE: ${{ github.event.schedule }}
         run: |
-          DATE=$(TZ=Asia/Taipei date +%F)
-          TIME=$(TZ=Asia/Taipei date +%H%M)
-          case "${EVENT_SCHEDULE}" in
-            "30 9 * * *") SUFFIX="0930" ;;
-            "0 16 * * *") SUFFIX="1600" ;;
-            "0 22 * * *") SUFFIX="2200" ;;
-            *) SUFFIX="${TIME}-manual-${GITHUB_RUN_ID}" ;;
-          esac
-          echo "RENTAL_EDITION_ID=${DATE}-${SUFFIX}" >> "${GITHUB_ENV}"
+          python - <<'PY'
+          import json, os, re
+          payload = json.load(open('.validation/resume/rental-data/latest.json', encoding='utf-8'))
+          edition = payload['edition_id']
+          assert re.fullmatch(r'\d{4}-\d{2}-\d{2}-\d{4}(?:-manual-\d+)?', edition)
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+              output.write(f'RENTAL_EDITION_ID={edition}\n')
+          PY
 
       - name: 從 checkpoint 未完成頁重新抓取並驗證
         env:

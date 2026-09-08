@@ -101,6 +101,8 @@ function deliveryReceipt(overrides = {}) {
     delivery_slot: "2026-08-09T09:30+08:00",
     status: "accepted",
     http_status: 200,
+    request_id: "test-accepted-request",
+    accepted_request_id: "test-original-request",
     ...overrides,
   };
 }
@@ -258,6 +260,29 @@ test("retries even after workflow success when the LINE receipt is absent", asyn
   const result = await handleScheduled(controller, env, fetchImpl);
   assert.equal(result.result, "retry");
   assert.equal(result.dispatched, true);
+});
+
+test("recognizes a recovered legacy manual edition at the canonical slot path", async () => {
+  const actual = "2026-08-09-1100-manual-123";
+  const receipt = deliveryReceipt({edition_id: actual, slot_edition_id: "2026-08-09-0930",
+    github_run_id: "123", edition_url: `https://flyspacesky.github.io/taoyuan-rental-digest/archive/${actual}.html`});
+  const { calls, fetchImpl } = githubMock([], 204, receipt);
+  const result = await handleScheduled(controller, env, fetchImpl);
+  assert.equal(result.result, "healthy");
+  assert.equal(result.dispatched, false);
+  assert.equal(calls.length, 1);
+});
+
+test("rejects wrong slot, missing request ID and invalid legacy evidence", async () => {
+  for (const change of [
+    {delivery_slot: "2026-08-09T16:00+08:00"}, {request_id: ""}, {http_status: 409},
+    {edition_id: "2026-08-09-1100-manual-123", slot_edition_id: "2026-08-09-0930", github_run_id: "999"},
+    {status: "already_accepted", http_status: 409, accepted_request_id: ""},
+  ]) {
+    const { calls, fetchImpl } = githubMock([], 204, deliveryReceipt(change));
+    await assert.rejects(handleScheduled(controller, env, fetchImpl), /receipt is invalid/);
+    assert.equal(calls.length, 1);
+  }
 });
 
 

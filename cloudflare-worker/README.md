@@ -10,10 +10,14 @@ Worker 每5分鐘檢查一次，並在各時段後5分鐘至5小時50分鐘的�
   `delivery_slot`。
 - 同一時段最多補觸發4次；達上限後留下 `exhausted` 記錄，不形成無限重跑風暴。
 
-LINE 發送程式會由 `delivery_slot` 產生固定 `X-Line-Retry-Key`。即使 GitHub
-原排程與 Cloudflare 補觸發重疊，LINE 也只會接受同一時段一次。LINE API 回覆
+LINE 發送程式會由 `delivery_slot` 產生固定 `X-Line-Retry-Key`。在 LINE 的24小時
+去重有效期內，即使 GitHub 原排程與 Cloudflare 補觸發重疊，也不會重複接受。LINE API 回覆
 200，或相同 Retry Key 已先被接受而回覆409後，程式才產生投遞收據；Worker 會核對
-收據的時段、版本、狀態與HTTP結果，不再只憑工作流程成功就判定已發送。
+收據的時段、版本、狀態、HTTP結果與request ID，不再只憑工作流程成功就判定已發送。
+Actions 同樣在抓來源前檢查收據；若版本已發布但未留下收據，只對該永久版本重試LINE，
+不重新抓來源。新收據固定使用時段檔名；歷史錯誤檔名的復原須有實際LINE成功日誌，
+保留原本已送出的版本與連結，並核對 `slot_edition_id`、來源執行ID及日期。
+收據無效時報錯而非盲目重送。API接受仍不保證用戶端實際收訊（例如已封鎖官方帳號）。
 LINE端若先遇到網路逾時、HTTP 408／425／429或5xx，發送程式會遵守
 `Retry-After`或採5、10、20秒有限退避，最多嘗試4次，且廣播全程沿用同一 Retry Key。
 
