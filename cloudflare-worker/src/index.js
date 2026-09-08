@@ -444,13 +444,21 @@ export async function readDeliveryReceipt(
       `GitHub delivery receipt is unreadable: ${receiptPath}: ${error.message}`,
     );
   }
-  const validStatus = ["accepted", "already_accepted"].includes(receipt.status);
-  const validHttpStatus = [200, 409].includes(Number(receipt.http_status));
+  const validAcceptance =
+    (receipt.status === "accepted" && receipt.http_status === 200 && Boolean(receipt.request_id)) ||
+    (receipt.status === "already_accepted" && receipt.http_status === 409 && Boolean(receipt.accepted_request_id));
+  // Keep the real permalink for historical sends affected by the manual/slot ID bug.
+  const actualEdition = String(receipt.edition_id || "");
+  const recoveredLegacyEdition =
+    receipt.slot_edition_id === editionId &&
+    /^\d{4}-\d{2}-\d{2}-\d{4}-manual-\d+$/.test(actualEdition) &&
+    actualEdition.slice(0, 10) === editionId.slice(0, 10) &&
+    actualEdition.split("-").at(-1) === receipt.github_run_id &&
+    receipt.edition_url === `https://flyspacesky.github.io/taoyuan-rental-digest/archive/${actualEdition}.html`;
   if (
-    receipt.edition_id !== editionId ||
+    (actualEdition !== editionId && !recoveredLegacyEdition) ||
     receipt.delivery_slot !== slot.label ||
-    !validStatus ||
-    !validHttpStatus
+    !validAcceptance
   ) {
     throw new Error(`GitHub delivery receipt is invalid: ${receiptPath}`);
   }

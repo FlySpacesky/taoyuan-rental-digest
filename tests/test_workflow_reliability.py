@@ -95,6 +95,22 @@ class WorkflowReliabilityTests(unittest.TestCase):
             build.index("- name: 逐來源合併最佳本輪 fresh validation"),
         )
 
+    def test_slot_resolved_once_before_sources_and_merge(self) -> None:
+        self.assertIn("run: python scripts/delivery_context.py", self.workflow)
+        self.assertIn("needs.delivery_context.outputs.mode == 'fresh'", self.workflow)
+        self.assertIn("needs.delivery_context.outputs.mode == 'resume'", self.workflow)
+        self.assertIn("needs.delivery_context.outputs.mode != 'delivered'", self.workflow)
+        self.assertIn('--edition-id "${RENTAL_EDITION_ID}"', self.workflow)
+        self.assertIn("LINE_EDITION_ID: ${{ needs.delivery_context.outputs.edition_id }}", self.workflow)
+        self.assertIn("LINE_DELIVERY_SLOT: ${{ needs.delivery_context.outputs.slot }}", self.workflow)
+        self.assertNotIn("DATE=$(TZ=Asia/Taipei", self.workflow + self.retry_workflow)
+        self.assertIn("edition = payload['edition_id']", self.retry_workflow)
+
+    def test_real_receipt_path_is_persisted_and_backed_up(self) -> None:
+        self.assertIn("steps.send_line.outputs.receipt_id", self.workflow)
+        self.assertIn("always() && steps.send_line.outputs.receipt_id != ''", self.workflow)
+        self.assertNotIn("steps.edition.outputs", self.workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

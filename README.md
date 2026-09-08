@@ -13,8 +13,15 @@
 - 網站：GitHub Pages
 - 通知：LINE Messaging API；排程每次都發送最新快報連結，即使本次沒有新物件也會發送
 - 防重複發送：LINE暫時性錯誤會在同一工作內退避重試；正常排程與 Cloudflare
-  補觸發使用同一投遞時段產生固定的 LINE Retry Key，同一時段只會被 LINE 接受一次。
-  只有正式 `main` 存在狀態與時段均正確的投遞收據才算完成
+  補觸發在抓來源前固定同一時段與快報版本，使用固定的 LINE Retry Key。
+  先讀正式 `main` 的 `delivery/YYYY-MM-DD-HHMM.json`；有有效成功收據就不抓取、不廣播。
+  若快報已提交但 LINE／收據保存失敗，下次只部署及重送同一永久版本，不重抓來源或改變訊息內容。
+  成功收據另備份為30天 Actions artifact；保存檔名直接採發送程式輸出，避免人工版本與時段不一致。
+  收據必須包含正確時段、HTTP狀態與 LINE request ID；歷史收據復原保留實際已送出的永久網址。
+  無收據且超過24小時的投遞不會盲目重送，因 LINE Retry Key 僅保證24小時內去重。
+  API 接受不等於手機已讀／必然送達；封鎖帳號等情況不能靠反覆廣播解決。
+  每個時段仍限4次 Worker補觸發，暫時性錯誤退避重試；額度／權杖等永久錯誤須處理原因，
+  不繞過來源完整性驗證、不拿未驗證舊資料冒充成功。
 - Threads：合併官方 `keyword_search`、`THREADS_ACCESS_TOKEN`、
   `data/threads_posts.json`、`THREADS_POSTS_JSON`、`THREADS_POSTS_JSON_URL` 與
   GitHub公開投稿。留言只合併與原貼文同一username的內容；硬條件為指定四區、
