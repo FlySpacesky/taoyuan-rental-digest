@@ -2324,6 +2324,31 @@ class SinyiAndYungchingTests(unittest.TestCase):
         sleep.assert_not_called()
         self.assertEqual(stats["browser_render_rate_limit_kind"], "daily")
 
+    def test_yungching_render_recognizes_worker_daily_quota_code(self) -> None:
+        limited = Mock(status_code=429, text='{"error":"browser_daily_quota"}')
+        limited.headers = {"Retry-After": "3600"}
+        stats = DIGEST.empty_source_stats()
+
+        with patch.dict(
+            DIGEST.os.environ,
+            {
+                DIGEST.YUNGCHING_RENDER_TOKEN_ENV: "private-token",
+                DIGEST.YUNGCHING_RENDER_INTERVAL_ENV: "0",
+            },
+            clear=False,
+        ), patch.object(DIGEST.session, "post", return_value=limited) as post, patch.object(
+            DIGEST.time, "sleep"
+        ) as sleep:
+            with self.assertRaisesRegex(RuntimeError, "當日瀏覽額度已用盡"):
+                DIGEST.fetch_yungching_render_html(
+                    {"kind": "detail", "source_id": "2415719"}, stats, {}
+                )
+
+        self.assertEqual(post.call_count, 1)
+        sleep.assert_not_called()
+        self.assertEqual(stats["browser_render_rate_limit_kind"], "daily")
+        self.assertEqual(stats["browser_render_retry_after"], "3600")
+
     def test_yungching_render_feed_fetches_every_candidate_detail_this_round(self) -> None:
         list_html = """
         <html><body>
