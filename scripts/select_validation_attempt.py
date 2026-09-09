@@ -19,7 +19,7 @@ from typing import Any, Iterable
 SOURCE_ORDER = ("591", "FB", "樂屋網", "Threads", "信義房屋", "永慶房屋")
 MAX_ATTEMPT_SPAN = timedelta(minutes=90)
 MAX_PREVALIDATED_AGE = timedelta(hours=2)
-SOURCE_FRESHNESS_DAYS = 2
+SOURCE_FRESHNESS_DAYS = 7
 SOURCE_FRESHNESS_DAYS_BY_SOURCE = {"591": None}
 
 
@@ -86,7 +86,7 @@ def validated_source_items(
     source: str,
     final_generated_at: datetime,
 ) -> tuple[list[dict[str, Any]], set[str]]:
-    """Validate current-run rows and enforce the final two-day boundary."""
+    """Validate current-run rows and enforce each source's configured freshness boundary."""
 
     row = payload["stats"]["sources"][source]
     source_items = [
@@ -369,7 +369,7 @@ def merge_source_payloads(
                 + boundary_rejected
             )
             selected_row.setdefault("notices", []).append(
-                f"逐來源合併時另排除{boundary_rejected}筆已跨過最近2天邊界的物件。"
+                f"逐來源合併時另排除{boundary_rejected}筆已跨過最近{freshness_days}天邊界的物件。"
             )
         selected_row["current_inventory"] = len(source_items)
         selected_row["source_time_known"] = sum(
