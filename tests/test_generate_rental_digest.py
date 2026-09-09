@@ -1065,7 +1065,7 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
         self.assertEqual(item.total_cost, 28_000)
         self.assertEqual(item.category_hint, "general")
 
-    def test_repo_facebook_import_keeps_only_posts_inside_two_days(self) -> None:
+    def test_repo_facebook_import_keeps_only_posts_inside_seven_days(self) -> None:
         stats = DIGEST.empty_source_stats()
         public_url = (
             "https://www.facebook.com/groups/468627751712411/"
@@ -1106,7 +1106,7 @@ https://www.facebook.com/groups/4091621327828556/posts/4623380861319264/
         self.assertEqual(stats["candidate_links"], 2)
         self.assertEqual(stats["rejects"]["outside_collection_window"], 1)
         self.assertTrue(stats["time_filter_enabled"])
-        self.assertEqual(stats["window_days"], 2)
+        self.assertEqual(stats["window_days"], 7)
         self.assertIn("不是社團全部貼文數", stats["notices"][0])
 
     def test_file_and_actions_secret_are_merged_instead_of_shadowed(self) -> None:
@@ -1527,7 +1527,7 @@ class ThreadsImportTests(unittest.TestCase):
         self.assertEqual(items, [])
         self.assertEqual(stats["rejects"]["excluded_industry"], 1)
 
-    def test_threads_rejects_rows_older_than_two_days(self) -> None:
+    def test_threads_rejects_rows_older_than_seven_days(self) -> None:
         row = {
             "permalink": "https://www.threads.com/@owner.home/post/SIX_DAYS_OLD",
             "text": "平鎮區3房2廳整層出租，35坪",
@@ -1552,12 +1552,12 @@ class ThreadsImportTests(unittest.TestCase):
 
         self.assertEqual(first_items, [])
         self.assertEqual(first_stats["collection_mode"], "initial")
-        self.assertEqual(first_stats["window_days"], 2)
+        self.assertEqual(first_stats["window_days"], 7)
         self.assertTrue(first_stats["time_filter_enabled"])
         self.assertEqual(first_stats["rejects"]["outside_collection_window"], 1)
         self.assertEqual(second_items, [])
         self.assertEqual(second_stats["collection_mode"], "ongoing")
-        self.assertEqual(second_stats["window_days"], 2)
+        self.assertEqual(second_stats["window_days"], 7)
         self.assertTrue(second_stats["time_filter_enabled"])
         self.assertEqual(second_stats["rejects"]["outside_collection_window"], 1)
 
@@ -1889,7 +1889,7 @@ https://www.threads.com/@owner.home/post/ISSUE_HOME
         self.assertEqual(stats["root_post_requests"], 1)
         self.assertEqual(stats["author_reply_rows"], 1)
 
-    def test_threads_post_returned_by_api_is_rejected_when_older_than_two_days(self) -> None:
+    def test_threads_post_returned_by_api_is_rejected_when_older_than_seven_days(self) -> None:
         stats = DIGEST.empty_source_stats()
         response = Mock(status_code=200)
         response.json.return_value = {
@@ -2886,7 +2886,7 @@ class CurrentListingDisplayTests(unittest.TestCase):
         finally:
             DIGEST.NOW = old_now
 
-    def test_591_has_no_date_limit_and_other_sources_use_two_days(self) -> None:
+    def test_591_has_no_date_limit_and_other_sources_use_seven_days(self) -> None:
         old_now = DIGEST.NOW
         DIGEST.NOW = DIGEST.datetime(2026, 8, 18, 16, 0, tzinfo=DIGEST.TZ)
         try:
@@ -2931,9 +2931,9 @@ class CurrentListingDisplayTests(unittest.TestCase):
                 self.assertEqual(row["validated"], 1)
                 self.assertEqual(row["current_inventory"], 1)
                 self.assertTrue(row["source_time_filter_enabled"])
-                self.assertEqual(row["freshness_window_days"], 2)
-                self.assertEqual(row["fresh_within_2_days"], 1)
-                self.assertEqual(row["rejects"]["source_older_than_2_days"], 1)
+                self.assertEqual(row["freshness_window_days"], 7)
+                self.assertEqual(row["fresh_within_7_days"], 1)
+                self.assertEqual(row["rejects"]["source_older_than_7_days"], 1)
                 self.assertEqual(row["rejects"]["missing_source_time"], 1)
         finally:
             DIGEST.NOW = old_now
@@ -3171,9 +3171,9 @@ class CurrentListingDisplayTests(unittest.TestCase):
         )
         self.assertIn(f"{DIGEST.NOW:%Y/%m/%d %H:%M}", rendered)
         self.assertIn("591保留本輪重新驗證仍在刊登的全部符合條件物件，不限日期", rendered)
-        self.assertIn("其他五個來源只保留最近2天", rendered)
+        self.assertIn("其他五個來源只保留最近7天", rendered)
         self.assertIn("<span>刊登日期不限</span>", rendered)
-        self.assertGreaterEqual(rendered.count("<span>最近2天</span>"), 5)
+        self.assertGreaterEqual(rendered.count("<span>最近7天</span>"), 5)
         self.assertIn("公開社團入口 11 個", rendered)
         self.assertIn("Marketplace入口 1 個", rendered)
         self.assertIn("公開／已授權貼文 0 筆", rendered)
@@ -3340,7 +3340,7 @@ class CurrentListingDisplayTests(unittest.TestCase):
         self.assertIn("/facebook-inbox", page)
         self.assertIn("republish_authorized", page)
         self.assertIn("no_facebook_credentials", page)
-        self.assertIn("只接受最近 2 天", page)
+        self.assertIn("只接受最近 7 天", page)
         self.assertIn("localStorage", page)
         self.assertNotIn('name="password"', page)
         self.assertNotIn('name="cookie"', page)
