@@ -91,7 +91,7 @@ def merge_payload(
             "current_inventory": len(items),
             "source_time_unknown": 0,
             "source_time_filter_enabled": True,
-            "default_freshness_window_hours": 48,
+            "default_freshness_window_hours": 168,
             "freshness_window_hours_by_source": {
                 source: (
                     RETRY.source_freshness_days(source) * 24
@@ -370,13 +370,13 @@ class ValidationRetryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "stale validation"):
             RETRY.validated_source_items(data, "591", generated_at)
 
-    def test_source_merge_drops_non_591_item_crossing_two_day_boundary(self) -> None:
+    def test_source_merge_drops_non_591_item_crossing_seven_day_boundary(self) -> None:
         first = merge_payload(
             generated_at="2026-08-21T09:30:00+08:00",
             source_rows={"樂屋網": (1, 1)},
         )
         rakuya_item = next(item for item in first["items"] if item["source"] == "樂屋網")
-        rakuya_item["source_timestamp"] = "2026-08-19T09:35:00+08:00"
+        rakuya_item["source_timestamp"] = "2026-08-14T09:35:00+08:00"
         second = merge_payload(
             generated_at="2026-08-21T09:40:00+08:00",
             source_rows={"591": (1, 1)},
@@ -388,7 +388,7 @@ class ValidationRetryTests(unittest.TestCase):
         self.assertEqual(row["published"], 0)
         self.assertEqual(row["current_inventory"], 0)
         self.assertTrue(row["source_time_filter_enabled"])
-        self.assertEqual(row["freshness_window_days"], 2)
+        self.assertEqual(row["freshness_window_days"], 7)
         self.assertEqual(row["freshness_rejected"], 1)
 
     def test_prevalidated_bundle_expires_after_two_hours(self) -> None:
