@@ -1,489 +1,6 @@
 {
   "sent": [
     {
-      "source_key": "591:21984537",
-      "fingerprint": "861f1f0cb881ee4221484b20",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "可申請補助~一樓停車~藝文旁透天",
-      "url": "https://rent.591.com.tw/21984537"
-    },
-    {
-      "source_key": "591:21983924",
-      "fingerprint": "2fc0e82b105ed047eea993b4",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "小金租屋✨✨近市區✅電梯✅租補✅四房車✅寵貓✅生活便利✅",
-      "url": "https://rent.591.com.tw/21983924"
-    },
-    {
-      "source_key": "樂屋網:095f94350520492",
-      "fingerprint": "a17fdac5f94068ef9e302f62",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區莊敬路一段-尊龍大地河景美4房車",
-      "url": "https://community.rakuya.com.tw/5336/rent/095f94350520492"
-    },
-    {
-      "source_key": "樂屋網:072b3935231757d",
-      "fingerprint": "2325598a0270d4a01d006b80",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區民光路-G09站旁電梯4+1房",
-      "url": "https://rent.rakuya.com.tw/item/072b3935231757d"
-    },
-    {
-      "source_key": "樂屋網:0143db352772191",
-      "fingerprint": "208d6c283f40e63475406f2f",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區龍安街-租！質感佳龍安大４房車位",
-      "url": "https://rent.rakuya.com.tw/item/0143db352772191"
-    },
-    {
-      "source_key": "樂屋網:01560e316819630",
-      "fingerprint": "0392a6687a7d54b4fa19d132",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區環西路二段-(超棒地點)中壢市環西路2樓辦公室出租",
-      "url": "https://rent.rakuya.com.tw/item/01560e316819630"
-    },
-    {
-      "source_key": "樂屋網:05db7a347710524",
-      "fingerprint": "b652c31a706628a93a88ec23",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區民權路-⭐近A21、A22⭐民權極景⭐拎包入住",
-      "url": "https://community.rakuya.com.tw/3324/rent/05db7a347710524"
-    },
-    {
-      "source_key": "樂屋網:0c7a0233460944c",
-      "fingerprint": "06460b4f83ffaad72101cfe4",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區大興西路一段-藝文特區~慈文國中G~天下大觀~舒適5房車",
-      "url": "https://community.rakuya.com.tw/4133/rent/0c7a0233460944c"
-    },
-    {
-      "source_key": "樂屋網:0371ed344294879",
-      "fingerprint": "87faceb69550f62821c93f9c",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區成功路-✨中壢成功路頂級透天｜大面寬店面｜190坪✨",
-      "url": "https://rent.rakuya.com.tw/item/0371ed344294879"
-    },
-    {
-      "source_key": "樂屋網:01eab834815022b",
-      "fingerprint": "3cb27ea2f5fd8a2922c7ce10",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區玉山街-玉山街整棟透天✦振聲高中旁可租補入籍可寵住辦皆宜",
-      "url": "https://rent.rakuya.com.tw/item/01eab834815022b"
-    },
-    {
-      "source_key": "樂屋網:0eebeb35072142d",
-      "fingerprint": "7428398f2e1bc333ca473746",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區中正路-虹庭將相琚❤️市區頂級超美名師設計輕奢尊邸.近車站",
-      "url": "https://community.rakuya.com.tw/43107/rent/0eebeb35072142d"
-    },
-    {
-      "source_key": "樂屋網:0181ee35388355f",
-      "fingerprint": "cfb275f0c0062677d55b7869",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市平鎮區南華街-近平鎮大全聯4房前院停車別墅",
-      "url": "https://rent.rakuya.com.tw/item/0181ee35388355f"
-    },
-    {
-      "source_key": "樂屋網:0c4220345859510",
-      "fingerprint": "909ae63cd66c10f10c689da1",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區松義一街-租-過嶺邊間大透天",
-      "url": "https://rent.rakuya.com.tw/item/0c4220345859510"
-    },
-    {
-      "source_key": "樂屋網:001321349170244",
-      "fingerprint": "9cc8be59380f721cb2dc66eb",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區龍壽街-署桃旁-龍壽街大透天",
-      "url": "https://rent.rakuya.com.tw/item/001321349170244"
-    },
-    {
-      "source_key": "樂屋網:04bba935387530a",
-      "fingerprint": "e3a8ccbcd4c23b115ee8ec6e",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區同德十街-藝文特區 生活家 四房車",
-      "url": "https://community.rakuya.com.tw/4215/rent/04bba935387530a"
-    },
-    {
-      "source_key": "樂屋網:03d9db35251648b",
-      "fingerprint": "d2097eda640ec1775bc1c9cc",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區利民路-體育園區3＋1房車",
-      "url": "https://rent.rakuya.com.tw/item/03d9db35251648b"
-    },
-    {
-      "source_key": "樂屋網:036f31345792889",
-      "fingerprint": "9ed102f101ca1748066bedbb",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區永福路-永福路四房大空間美宅",
-      "url": "https://rent.rakuya.com.tw/item/036f31345792889"
-    },
-    {
-      "source_key": "樂屋網:03bff4326917827",
-      "fingerprint": "b3010ee3b44f703860842dfc",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市八德區中正路-八德區優質學區三房樓中樓設計",
-      "url": "https://community.rakuya.com.tw/43524/rent/03bff4326917827"
-    },
-    {
-      "source_key": "樂屋網:0828ef35327367e",
-      "fingerprint": "cf3e40340bf317230e316f37",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區文智路-(租)青埔A19捷運站美術館文教區美4房車",
-      "url": "https://community.rakuya.com.tw/7147/rent/0828ef35327367e"
-    },
-    {
-      "source_key": "樂屋網:0d3d2e343201033",
-      "fingerprint": "5a4616bd546d67a6e5de109d",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區永裕路-真心推薦❤️ 青埔A19｜可寵物 3+1房雙車",
-      "url": "https://community.rakuya.com.tw/42324/rent/0d3d2e343201033"
-    },
-    {
-      "source_key": "樂屋網:09512835300301a",
-      "fingerprint": "da73a2c450d404efd492f85a",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區新埔六街-租弘新花園廣場",
-      "url": "https://community.rakuya.com.tw/13190/rent/09512835300301a"
-    },
-    {
-      "source_key": "樂屋網:07eb0b35341894f",
-      "fingerprint": "0acc26487f4c718c6c576914",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區高鐵南路一段-聯上世界3+1房車",
-      "url": "https://community.rakuya.com.tw/33236/rent/07eb0b35341894f"
-    },
-    {
-      "source_key": "樂屋網:0feab6321284303",
-      "fingerprint": "16236246d2ac9b4dfbe78277",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區藝文一街-租昭揚乾坤高樓層",
-      "url": "https://community.rakuya.com.tw/16754/rent/0feab6321284303"
-    },
-    {
-      "source_key": "樂屋網:001580351871101",
-      "fingerprint": "014b9395e46d16ea8a8ee8f9",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市八德區仁和街-新加坡挑高四房獨立有車庫",
-      "url": "https://rent.rakuya.com.tw/item/001580351871101"
-    },
-    {
-      "source_key": "樂屋網:040f5d341439833",
-      "fingerprint": "f4d31ba2504bf19da8376ff1",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區同德六街-藝文特區-福利國5房大戶",
-      "url": "https://community.rakuya.com.tw/7851/rent/040f5d341439833"
-    },
-    {
-      "source_key": "樂屋網:008606343735093",
-      "fingerprint": "bf508e9c52ee2c3ba5fb3643",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區朝陽街-小檜溪全新建案．昭揚建設優質景觀四房車",
-      "url": "https://community.rakuya.com.tw/79521/rent/008606343735093"
-    },
-    {
-      "source_key": "樂屋網:09d4c435209468c",
-      "fingerprint": "412c5da70f53c5425437d926",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區龍慈路-體育園區太子國際村稀有4房車",
-      "url": "https://rent.rakuya.com.tw/item/09d4c435209468c"
-    },
-    {
-      "source_key": "樂屋網:07a409344983558",
-      "fingerprint": "9f29cb06034ffbf820ed6f1e",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區文中東路-專任誠租｜禁寵｜昕中城高樓四房車位",
-      "url": "https://community.rakuya.com.tw/49559/rent/07a409344983558"
-    },
-    {
-      "source_key": "樂屋網:0bfaad315001149",
-      "fingerprint": "c2a70edf0e0fb09ca9b4b1bb",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區環西路二段-法國之星美裝全配四房",
-      "url": "https://rent.rakuya.com.tw/item/0bfaad315001149"
-    },
-    {
-      "source_key": "樂屋網:0e2fef343452529",
-      "fingerprint": "66fa2828e70c360f084b435d",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區龍安街-愛買龍安商圈*雙星報喜4+1房《樓中樓》*車位好租",
-      "url": "https://community.rakuya.com.tw/6962/rent/0e2fef343452529"
-    },
-    {
-      "source_key": "樂屋網:0576fe337816996",
-      "fingerprint": "4dc70a3bfc66348b217bf6a9",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區慈惠三街-世紀宮廷四房平面車位",
-      "url": "https://rent.rakuya.com.tw/item/0576fe337816996"
-    },
-    {
-      "source_key": "樂屋網:0abcb735029086a",
-      "fingerprint": "ca9cb5221eb5babd3d279496",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區龍華街-藝文區溪畔☆五房透天",
-      "url": "https://rent.rakuya.com.tw/item/0abcb735029086a"
-    },
-    {
-      "source_key": "樂屋網:05dfe834637458c",
-      "fingerprint": "61f81f25cfa181813ecf8a9c",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區中正路-【將相琚】G08站4房車,家具電全",
-      "url": "https://community.rakuya.com.tw/43107/rent/05dfe834637458c"
-    },
-    {
-      "source_key": "樂屋網:0ad54733942168b",
-      "fingerprint": "87424a6974b65980217661a8",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區南平路-藝文南平路四房車位 G11捷運商圈 同德國小",
-      "url": "https://community.rakuya.com.tw/4436/rent/0ad54733942168b"
-    },
-    {
-      "source_key": "樂屋網:01156c353924071",
-      "fingerprint": "978e9307da202eca797d5fb7",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區龍岡路一段-五泰社宅免仲可租補✔近健行科大四房附家俱家電寵物友",
-      "url": "https://community.rakuya.com.tw/66993/rent/01156c353924071"
-    },
-    {
-      "source_key": "樂屋網:0dde22353574746",
-      "fingerprint": "0fdd11769a2a7569ed984127",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區大興西路二段-⭐社宅新洋房⭐4房車⭐免收服務可租補",
-      "url": "https://community.rakuya.com.tw/5159/rent/0dde22353574746"
-    },
-    {
-      "source_key": "樂屋網:05449c330626820",
-      "fingerprint": "b183a939d9aeee90f6db3d48",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區民族路-民族路小資創業透天店面",
-      "url": "https://rent.rakuya.com.tw/item/05449c330626820"
-    },
-    {
-      "source_key": "樂屋網:0874ef308629825",
-      "fingerprint": "d423f8a51fb040eab0d204a1",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區三民路一段-中悅貝多芬✦正對三民運動公園高樓層頂配豪宅",
-      "url": "https://community.rakuya.com.tw/33104/rent/0874ef308629825"
-    },
-    {
-      "source_key": "樂屋網:0c5bba31890728d",
-      "fingerprint": "899de71e86e8556775dcec21",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區中正路-葛里芬✦正藝文中正公園旁單層獨戶豪宅雙車位多套房",
-      "url": "https://community.rakuya.com.tw/2532/rent/0c5bba31890728d"
-    },
-    {
-      "source_key": "樂屋網:0d010732611085f",
-      "fingerprint": "5373aa329547e9b1d09e191f",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市八德區豐田二路-溫馨巷弄透天",
-      "url": "https://rent.rakuya.com.tw/item/0d010732611085f"
-    },
-    {
-      "source_key": "樂屋網:061dd9352349448",
-      "fingerprint": "d5cb4013ce0be364bb079a40",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區文智路-【豐禾】(租)青埔A19捷運站美術館文教區美4房車",
-      "url": "https://community.rakuya.com.tw/7147/rent/061dd9352349448"
-    },
-    {
-      "source_key": "樂屋網:0d2d13349770675",
-      "fingerprint": "0523dbbf316244389d9939c6",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區大連一街-竹城早稻田社區、大四房、北門國小文昌國中旁",
-      "url": "https://community.rakuya.com.tw/12921/rent/0d2d13349770675"
-    },
-    {
-      "source_key": "樂屋網:09da35349807466",
-      "fingerprint": "bc796431446990751a968166",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區六和路-海華大帝豪華大坪數獨棟雙電梯",
-      "url": "https://community.rakuya.com.tw/6546/rent/09da35349807466"
-    },
-    {
-      "source_key": "樂屋網:03f9ec325522706",
-      "fingerprint": "8ffe91170494876e70b35eb3",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區中埔二街-稀有近未來捷運四房車位",
-      "url": "https://rent.rakuya.com.tw/item/03f9ec325522706"
-    },
-    {
-      "source_key": "樂屋網:023a5434621102e",
-      "fingerprint": "2d30eac84700260f0878917a",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市八德區興隆街-桃鶯商圈龍大莊興隆街優質透天",
-      "url": "https://community.rakuya.com.tw/55959/rent/023a5434621102e"
-    },
-    {
-      "source_key": "樂屋網:09867e350386281",
-      "fingerprint": "7bd52e1651ca41529a761c37",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區玉山街-玉山街透天店住✦振聲高中旁可營登租補可炊店住辦皆宜",
-      "url": "https://rent.rakuya.com.tw/item/09867e350386281"
-    },
-    {
-      "source_key": "樂屋網:0c5944350794791",
-      "fingerprint": "ac61112acdf8a8f4bdf8e514",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區中華路一段-中華路燙金透天店面",
-      "url": "https://rent.rakuya.com.tw/item/0c5944350794791"
-    },
-    {
-      "source_key": "樂屋網:0a7b7934505356c",
-      "fingerprint": "177e6e51042f429f90c2c8e5",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區溫州街-藝文中路6米大面寬透天-店住辦可停雙車-地坪28坪",
-      "url": "https://rent.rakuya.com.tw/item/0a7b7934505356c"
-    },
-    {
-      "source_key": "樂屋網:0f57e0338716837",
-      "fingerprint": "0fb286ffadbfea9943fde836",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區中正路-展演中心旁,4房門前停車,生活機能超讚",
-      "url": "https://rent.rakuya.com.tw/item/0f57e0338716837"
-    },
-    {
-      "source_key": "樂屋網:05142a35155453d",
-      "fingerprint": "008db117ba95e634862f4cec",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區國強十一街-四房兩廳兩衛（一卡皮箱即可入住）可租補入戶籍",
-      "url": "https://community.rakuya.com.tw/23296/rent/05142a35155453d"
-    },
-    {
-      "source_key": "樂屋網:083a8435391825a",
-      "fingerprint": "7005c19b001ad9b8ad1c19c2",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市八德區廣興路-社宅免仲可租補✔八德廣興路透天厝採光佳✨✨",
-      "url": "https://rent.rakuya.com.tw/item/083a8435391825a"
-    },
-    {
-      "source_key": "樂屋網:08bf6e350799936",
-      "fingerprint": "53848b365d7871371d8e7e99",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區天祥一街-尚林御園✦藝文特區大4房近慈文國中多陽台空間寬敞",
-      "url": "https://community.rakuya.com.tw/7406/rent/08bf6e350799936"
-    },
-    {
-      "source_key": "樂屋網:0986a135150351a",
-      "fingerprint": "ed95b8d3edcfc810414d585a",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區民享街-❤️中原商圈電梯四房車!全新裝潢❤️",
-      "url": "https://community.rakuya.com.tw/66891/rent/0986a135150351a"
-    },
-    {
-      "source_key": "樂屋網:0065bf345094347",
-      "fingerprint": "bf1e1ae1d6ca885c75c5a85f",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區青埔八街-青埔A18菁美學4房車",
-      "url": "https://community.rakuya.com.tw/82454/rent/0065bf345094347"
-    },
-    {
-      "source_key": "樂屋網:0a43b8338621150",
-      "fingerprint": "30a85ebf1c3c5dda2119d1b6",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區松仁路-過嶺大清劍橋稀有露臺4房車",
-      "url": "https://community.rakuya.com.tw/25845/rent/0a43b8338621150"
-    },
-    {
-      "source_key": "樂屋網:0d9aa534134969e",
-      "fingerprint": "bdffaeb4d06ab017aa902b84",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區同德二街-諾貝爾庭院透天",
-      "url": "https://rent.rakuya.com.tw/item/0d9aa534134969e"
-    },
-    {
-      "source_key": "樂屋網:0b48d3347203217",
-      "fingerprint": "833eaa993edcec981a19e629",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市桃園區溫州街-藝文中路★ღ6米大面寬透天店住辦-可停雙車⭐降價",
-      "url": "https://rent.rakuya.com.tw/item/0b48d3347203217"
-    },
-    {
-      "source_key": "樂屋網:059820349313609",
-      "fingerprint": "9e9a67158bf0a4d850dd9e3e",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "[樂屋網] 桃園市中壢區民享街-可租補!中原漂亮電梯4房車!",
-      "url": "https://community.rakuya.com.tw/10983/rent/059820349313609"
-    },
-    {
-      "source_key": "信義房屋:C365921",
-      "fingerprint": "27ae6644f2a02fa56d57dd7d",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "大全聯３房車位",
-      "url": "https://www.sinyi.com.tw/rent/houseno/C365921"
-    },
-    {
-      "source_key": "信義房屋:C348476",
-      "fingerprint": "226bdb804f3b2194e617d71d",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "國際之星美三房車位",
-      "url": "https://www.sinyi.com.tw/rent/houseno/C348476"
-    },
-    {
-      "source_key": "信義房屋:C368363",
-      "fingerprint": "d4ec5cc1da9c17ece516eda5",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "元臺青裝潢有家具兩房車位",
-      "url": "https://www.sinyi.com.tw/rent/houseno/C368363"
-    },
-    {
-      "source_key": "信義房屋:C349313",
-      "fingerprint": "4c7f90f4d4f138d9cf6facc7",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "佳麗堡漂亮三房車位",
-      "url": "https://www.sinyi.com.tw/rent/houseno/C349313"
-    },
-    {
-      "source_key": "永慶房屋:2417250",
-      "fingerprint": "00744d879b0c1cf02632b0b3",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "中原大學生活圈/體育園區雅緻園3+1房平車",
-      "url": "https://rent.yungching.com.tw/house/2417250"
-    },
-    {
-      "source_key": "永慶房屋:2417074",
-      "fingerprint": "41ff46263baeb2a3afa92292",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "桃園南門市場旁家具家電全高樓景觀大四房",
-      "url": "https://rent.yungching.com.tw/house/2417074"
-    },
-    {
-      "source_key": "永慶房屋:2407321",
-      "fingerprint": "04b7380eb21cc408bf99869c",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "租高鐵A18精華商辦空間(可住可辦)",
-      "url": "https://rent.yungching.com.tw/house/2407321"
-    },
-    {
-      "source_key": "永慶房屋:2417761",
-      "fingerprint": "2e2c187d9196e2772d2b20ca",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "租中壢正環中東路透天大面寬透天臨路一樓店面",
-      "url": "https://rent.yungching.com.tw/house/2417761"
-    },
-    {
-      "source_key": "永慶房屋:2399810",
-      "fingerprint": "eaea732359ec08e999fa2986",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "A19 透天 4-6 樓分租4房2衛浴可宿舍",
-      "url": "https://rent.yungching.com.tw/house/2399810"
-    },
-    {
-      "source_key": "永慶房屋:2417797",
-      "fingerprint": "8bea1d0a998ffa744c5076b0",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "廣豐二期【高樓層景觀～全配５房雙車位】出租",
-      "url": "https://rent.yungching.com.tw/house/2417797"
-    },
-    {
-      "source_key": "永慶房屋:2405675",
-      "fingerprint": "3a1fea05a5b02a6fecc8454f",
-      "sent_at": "2026-09-10T09:36:30.056059+08:00",
-      "title": "中壢中山東路透天",
-      "url": "https://rent.yungching.com.tw/house/2405675"
-    },
-    {
       "source_key": "591:21989683",
       "fingerprint": "18e66935b59a382cff35b0f0",
       "sent_at": "2026-09-10T16:31:35.277834+08:00",
@@ -2183,6 +1700,41 @@
       "sent_at": "2026-09-11T22:42:19.657197+08:00",
       "title": "整棟出租！處處都給你",
       "url": "https://www.sinyi.com.tw/rent/houseno/C351459"
+    },
+    {
+      "source_key": "591:21999074",
+      "fingerprint": "75c4721bf30cf74ebd405ff3",
+      "sent_at": "2026-09-12T10:12:35.908276+08:00",
+      "title": "酷企鵝🐧推薦，桃園火車站旁四房",
+      "url": "https://rent.591.com.tw/21999074"
+    },
+    {
+      "source_key": "591:21984537",
+      "fingerprint": "861f1f0cb881ee4221484b20",
+      "sent_at": "2026-09-12T10:12:35.908276+08:00",
+      "title": "可申請補助~一樓停車~藝文旁透天",
+      "url": "https://rent.591.com.tw/21984537"
+    },
+    {
+      "source_key": "591:21983924",
+      "fingerprint": "4f3d8ddad18c6f21c77860fb",
+      "sent_at": "2026-09-12T10:12:35.908276+08:00",
+      "title": "小金租屋✨✨近市區✅電梯✅租補✅四房車✅寵貓✅生活便利✅",
+      "url": "https://rent.591.com.tw/21983924"
+    },
+    {
+      "source_key": "591:21998129",
+      "fingerprint": "ab9acf17cd754797ec00d78e",
+      "sent_at": "2026-09-12T10:12:35.908276+08:00",
+      "title": "⭐️復旦國小商圈⭐️透天4房3衛⭐️大陽台⭐️家庭合租首選⭐",
+      "url": "https://rent.591.com.tw/21998129"
+    },
+    {
+      "source_key": "591:21999027",
+      "fingerprint": "0248d1da27a08f6a059afb33",
+      "sent_at": "2026-09-12T10:12:35.908276+08:00",
+      "title": "八得重劃區4大房車-可申請補助",
+      "url": "https://rent.591.com.tw/21999027"
     }
   ],
   "prices": {
@@ -3170,7 +2722,10 @@
     "591:21997038": 35000,
     "591:21997543": 45000,
     "信義房屋:C351458": 40000,
-    "信義房屋:C351459": 56000
+    "信義房屋:C351459": 56000,
+    "591:21999074": 18000,
+    "591:21998129": 31000,
+    "591:21999027": 27000
   },
   "first_seen": {
     "591:21759598": "2026-08-10T22:06:27.370099+08:00",
@@ -4026,7 +3581,10 @@
     "591:21997038": "2026-09-11T22:42:19.657197+08:00",
     "591:21997543": "2026-09-11T22:42:19.657197+08:00",
     "信義房屋:C351458": "2026-09-11T22:42:19.657197+08:00",
-    "信義房屋:C351459": "2026-09-11T22:42:19.657197+08:00"
+    "信義房屋:C351459": "2026-09-11T22:42:19.657197+08:00",
+    "591:21999074": "2026-09-12T10:12:35.908276+08:00",
+    "591:21998129": "2026-09-12T10:12:35.908276+08:00",
+    "591:21999027": "2026-09-12T10:12:35.908276+08:00"
   },
   "social_sources": {
     "FB": {
