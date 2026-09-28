@@ -1,20 +1,6 @@
 {
   "sent": [
     {
-      "source_key": "591:22072098",
-      "fingerprint": "c902ca5dbf589c90bd97b466",
-      "sent_at": "2026-09-26T09:36:42.365351+08:00",
-      "title": "🏠桃園經國知名社區*大空間4房*狗可談*含車管",
-      "url": "https://rent.591.com.tw/22072098"
-    },
-    {
-      "source_key": "591:22072027",
-      "fingerprint": "6f0ab46c325a4c36c6139491",
-      "sent_at": "2026-09-26T09:36:42.365351+08:00",
-      "title": "海華SOGO。全新裝潢4房🍎我最優惠",
-      "url": "https://rent.591.com.tw/22072027"
-    },
-    {
       "source_key": "591:22072537",
       "fingerprint": "73096082b2d791712f4f2bee",
       "sent_at": "2026-09-26T16:07:07.577185+08:00",
@@ -1959,6 +1945,13 @@
       "sent_at": "2026-09-27T22:07:01.345839+08:00",
       "title": "遠雄艾菲爾大坪數出租",
       "url": "https://www.sinyi.com.tw/rent/houseno/C362146"
+    },
+    {
+      "source_key": "591:22072027",
+      "fingerprint": "6f0ab46c325a4c36c6139491",
+      "sent_at": "2026-09-28T09:36:53.119669+08:00",
+      "title": "海華SOGO。全新裝潢4房🍎我最優惠",
+      "url": "https://rent.591.com.tw/22072027"
     }
   ],
   "prices": {
