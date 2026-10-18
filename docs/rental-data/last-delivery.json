@@ -1,15 +1,15 @@
 {
-  "edition_id": "2026-10-17-2200",
-  "edition_url": "https://flyspacesky.github.io/taoyuan-rental-digest/archive/2026-10-17-2200.html",
-  "generated_at": "2026-10-17T22:06:59.880138+08:00",
-  "accepted_at": "2026-10-17T22:15:33.262999+08:00",
+  "edition_id": "2026-10-18-0930",
+  "edition_url": "https://flyspacesky.github.io/taoyuan-rental-digest/archive/2026-10-18-0930.html",
+  "generated_at": "2026-10-18T09:36:29.698445+08:00",
+  "accepted_at": "2026-10-18T09:44:48.852432+08:00",
   "status": "accepted",
   "http_status": 200,
-  "request_id": "b04b5980-6fa1-49a2-8bb5-60a1c6c0241f",
+  "request_id": "2fccbf56-2c94-475d-b1c1-8fdda1736d63",
   "accepted_request_id": "",
-  "delivery_slot": "2026-10-17T22:00+08:00",
-  "retry_key": "0a03698d-399c-5908-b968-98fc2b37ebbe",
-  "item_count": 295,
+  "delivery_slot": "2026-10-18T09:30+08:00",
+  "retry_key": "48ac18a0-ae3b-57af-ba9b-a3b230c8541c",
+  "item_count": 296,
   "item_keys": [
     "591:19773529",
     "591:20186925",
@@ -235,6 +235,7 @@
     "591:22194341",
     "591:22194412",
     "591:22194444",
+    "591:22196481",
     "rakuya:001321349170244",
     "rakuya:001580351871101",
     "rakuya:00402635707685c",
@@ -307,6 +308,6 @@
     "yungching:2423394",
     "yungching:2423772"
   ],
-  "github_run_id": "39039305106",
+  "github_run_id": "39087057334",
   "github_run_attempt": "1"
 }
