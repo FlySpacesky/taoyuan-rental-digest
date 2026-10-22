@@ -1,21 +1,18 @@
 {
-  "edition_id": "2026-10-21-2200",
-  "edition_url": "https://flyspacesky.github.io/taoyuan-rental-digest/archive/2026-10-21-2200.html",
-  "generated_at": "2026-10-21T22:07:10.859189+08:00",
-  "accepted_at": "2026-10-21T22:15:40.826194+08:00",
+  "edition_id": "2026-10-22-0930",
+  "edition_url": "https://flyspacesky.github.io/taoyuan-rental-digest/archive/2026-10-22-0930.html",
+  "generated_at": "2026-10-22T09:36:54.775606+08:00",
+  "accepted_at": "2026-10-22T09:44:56.228217+08:00",
   "status": "accepted",
   "http_status": 200,
-  "request_id": "f3089280-cf29-42ab-bfc3-5c92b7d6ea0e",
+  "request_id": "0d6e2ecd-353b-422b-9464-fe800580f355",
   "accepted_request_id": "",
-  "delivery_slot": "2026-10-21T22:00+08:00",
-  "retry_key": "3ccbb0d5-e48d-56d2-a779-ceb12bbc0251",
-  "item_count": 304,
+  "delivery_slot": "2026-10-22T09:30+08:00",
+  "retry_key": "9bcd4aa8-1c69-591e-b303-4a15318c8ff7",
+  "item_count": 300,
   "item_keys": [
     "591:19773529",
     "591:20186925",
-    "591:21710670",
-    "591:21756209",
-    "591:21918107",
     "591:21937860",
     "591:21938569",
     "591:21939363",
@@ -313,9 +310,8 @@
     "sinyi:C365003",
     "sinyi:C368227",
     "yungching:2417797",
-    "yungching:2418127",
-    "yungching:2423772"
+    "yungching:2418127"
   ],
-  "github_run_id": "39613827199",
+  "github_run_id": "39706611725",
   "github_run_attempt": "1"
 }
