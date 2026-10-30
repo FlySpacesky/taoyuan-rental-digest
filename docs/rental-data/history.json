@@ -1,83 +1,6 @@
 {
   "sent": [
     {
-      "source_key": "591:22243472",
-      "fingerprint": "9496dbebeda30185e8718684",
-      "sent_at": "2026-10-28T09:37:00.656136+08:00",
-      "title": "安聯社會住宅景觀漂亮3+1房(可申請租金補貼喔)",
-      "url": "https://rent.591.com.tw/22243472"
-    },
-    {
-      "source_key": "591:22243337",
-      "fingerprint": "ebcaba99ccded049cc0e5a3d",
-      "sent_at": "2026-10-28T09:37:00.656136+08:00",
-      "title": "專營青埔租屋/近A19青埔國中稀有4房附雙車位/可戶籍報稅",
-      "url": "https://rent.591.com.tw/22243337"
-    },
-    {
-      "source_key": "591:22243048",
-      "fingerprint": "87add32c22773af3ce590299",
-      "sent_at": "2026-10-28T09:37:00.656136+08:00",
-      "title": "嘉晟社宅🏡門前車庫挑高大五房｜近內壢交流道空間方正",
-      "url": "https://rent.591.com.tw/22243048"
-    },
-    {
-      "source_key": "591:22232588",
-      "fingerprint": "622e460c47696dc9fa6c070e",
-      "sent_at": "2026-10-28T09:37:00.656136+08:00",
-      "title": "小許🏀中原雙層樓7房家庭式✨大坪數歡迎了解",
-      "url": "https://rent.591.com.tw/22232588"
-    },
-    {
-      "source_key": "591:22232587",
-      "fingerprint": "b1a961fa668f52f98387d9d8",
-      "sent_at": "2026-10-28T09:37:00.656136+08:00",
-      "title": "免仲可租補，內壢公寓3+1房，近內壢車站、國1、中壢工業區",
-      "url": "https://rent.591.com.tw/22232587"
-    },
-    {
-      "source_key": "591:22232819",
-      "fingerprint": "f89768c62c9439b330de5fce",
-      "sent_at": "2026-10-28T09:37:00.656136+08:00",
-      "title": "🌈近台66線~社區型透天5房門前可停車🌈",
-      "url": "https://rent.591.com.tw/22232819"
-    },
-    {
-      "source_key": "591:22243708",
-      "fingerprint": "3455f9326af71b514aaa93b7",
-      "sent_at": "2026-10-28T09:37:00.656136+08:00",
-      "title": "🔷八德廣豐四房透天*",
-      "url": "https://rent.591.com.tw/22243708"
-    },
-    {
-      "source_key": "樂屋網:0fcdbf35526561a",
-      "fingerprint": "7a8f520f00ec2827d3bd1d48",
-      "sent_at": "2026-10-28T09:37:00.656136+08:00",
-      "title": "[樂屋網] 桃園市平鎮區太平西路-近台66線~社區型透天5房門前可停車",
-      "url": "https://community.rakuya.com.tw/60083/rent/0fcdbf35526561a"
-    },
-    {
-      "source_key": "樂屋網:03d85d35994760c",
-      "fingerprint": "de748835dc074aead3db7853",
-      "sent_at": "2026-10-28T09:37:00.656136+08:00",
-      "title": "[樂屋網] 桃園市中壢區榮民南路-出租內壢後站華勛商圈整棟4房透天（門口可",
-      "url": "https://rent.rakuya.com.tw/item/03d85d35994760c"
-    },
-    {
-      "source_key": "樂屋網:0ef726359946305",
-      "fingerprint": "ea357d6c73a5fe8cd3266fbb",
-      "sent_at": "2026-10-28T09:37:00.656136+08:00",
-      "title": "[樂屋網] 桃園市中壢區榮民南路-近華勛國小透天",
-      "url": "https://rent.rakuya.com.tw/item/0ef726359946305"
-    },
-    {
-      "source_key": "樂屋網:0e45e1359777507",
-      "fingerprint": "4cf80ea72fbf274d684b9bee",
-      "sent_at": "2026-10-28T09:37:00.656136+08:00",
-      "title": "[樂屋網] 桃園市中壢區青溪路一段-屋齡新面河岸★次頂樓★稀有4房2陽台平面B1汽車位",
-      "url": "https://community.rakuya.com.tw/55856/rent/0e45e1359777507"
-    },
-    {
       "source_key": "591:22248004",
       "fingerprint": "2ff5cf0ed43a34c23d1a46ad",
       "sent_at": "2026-10-28T16:06:57.461433+08:00",
@@ -2204,6 +2127,41 @@
       "sent_at": "2026-10-29T22:07:05.901926+08:00",
       "title": "青埔A19太子馥2青塘園景觀3+1房雙衛B1雙車",
       "url": "https://rent.yungching.com.tw/house/2410499"
+    },
+    {
+      "source_key": "591:22243708",
+      "fingerprint": "3455f9326af71b514aaa93b7",
+      "sent_at": "2026-10-30T09:52:00.449735+08:00",
+      "title": "🔷八德廣豐四房透天*",
+      "url": "https://rent.591.com.tw/22243708"
+    },
+    {
+      "source_key": "樂屋網:0e45e1359777507",
+      "fingerprint": "4cf80ea72fbf274d684b9bee",
+      "sent_at": "2026-10-30T09:52:00.449735+08:00",
+      "title": "[樂屋網] 桃園市中壢區青溪路一段-屋齡新面河岸★次頂樓★稀有4房2陽台平面B1汽車位",
+      "url": "https://community.rakuya.com.tw/55856/rent/0e45e1359777507"
+    },
+    {
+      "source_key": "樂屋網:03d85d35994760c",
+      "fingerprint": "de748835dc074aead3db7853",
+      "sent_at": "2026-10-30T09:52:00.449735+08:00",
+      "title": "[樂屋網] 桃園市中壢區榮民南路-出租內壢後站華勛商圈整棟4房透天（門口可",
+      "url": "https://rent.rakuya.com.tw/item/03d85d35994760c"
+    },
+    {
+      "source_key": "樂屋網:0ef726359946305",
+      "fingerprint": "ea357d6c73a5fe8cd3266fbb",
+      "sent_at": "2026-10-30T09:52:00.449735+08:00",
+      "title": "[樂屋網] 桃園市中壢區榮民南路-近華勛國小透天",
+      "url": "https://rent.rakuya.com.tw/item/0ef726359946305"
+    },
+    {
+      "source_key": "樂屋網:0fcdbf35526561a",
+      "fingerprint": "7a8f520f00ec2827d3bd1d48",
+      "sent_at": "2026-10-30T09:52:00.449735+08:00",
+      "title": "[樂屋網] 桃園市平鎮區太平西路-近台66線~社區型透天5房門前可停車",
+      "url": "https://community.rakuya.com.tw/60083/rent/0fcdbf35526561a"
     }
   ],
   "prices": {
