@@ -742,9 +742,9 @@ test("private Yungching render streams one quick action and rejects the wrong to
   assert.equal(calls.length, 1);
   assert.equal(calls[0][0], "content");
   assert.equal(calls[0][1].url, "https://rent.yungching.com.tw/house/2415719");
-  assert.equal(calls[0][1].setJavaScriptEnabled, false);
+  assert.equal(calls[0][1].setJavaScriptEnabled, true);
   assert.deepEqual(calls[0][1].rejectResourceTypes, ["stylesheet", "image", "media", "font"]);
-  assert.deepEqual(calls[0][1].waitForSelector, { selector: "h1", timeout: 12_000 });
+  assert.deepEqual(calls[0][1].waitForSelector, { selector: "h1.case-name", timeout: 20_000 });
   assert.equal(calls[0][1].waitForTimeout, undefined);
 
   const list = await yungchingRenderResponse(
@@ -756,6 +756,28 @@ test("private Yungching render streams one quick action and rejects the wrong to
   assert.equal(calls[1][1].setJavaScriptEnabled, true);
   assert.equal(calls[1][1].waitForTimeout, 6_000);
   assert.equal(calls[1][1].waitForSelector, undefined);
+});
+
+test("a fresh detail action can navigate a JavaScript-only landing page", async () => {
+  const response = await yungchingRenderResponse(
+    facebookRequest("/yungching-render", "read-only-test-token", { kind: "detail", source_id: "2428997" }),
+    {
+      FB_INBOX_READ_TOKEN: "read-only-test-token",
+      BROWSER: {
+        async quickAction(_action, options) {
+          assert.equal(options.waitForSelector.selector, "h1.case-name");
+          const result = options.setJavaScriptEnabled
+            ? '<html><h1 class="case-name">四房整層住家</h1><div>更新日期2026年11月22日</div></html>'
+            : "<html><h1>JavaScript is disabled</h1></html>";
+          return Response.json({ success: true, result });
+        },
+      },
+    },
+  );
+  const payload = await response.json();
+  assert.match(payload.result, /更新日期2026年11月22日/);
+  assert.doesNotMatch(payload.result, /JavaScript is disabled/);
+  assert.equal(response.headers.get("X-Rental-Source-Id"), "2428997");
 });
 
 test("Yungching render preserves upstream Retry-After and labels exact daily quota", async () => {
