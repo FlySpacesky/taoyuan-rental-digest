@@ -242,6 +242,7 @@ jobs:
         with:
           name: fresh-rental-validation-initial
           path: docs
+          overwrite: true
           if-no-files-found: error
           retention-days: 1
 

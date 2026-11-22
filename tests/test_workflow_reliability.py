@@ -111,6 +111,18 @@ class WorkflowReliabilityTests(unittest.TestCase):
         self.assertIn("always() && steps.send_line.outputs.receipt_id != ''", self.workflow)
         self.assertNotIn("steps.edition.outputs", self.workflow)
 
+    def test_rerun_replaces_named_validation_artifact_before_merge(self) -> None:
+        # A successful source re-run must not leave two names for the downloader
+        # to resolve arbitrarily, or it may pick the earlier incomplete bundle.
+        for workflow, marker in (
+            (self.workflow, "- name: 上傳本輪已驗證內容"),
+            (self.retry_workflow, "- name: 上傳本次 checkpoint"),
+        ):
+            upload = workflow.split(marker, 1)[1].split("retention-days:", 1)[0]
+            self.assertIn("uses: actions/upload-artifact@v4", upload)
+            self.assertIn("overwrite: true", upload)
+            self.assertIn("if-no-files-found: error", upload)
+
 
 if __name__ == "__main__":
     unittest.main()

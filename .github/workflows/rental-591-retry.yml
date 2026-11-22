@@ -106,5 +106,6 @@ jobs:
         with:
           name: ${{ inputs.output_artifact }}
           path: docs
+          overwrite: true
           if-no-files-found: error
           retention-days: 1
