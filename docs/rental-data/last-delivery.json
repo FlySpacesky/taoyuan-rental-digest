@@ -1,14 +1,14 @@
 {
-  "edition_id": "2026-11-22-0930",
-  "edition_url": "https://flyspacesky.github.io/taoyuan-rental-digest/archive/2026-11-22-0930.html",
-  "generated_at": "2026-11-22T16:32:52.581856+08:00",
-  "accepted_at": "2026-11-22T16:39:50.603242+08:00",
+  "edition_id": "2026-11-22-1600",
+  "edition_url": "https://flyspacesky.github.io/taoyuan-rental-digest/archive/2026-11-22-1600.html",
+  "generated_at": "2026-11-22T16:41:47.862044+08:00",
+  "accepted_at": "2026-11-22T16:48:32.651019+08:00",
   "status": "accepted",
   "http_status": 200,
-  "request_id": "dac57572-6706-4db9-8892-3336371c7f83",
+  "request_id": "9b12cf5c-670a-4191-b890-f0fac0b25e78",
   "accepted_request_id": "",
-  "delivery_slot": "2026-11-22T09:30+08:00",
-  "retry_key": "0fd6b9e2-952e-5d3d-ad42-4825daa25278",
+  "delivery_slot": "2026-11-22T16:00+08:00",
+  "retry_key": "67cbbfa6-4603-56d2-b6f3-806c53bbdca6",
   "item_count": 236,
   "item_keys": [
     "591:17042617",
@@ -248,6 +248,6 @@
     "yungching:2428327",
     "yungching:2428997"
   ],
-  "github_run_id": "45003084795",
+  "github_run_id": "45003927114",
   "github_run_attempt": "1"
 }
