@@ -1,55 +1,6 @@
 {
   "sent": [
     {
-      "source_key": "591:22391796",
-      "fingerprint": "3e2d39e1d549460c5b9e3490",
-      "sent_at": "2026-11-25T09:36:50.555585+08:00",
-      "title": "租-省桃龍安商圈大坪數農舍透天",
-      "url": "https://rent.591.com.tw/22391796"
-    },
-    {
-      "source_key": "591:22402989",
-      "fingerprint": "7c897ac9c3b53ec5078592f6",
-      "sent_at": "2026-11-25T09:36:50.555585+08:00",
-      "title": "A18高鐵站前大坪數透天",
-      "url": "https://rent.591.com.tw/22402989"
-    },
-    {
-      "source_key": "591:22402844",
-      "fingerprint": "b5cb6f733ca1a569ee67b11b",
-      "sent_at": "2026-11-25T09:36:50.555585+08:00",
-      "title": "小許🏀中原雙層樓7房家庭式✨大坪數歡迎了解",
-      "url": "https://rent.591.com.tw/22402844"
-    },
-    {
-      "source_key": "591:13027340",
-      "fingerprint": "dfc662616acc31dab786b1fb",
-      "sent_at": "2026-11-25T09:36:50.555585+08:00",
-      "title": "嘉暘/近交流道/天祥醫院/電梯4房車..可租補/免仲介費",
-      "url": "https://rent.591.com.tw/13027340"
-    },
-    {
-      "source_key": "591:22390852",
-      "fingerprint": "54b735eb11bf4e762f00ea66",
-      "sent_at": "2026-11-25T09:36:50.555585+08:00",
-      "title": "🔆龍岡南亞稀有大四房含車管🔆可租屋補助🔆可入戶籍",
-      "url": "https://rent.591.com.tw/22390852"
-    },
-    {
-      "source_key": "591:10613524",
-      "fingerprint": "9e6a7411fab1df2c4a9f108d",
-      "sent_at": "2026-11-25T09:36:50.555585+08:00",
-      "title": "廣泰路@大四房@學區@可寵物、神明廳",
-      "url": "https://rent.591.com.tw/10613524"
-    },
-    {
-      "source_key": "信義房屋:C355952",
-      "fingerprint": "c7ec78c410115ee1c3f5355a",
-      "sent_at": "2026-11-25T09:36:50.555585+08:00",
-      "title": "織未來高樓層三房車位",
-      "url": "https://www.sinyi.com.tw/rent/houseno/C355952"
-    },
-    {
       "source_key": "591:22383708",
       "fingerprint": "e485c41d71709c35361ecfaa",
       "sent_at": "2026-11-25T16:07:22.360900+08:00",
@@ -1679,6 +1630,48 @@
       "sent_at": "2026-11-26T22:07:25.457603+08:00",
       "title": "桃園火車站~大京站四房雙車",
       "url": "https://rent.yungching.com.tw/house/2415405"
+    },
+    {
+      "source_key": "591:22391796",
+      "fingerprint": "3e2d39e1d549460c5b9e3490",
+      "sent_at": "2026-11-27T09:36:59.935488+08:00",
+      "title": "租-省桃龍安商圈大坪數農舍透天",
+      "url": "https://rent.591.com.tw/22391796"
+    },
+    {
+      "source_key": "591:22402989",
+      "fingerprint": "7c897ac9c3b53ec5078592f6",
+      "sent_at": "2026-11-27T09:36:59.935488+08:00",
+      "title": "A18高鐵站前大坪數透天",
+      "url": "https://rent.591.com.tw/22402989"
+    },
+    {
+      "source_key": "591:22402844",
+      "fingerprint": "b5cb6f733ca1a569ee67b11b",
+      "sent_at": "2026-11-27T09:36:59.935488+08:00",
+      "title": "小許🏀中原雙層樓7房家庭式✨大坪數歡迎了解",
+      "url": "https://rent.591.com.tw/22402844"
+    },
+    {
+      "source_key": "591:22390852",
+      "fingerprint": "6b1cf187f5f521c68b495e46",
+      "sent_at": "2026-11-27T09:36:59.935488+08:00",
+      "title": "🔆龍岡南亞稀有大四房🔆可租屋補助🔆可入戶籍",
+      "url": "https://rent.591.com.tw/22390852"
+    },
+    {
+      "source_key": "591:10613524",
+      "fingerprint": "9e6a7411fab1df2c4a9f108d",
+      "sent_at": "2026-11-27T09:36:59.935488+08:00",
+      "title": "廣泰路@大四房@學區@可寵物、神明廳",
+      "url": "https://rent.591.com.tw/10613524"
+    },
+    {
+      "source_key": "信義房屋:C355952",
+      "fingerprint": "c7ec78c410115ee1c3f5355a",
+      "sent_at": "2026-11-27T09:36:59.935488+08:00",
+      "title": "織未來高樓層三房車位",
+      "url": "https://www.sinyi.com.tw/rent/houseno/C355952"
     }
   ],
   "prices": {
