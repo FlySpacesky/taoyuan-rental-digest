@@ -1,15 +1,15 @@
 {
-  "edition_id": "2026-11-26-2200",
-  "edition_url": "https://flyspacesky.github.io/taoyuan-rental-digest/archive/2026-11-26-2200.html",
-  "generated_at": "2026-11-26T22:07:25.457603+08:00",
-  "accepted_at": "2026-11-26T22:21:54.564931+08:00",
+  "edition_id": "2026-11-27-0930",
+  "edition_url": "https://flyspacesky.github.io/taoyuan-rental-digest/archive/2026-11-27-0930.html",
+  "generated_at": "2026-11-27T09:36:59.935488+08:00",
+  "accepted_at": "2026-11-27T09:45:29.088296+08:00",
   "status": "accepted",
   "http_status": 200,
-  "request_id": "72900193-1c35-49bc-8d92-6847809bafe8",
+  "request_id": "44132fbd-d2bb-4b94-bc18-2742a1aeabfc",
   "accepted_request_id": "",
-  "delivery_slot": "2026-11-26T22:00+08:00",
-  "retry_key": "8d982b14-4fb2-597a-84e6-ac01a0118648",
-  "item_count": 238,
+  "delivery_slot": "2026-11-27T09:30+08:00",
+  "retry_key": "1d3a2ff9-2581-527b-9ea5-5172063d7a77",
+  "item_count": 236,
   "item_keys": [
     "591:10613524",
     "591:14953803",
@@ -83,7 +83,6 @@
     "591:22304052",
     "591:22306204",
     "591:22306358",
-    "591:22307579",
     "591:22308534",
     "591:22311601",
     "591:22314775",
@@ -164,7 +163,6 @@
     "591:22370713",
     "591:22371086",
     "591:22371129",
-    "591:22371137",
     "591:22372537",
     "591:22373570",
     "591:22373968",
@@ -250,6 +248,6 @@
     "yungching:2430156",
     "yungching:2430632"
   ],
-  "github_run_id": "45838078285",
+  "github_run_id": "45923462923",
   "github_run_attempt": "1"
 }
